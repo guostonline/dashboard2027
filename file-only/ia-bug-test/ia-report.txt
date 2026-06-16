@@ -1,0 +1,84 @@
+=== Visible: True ===
+
+=== Text content ===
+> [!NOTE]> Rapport de performance généré localement (Impossible de contacter l'API OpenRouter, les données chiffrées ci-dessous restent 100% exactes et à jour).
+RAPPORT DE PERFORMANCE - CATÉGORIE : Chakib EquipePériode : En cours (5 jours écoulés sur 24 jours)
+1. INTRODUCTION ET ANALYSE GLOBALE DE LA CATÉGORIEL'analyse de performance pour la catégorie de vendeurs "Chakib Equipe" (région d'Agadir), couvrant 5 jours de travail sur 24, donne les indicateurs consolidés suivants :Chiffre d'Affaires Réel Consolidé (HT) : 463,846 MADObjectif Consolidé (HT) : 504,329 MADTaux d'Atteinte Consolidé : 92.0%
+2. CLASSEMENT DES PERFORMANCE DES VENDEURS DE LA CATÉGORIE2.1. Top Performers :
+
+            
+                 CLASSEMENT DES PERFORMANCES
+            
+            
+                
+            
+        
+        VendeurRéalisé (DH)Objectif (DH)Taux de réalisation (%)F78 GHOUSMI MOURAD91,26646,666+95.6%K91 BAIZ MOHAMED57,09341,666+37.0%K60 ELHAOUZI RACHID113,57286,666+31.0%D86 ACHAOUI AZIZ60,11550,000+20.2%E14 BOUMDIANE MOHAMED45,69543,333+5.5%
+2.2. Bottom Performers (Vendeurs en retard) :
+
+            
+                 CLASSEMENT DES PERFORMANCES
+            
+            
+                
+            
+        
+        VendeurRéalisé (DH)Objectif (DH)Taux de réalisation (%)T89 AKNOUN MOHAMED44,34948,333-8.2%D48 IBACH MOHAMED51,75656,666-8.7%E60 BOUALLALI FARID043,333-100.0%J78 LASRI EL HOUCINE046,666-100.0%O88 OUAZIZ ABDELLATIF041,000-100.0%
+3. PERFORMANCE PAR FAMILLE DE PRODUITRéalisation par famille de produits triée par performance pour cette catégorie :
+
+            
+                 RÉALISÉ VS OBJECTIF PAR FAMILLE
+            
+            
+                
+            
+        
+        FamilleRéalisé (DH)Objectif (DH)Taux de réalisation (%)CONSERVES34,52336,332-5.0%CONDIMENTS100,481105,998-5.2%CONFITURE53,79760,665-11.3%MOUSSES22,25126,665-16.6%LEVURE76,859106,665-27.9%BOUILLON20,38938,666-47.3%MISWAK00-100.0%C.A (ht)463,846504,329-8.0%
+4. INDICATEURS QUALITATIFS COMMERCIAUXVoici les taux de visite et de commande consolidés pour cette catégorie :
+IndicateurValeur MoyenneTaux de couverture moyen (ACM)24.5%Taux de commande moyen (TSM)14.5%
+5. PERFORMANCE DES FOCUS DE LA CATÉGORIEFocus Tomate Frito (VMM) :
+
+            
+                 PERFORMANCE QUALITATIVE PAR VENDEUR
+            
+            
+                
+            
+        
+        VendeurSecteurRéaliséObjectif ACMTauxD48 IBACH MOHAMEDTAROUDANT0100-100.0%D86 ACHAOUI AZIZAGADIR TIKIOUINE0191-100.0%F78 GHOUSMI MOURADAIT MELLOUL1127-99.2%J78 LASRI EL HOUCINEOULED TEIMA0103-100.0%K60 ELHAOUZI RACHIDTAROUDANTE EXT IDAOUTANANE1135-99.3%K91 BAIZ MOHAMEDINZEGANE0158-100.0%T89 AKNOUN MOHAMEDAGADIR EXTERIEUR1225-99.6%
+Focus Glace (SOM) :
+
+            
+                 CLASSEMENT DES PERFORMANCES
+            
+            
+                
+            
+        
+        VendeurSecteurRéalisé (DH)Objectif (DH)TauxD48 IBACH MOHAMEDTAROUDANT SOM VMM5326,837-93.5%D86 ACHAOUI AZIZAGADIR TIKIOUINE SOM07,841-100.0%E14 BOUMDIANE MOHAMEDINZEGANE SOM6786,425-91.2%F78 GHOUSMI MOURADAIT MELLOUL SOM5207,000-93.8%J78 LASRI EL HOUCINEOULED TEIMA SOM VMM04,344-100.0%K60 ELHAOUZI RACHIDTAROUDANTE EXT IDAOUTANANE07,018-100.0%T89 AKNOUN MOHAMEDAGADIR EXTERIEUR SOM VMM2902,500-90.3%
+6. RECOMMANDATIONS POUR LES 17 JOURS RESTANTS1.  Suivi individualisé : Accompagner en priorité les vendeurs du bas de classement de la catégorie "Chakib Equipe" pour redresser leur chiffre d'affaires.2.  Animation qualitative : Augmenter le nombre moyen de visites (ACM) et le taux de succès (TSM) au sein de cette catégorie.3.  Alignement sur les focus : Relancer les ventes de Tomate Frito et de Glace en affectant des objectifs de placement quotidiens aux vendeurs.
+
+=== Inner HTML (truncated to 3000) ===
+<p>&gt; [!NOTE]<br>&gt; <strong>Rapport de performance généré localement</strong> (Impossible de contacter l'API OpenRouter, les données chiffrées ci-dessous restent 100% exactes et à jour).</p>
+<p><strong>RAPPORT DE PERFORMANCE - CATÉGORIE : Chakib Equipe</strong><br><strong>Période : En cours (5 jours écoulés sur 24 jours)</strong></p>
+<p><strong>1. INTRODUCTION ET ANALYSE GLOBALE DE LA CATÉGORIE</strong><br>L'analyse de performance pour la catégorie de vendeurs "Chakib Equipe" (région d'Agadir), couvrant 5 jours de travail sur 24, donne les indicateurs consolidés suivants :<br></p><ul><li><strong>Chiffre d'Affaires Réel Consolidé (HT) :</strong> 463,846 MAD</li><li><strong>Objectif Consolidé (HT) :</strong> 504,329 MAD</li><li><strong>Taux d'Atteinte Consolidé :</strong> 92.0%</li></ul><p></p>
+<p><strong>2. CLASSEMENT DES PERFORMANCE DES VENDEURS DE LA CATÉGORIE</strong><br><strong>2.1. Top Performers :</strong></p>
+<div class="report-chart-card">
+            <div class="report-chart-header">
+                <span class="tech-label"><i class="fa-solid fa-trophy neon-text-amber"></i> CLASSEMENT DES PERFORMANCES</span>
+            </div>
+            <div class="report-chart-body">
+                <canvas id="chart-report-table-bjztude" width="698" height="218" style="display: block; box-sizing: border-box; height: 218px; width: 698px;"></canvas>
+            </div>
+        </div>
+        <div class="report-table-wrapper"><table class="cyber-table report-table"><thead><tr><th>Vendeur</th><th>Réalisé (DH)</th><th>Objectif (DH)</th><th>Taux de réalisation (%)</th></tr></thead><tbody><tr><td><strong>F78 GHOUSMI MOURAD</strong></td><td>91,266</td><td>46,666</td><td style="color: var(--neon-green); font-weight: bold;">+95.6%</td></tr><tr><td><strong>K91 BAIZ MOHAMED</strong></td><td>57,093</td><td>41,666</td><td style="color: var(--neon-green); font-weight: bold;">+37.0%</td></tr><tr><td><strong>K60 ELHAOUZI RACHID</strong></td><td>113,572</td><td>86,666</td><td style="color: var(--neon-green); font-weight: bold;">+31.0%</td></tr><tr><td><strong>D86 ACHAOUI AZIZ</strong></td><td>60,115</td><td>50,000</td><td style="color: var(--neon-green); font-weight: bold;">+20.2%</td></tr><tr><td><strong>E14 BOUMDIANE MOHAMED</strong></td><td>45,695</td><td>43,333</td><td style="color: var(--neon-green); font-weight: bold;">+5.5%</td></tr></tbody></table></div>
+<p><strong>2.2. Bottom Performers (Vendeurs en retard) :</strong></p>
+<div class="report-chart-card">
+            <div class="report-chart-header">
+                <span class="tech-label"><i class="fa-solid fa-trophy neon-text-amber"></i> CLASSEMENT DES PERFORMANCES</span>
+            </div>
+            <div class="report-chart-body">
+                <canvas id="chart-report-table-ju1n65t" width="698" height="218" style="display: block; box-sizing: border-box; height: 218px; width: 698px;"></canvas>
+            </div>
+        </div>
+        <div class="report-table-wrapper"><table class="cyber-table report-

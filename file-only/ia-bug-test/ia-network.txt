@@ -1,0 +1,170 @@
+=== Network calls (filtered to /api/) ===
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/config",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "POST",
+  "url": "http://127.0.0.1:5099/api/config",
+  "post_data": "{\"theme\":\"theme-1\"}",
+  "resource_type": "fetch"
+}
+
+{
+  "method": "POST",
+  "url": "http://127.0.0.1:5099/api/config",
+  "post_data": "{\"light_mode\":true}",
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/suivi_dates",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/data?category=Chakib%20Equipe&date=2026-06-10",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/vendeurs?date=2026-06-10&category=Chakib%20Equipe",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "POST",
+  "url": "http://127.0.0.1:5099/api/generate_report?category=Chakib%20Equipe&date=2026-06-10&options=quanti%2Cquali%2Cfocus",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "type": "response",
+  "url": "http://127.0.0.1:5099/api/generate_report?category=Chakib%20Equipe&date=2026-06-10&options=quanti%2Cquali%2Cfocus",
+  "status": 200,
+  "request_method": "POST"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+
+{
+  "method": "GET",
+  "url": "http://127.0.0.1:5099/api/reload-check",
+  "post_data": null,
+  "resource_type": "fetch"
+}
+

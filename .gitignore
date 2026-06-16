@@ -1,0 +1,32 @@
+# Python compilation cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Databases
+database.db
+*.db
+*.sqlite
+
+# Cache and temporary files
+excel/temp_*
+terrain_cache.json
+.gemini/
+scratch/
+temp/
+tmp/
+.idea/
+.vscode/
+node_modules/
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini

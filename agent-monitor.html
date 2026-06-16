@@ -1,0 +1,1084 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent Monitor — Tokens, Cost & Context</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-0: #0a0b10;
+    --bg-1: #0f1117;
+    --bg-2: #151823;
+    --bg-3: #1c2030;
+    --line: #232838;
+    --line-2: #2c3142;
+    --text-0: #f4f5fa;
+    --text-1: #b8bccd;
+    --text-2: #7a8099;
+    --text-3: #4a5066;
+    --accent: #7c5cff;
+    --accent-2: #5b8cff;
+    --accent-glow: rgba(124, 92, 255, 0.35);
+    --good: #4ade80;
+    --warn: #fbbf24;
+    --bad:  #f87171;
+    --cyan: #22d3ee;
+    --pink: #f472b6;
+    --shadow: 0 10px 40px -10px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.3);
+    --radius: 14px;
+    --radius-sm: 8px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, Segoe UI, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(124,92,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(34,211,238,0.06), transparent 60%),
+      var(--bg-0);
+    color: var(--text-0);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+
+  /* Layout */
+  .app { max-width: 1400px; margin: 0 auto; padding: 28px 32px 60px; }
+
+  /* Top bar */
+  .topbar {
+    display: flex; align-items: center; gap: 16px;
+    margin-bottom: 24px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    font-weight: 700; letter-spacing: -0.02em; font-size: 17px;
+  }
+  .brand .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-glow);
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--bg-2); border: 1px solid var(--line);
+    color: var(--text-1); font-size: 12px; font-weight: 500;
+  }
+  .pill .pdot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+  .pill.live .pdot { background: var(--good); box-shadow: 0 0 0 0 rgba(74,222,128,0.5); animation: pulse 1.6s infinite; }
+  .pill.idle .pdot  { background: var(--text-3); }
+  .pill.paused .pdot{ background: var(--warn); }
+  .pill.error .pdot { background: var(--bad); }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(74,222,128,0); }
+    100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+  }
+
+  .topbar .spacer { flex: 1; }
+  .topbar .right { display: flex; align-items: center; gap: 10px; }
+
+  .select, .btn {
+    appearance: none; border: 1px solid var(--line); background: var(--bg-2);
+    color: var(--text-0); font: 500 13px 'Inter', sans-serif;
+    padding: 9px 14px; border-radius: 10px; cursor: pointer;
+    transition: all .15s ease;
+  }
+  .select:hover, .btn:hover { background: var(--bg-3); border-color: var(--line-2); }
+  .select { padding-right: 30px; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 4l3 3 3-3' fill='none' stroke='%23b8bccd' stroke-width='1.5' stroke-linecap='round'/></svg>"); background-repeat: no-repeat; background-position: right 10px center; }
+  .btn.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border-color: transparent; color: white; font-weight: 600;
+    box-shadow: 0 6px 20px -8px var(--accent-glow);
+  }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.danger { color: var(--bad); border-color: rgba(248,113,113,0.25); }
+  .btn.danger:hover { background: rgba(248,113,113,0.08); }
+  .btn.ghost { background: transparent; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn .kbd { font-family: 'JetBrains Mono', monospace; font-size: 11px; opacity: 0.75; margin-left: 6px; }
+
+  /* Task header */
+  .task-header {
+    display: flex; align-items: center; gap: 14px;
+    background: linear-gradient(180deg, rgba(124,92,255,0.06), transparent);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 20px;
+  }
+  .task-header .icon {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px; color: white;
+  }
+  .task-header .info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .task-header .title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .task-header .sub  { font-size: 12px; color: var(--text-2); }
+  .task-header .meta { display: flex; gap: 14px; }
+  .task-header .meta .k { color: var(--text-2); margin-right: 4px; }
+  .task-header .meta .v { color: var(--text-0); font-weight: 500; }
+
+  /* Grid */
+  .grid {
+    display: grid; gap: 18px;
+    grid-template-columns: repeat(12, 1fr);
+  }
+  .card {
+    background: linear-gradient(180deg, var(--bg-1), var(--bg-1) 60%, var(--bg-2));
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+    position: relative; overflow: hidden;
+  }
+  .card.glow::before {
+    content: ''; position: absolute; inset: -1px;
+    background: linear-gradient(180deg, rgba(124,92,255,0.18), transparent 40%);
+    border-radius: inherit; pointer-events: none; z-index: 0;
+  }
+  .card > * { position: relative; z-index: 1; }
+  .card-h {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .card-h .label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); }
+  .card-h .right { display: flex; align-items: center; gap: 8px; }
+  .tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px;
+    background: var(--bg-3); color: var(--text-1); border: 1px solid var(--line);
+  }
+  .tag.good { color: var(--good); border-color: rgba(74,222,128,0.25); background: rgba(74,222,128,0.07); }
+  .tag.warn { color: var(--warn); border-color: rgba(251,191,36,0.25); background: rgba(251,191,36,0.07); }
+  .tag.bad  { color: var(--bad);  border-color: rgba(248,113,113,0.25); background: rgba(248,113,113,0.07); }
+  .tag.acc  { color: var(--accent); border-color: rgba(124,92,255,0.25); background: rgba(124,92,255,0.08); }
+
+  /* KPI cards */
+  .kpi { grid-column: span 4; min-height: 158px; display: flex; flex-direction: column; }
+  .kpi .value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 36px; font-weight: 600; letter-spacing: -0.03em;
+    line-height: 1.05; margin-top: 6px;
+  }
+  .kpi .value .unit { color: var(--text-2); font-size: 18px; font-weight: 500; margin-left: 4px; }
+  .kpi .sub { color: var(--text-2); font-size: 12px; margin-top: 6px; }
+  .kpi .delta { font-size: 12px; font-weight: 600; margin-top: auto; padding-top: 12px; }
+  .delta.up   { color: var(--good); }
+  .delta.down { color: var(--bad); }
+  .delta.flat { color: var(--text-2); }
+
+  .spark { height: 38px; margin-top: 12px; }
+
+  /* Context card spans 4 cols, has ring */
+  .ctx { grid-column: span 4; min-height: 158px; }
+  .ctx .row { display: flex; align-items: center; gap: 18px; }
+  .ring-wrap { position: relative; width: 120px; height: 120px; flex-shrink: 0; }
+  .ring-wrap svg { transform: rotate(-90deg); }
+  .ring-wrap .center {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .ring-wrap .center .pct { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+  .ring-wrap .center .lab { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.1em; }
+  .ctx .stats { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+  .ctx .stat { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .ctx .stat .k { color: var(--text-2); font-size: 12px; }
+  .ctx .stat .v { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 500; }
+  .ctx .bar {
+    height: 6px; border-radius: 999px; background: var(--bg-3);
+    margin-top: 14px; overflow: hidden; display: flex;
+  }
+  .ctx .bar > span { height: 100%; }
+  .ctx .legend { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 10px; font-size: 11px; color: var(--text-2); }
+  .ctx .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+
+  /* Chart */
+  .chart { grid-column: span 12; min-height: 260px; }
+  .chart .head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+  .chart .head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+  .chart .head .small { color: var(--text-2); font-size: 12px; }
+  .chart-svg { width: 100%; height: 220px; display: block; }
+  .chart .axis { stroke: var(--line); stroke-width: 1; }
+  .chart .grid-line { stroke: var(--line); stroke-dasharray: 2 4; stroke-width: 1; opacity: 0.5; }
+  .chart .axis-text { fill: var(--text-3); font: 10px 'JetBrains Mono', monospace; }
+  .chart .line { fill: none; stroke: url(#line-grad); stroke-width: 2; }
+  .chart .area { fill: url(#area-grad); }
+  .chart .dot { fill: var(--accent); }
+
+  /* Tasks table */
+  .tasks { grid-column: span 12; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; font-size: 11px; font-weight: 600;
+    color: var(--text-2); text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 10px 12px; border-bottom: 1px solid var(--line);
+  }
+  tbody td {
+    padding: 14px 12px; font-size: 13px; border-bottom: 1px solid var(--line);
+    color: var(--text-1); vertical-align: middle;
+  }
+  tbody tr:hover { background: rgba(255,255,255,0.015); }
+  tbody tr:last-child td { border-bottom: none; }
+  td .name { color: var(--text-0); font-weight: 500; }
+  td .name .id { color: var(--text-3); font-weight: 400; font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-left: 6px; }
+  td .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 3px 8px; border-radius: 999px; font-weight: 600; }
+  .badge.completed { color: var(--good); background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.2); }
+  .badge.running   { color: var(--accent); background: rgba(124,92,255,0.1); border: 1px solid rgba(124,92,255,0.25); }
+  .badge.paused    { color: var(--warn); background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.2); }
+  .badge.failed    { color: var(--bad);  background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2); }
+  .badge.resumed   { color: var(--cyan); background: rgba(34,211,238,0.08); border: 1px solid rgba(34,211,238,0.2); }
+
+  .icon-btn {
+    width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 8px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-1);
+    cursor: pointer; transition: all .15s ease;
+  }
+  .icon-btn:hover { background: var(--bg-3); color: var(--text-0); border-color: var(--line-2); }
+  .icon-btn.resume { color: var(--cyan); border-color: rgba(34,211,238,0.3); background: rgba(34,211,238,0.06); }
+  .icon-btn.resume:hover { background: rgba(34,211,238,0.12); }
+
+  /* Toast */
+  .toast-wrap { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
+  .toast {
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 16px; min-width: 280px; box-shadow: var(--shadow);
+    display: flex; align-items: center; gap: 10px; font-size: 13px;
+    animation: slideIn .25s ease;
+  }
+  .toast.good { border-color: rgba(74,222,128,0.3); }
+  .toast .ico { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(74,222,128,0.15); color: var(--good); flex-shrink: 0; }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Modal */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(5,6,10,0.7); backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: var(--bg-1); border: 1px solid var(--line); border-radius: 16px;
+    width: 520px; max-width: 92vw; box-shadow: var(--shadow); overflow: hidden;
+    animation: modalIn .2s ease;
+  }
+  @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  .modal-h { padding: 18px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+  .modal-h h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .modal-b { padding: 20px; }
+  .modal-f { padding: 14px 20px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .field label { font-size: 12px; color: var(--text-2); font-weight: 500; }
+  .field input, .field textarea, .field select {
+    background: var(--bg-2); border: 1px solid var(--line); color: var(--text-0);
+    padding: 10px 12px; border-radius: 8px; font: 13px 'Inter', sans-serif; outline: none;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,0.15); }
+  .field textarea { resize: vertical; min-height: 80px; }
+
+  .help { font-size: 11px; color: var(--text-3); margin-top: 4px; }
+  .resumed-from {
+    font-size: 12px; color: var(--cyan); padding: 10px 12px; border-radius: 8px;
+    background: rgba(34,211,238,0.06); border: 1px solid rgba(34,211,238,0.2);
+    margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+  }
+
+  /* Responsive */
+  @media (max-width: 1100px) {
+    .kpi { grid-column: span 6; }
+    .ctx { grid-column: span 6; }
+  }
+  @media (max-width: 700px) {
+    .kpi, .ctx { grid-column: span 12; }
+    .app { padding: 18px; }
+  }
+
+  /* small utility */
+  .row { display: flex; align-items: center; gap: 8px; }
+  .gap-2 { gap: 8px; }
+  .hidden { display: none !important; }
+
+  /* Back link (top-left pill) */
+  .back-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 8px;
+    background: var(--bg-2); border: 1px solid var(--line);
+    color: var(--text-1); font-size: 12px; font-weight: 500;
+    text-decoration: none; transition: all .15s ease;
+  }
+  .back-link:hover { background: var(--bg-3); color: var(--text-0); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Top bar -->
+  <div class="topbar">
+    <a href="/fdv" class="back-link" title="Retour à la FDV">
+      <span>←</span>
+      <span>Retour FDV</span>
+    </a>
+    <a href="/dashboard" class="back-link" title="Retour au tableau de bord">
+      <span>←</span>
+      <span>Dashboard</span>
+    </a>
+    <div class="brand"><span class="dot"></span> Agent Monitor</div>
+    <div id="statusPill" class="pill idle"><span class="pdot"></span><span id="statusText">Idle</span></div>
+    <div class="spacer"></div>
+    <div class="right">
+      <select id="modelSelect" class="select" title="Model">
+        <option value="claude-sonnet-4">Claude Sonnet 4</option>
+        <option value="claude-opus-4">Claude Opus 4</option>
+        <option value="gpt-4o">GPT-4o</option>
+        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+      </select>
+      <button id="startBtn" class="btn primary">Start task <span class="kbd">N</span></button>
+      <button id="pauseBtn" class="btn" disabled>Pause <span class="kbd">P</span></button>
+      <button id="stopBtn" class="btn danger" disabled>Stop <span class="kbd">S</span></button>
+    </div>
+  </div>
+
+  <!-- Active task header -->
+  <div id="taskHeader" class="task-header hidden">
+    <div class="icon" id="taskIcon">▶</div>
+    <div class="info">
+      <div class="title" id="taskTitle">—</div>
+      <div class="sub" id="taskSub">—</div>
+    </div>
+    <div class="meta">
+      <div><span class="k">Started</span><span class="v mono" id="taskStarted">—</span></div>
+      <div><span class="k">Duration</span><span class="v mono" id="taskDuration">00:00</span></div>
+      <div><span class="k">Model</span><span class="v" id="taskModel">—</span></div>
+    </div>
+  </div>
+
+  <!-- Grid -->
+  <div class="grid">
+    <!-- Tokens / min -->
+    <div class="card kpi glow">
+      <div class="card-h">
+        <div class="label">Tokens / min</div>
+        <div class="right"><span class="tag acc" id="tokTag">live</span></div>
+      </div>
+      <div class="value mono"><span id="tpmValue">0</span><span class="unit">tpm</span></div>
+      <div class="sub" id="tpmSub">Waiting for first chunk…</div>
+      <div class="delta flat" id="tpmDelta">— vs 1m ago</div>
+      <svg class="spark" id="sparkTpm" viewBox="0 0 200 38" preserveAspectRatio="none"></svg>
+    </div>
+
+    <!-- Cost -->
+    <div class="card kpi">
+      <div class="card-h">
+        <div class="label">Total cost</div>
+        <div class="right"><span class="tag" id="costTag">session</span></div>
+      </div>
+      <div class="value mono">$<span id="costValue">0.0000</span></div>
+      <div class="sub" id="costSub">$0.0000 input · $0.0000 output</div>
+      <div class="delta flat" id="costDelta">Burn rate $0.00/hr</div>
+      <svg class="spark" id="sparkCost" viewBox="0 0 200 38" preserveAspectRatio="none"></svg>
+    </div>
+
+    <!-- Context -->
+    <div class="card ctx">
+      <div class="card-h">
+        <div class="label">Context window</div>
+        <div class="right"><span class="tag" id="ctxTag">0%</span></div>
+      </div>
+      <div class="row">
+        <div class="ring-wrap">
+          <svg width="120" height="120" viewBox="0 0 120 120">
+            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--bg-3)" stroke-width="10" />
+            <circle id="ringFg" cx="60" cy="60" r="50" fill="none" stroke="url(#ring-grad)" stroke-width="10"
+                    stroke-linecap="round" stroke-dasharray="314.16" stroke-dashoffset="314.16" />
+            <defs>
+              <linearGradient id="ring-grad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#7c5cff" />
+                <stop offset="100%" stop-color="#22d3ee" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div class="center">
+            <div class="pct mono" id="ctxPct">0%</div>
+            <div class="lab">used</div>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat"><span class="k">Used</span><span class="v mono" id="ctxUsed">0</span></div>
+          <div class="stat"><span class="k">Window</span><span class="v mono" id="ctxWindow">200k</span></div>
+          <div class="stat"><span class="k">Remaining</span><span class="v mono" id="ctxRemain">200k</span></div>
+          <div class="stat"><span class="k">Cache hit</span><span class="v mono" id="ctxCache">0%</span></div>
+        </div>
+      </div>
+      <div class="bar">
+        <span style="width:0%;background:linear-gradient(90deg,#7c5cff,#5b8cff)" id="ctxBarSystem"></span>
+        <span style="width:0%;background:#f472b6" id="ctxBarTools"></span>
+        <span style="width:0%;background:#22d3ee" id="ctxBarUser"></span>
+        <span style="width:0%;background:#4ade80" id="ctxBarFree"></span>
+      </div>
+      <div class="legend">
+        <span><i style="background:linear-gradient(90deg,#7c5cff,#5b8cff)"></i>System</span>
+        <span><i style="background:#f472b6"></i>Tools</span>
+        <span><i style="background:#22d3ee"></i>User / msgs</span>
+        <span><i style="background:#4ade80"></i>Free</span>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="card chart">
+      <div class="head">
+        <h3>Throughput & cost over time</h3>
+        <span class="small">last 60s · tokens/min (purple) · $ cost (cyan)</span>
+        <div style="flex:1"></div>
+        <span class="tag" id="chartPeak">peak — tpm</span>
+      </div>
+      <svg class="chart-svg" id="chartSvg" viewBox="0 0 800 220" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="line-grad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#7c5cff" />
+            <stop offset="100%" stop-color="#5b8cff" />
+          </linearGradient>
+          <linearGradient id="area-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(124,92,255,0.35)" />
+            <stop offset="100%" stop-color="rgba(124,92,255,0)" />
+          </linearGradient>
+          <linearGradient id="line2-grad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#22d3ee" />
+            <stop offset="100%" stop-color="#4ade80" />
+          </linearGradient>
+        </defs>
+        <g id="chartGrid"></g>
+        <path id="areaPath" class="area" d="" />
+        <path id="linePath" class="line" d="" />
+        <path id="line2Path" class="line" style="stroke:url(#line2-grad); opacity:.85" d="" />
+        <g id="chartLabels"></g>
+      </svg>
+    </div>
+
+    <!-- Tasks -->
+    <div class="card tasks">
+      <div class="card-h">
+        <div class="label">Session tasks</div>
+        <div class="right">
+          <span class="tag" id="taskCountTag">0 tasks</span>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Task</th><th>Status</th><th>Model</th>
+            <th style="text-align:right">Tokens</th>
+            <th style="text-align:right">Cost</th>
+            <th>Duration</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="tasksBody">
+          <tr><td colspan="7" style="text-align:center;color:var(--text-3);padding:32px">No tasks yet. Hit <b>Start task</b> to begin.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Start task modal -->
+<div id="modalBg" class="modal-bg">
+  <div class="modal">
+    <div class="modal-h">
+      <div class="icon" style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#7c5cff,#5b8cff);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">▶</div>
+      <h3 id="modalTitle">Start a new task</h3>
+    </div>
+    <div class="modal-b">
+      <div id="resumedBanner" class="resumed-from hidden">
+        <span>↻</span><span>Resuming from <b id="resumedFromName">—</b> · previous context will be carried over</span>
+      </div>
+      <div class="field">
+        <label>Task name</label>
+        <input id="taskName" type="text" placeholder="e.g. Refactor auth middleware" />
+      </div>
+      <div class="field">
+        <label>Goal / prompt</label>
+        <textarea id="taskPrompt" placeholder="Describe what the agent should accomplish…"></textarea>
+        <div class="help">Tokens will be billed as they stream. The dashboard updates in real time.</div>
+      </div>
+    </div>
+    <div class="modal-f">
+      <button class="btn ghost" id="modalCancel">Cancel</button>
+      <button class="btn primary" id="modalStart">Start</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+/* ------------------------------------------------------------------
+ *  Agent Monitor — single-file dashboard
+ *  - Models + pricing
+ *  - Live token / cost / context simulation
+ *  - Tasks table with Resume flow
+ * ------------------------------------------------------------------ */
+
+const MODELS = {
+  'claude-sonnet-4': { name: 'Claude Sonnet 4',  ctx: 200_000, in: 3.00,  out: 15.00, cache: 0.30 },
+  'claude-opus-4':   { name: 'Claude Opus 4',    ctx: 200_000, in: 15.00, out: 75.00, cache: 1.50 },
+  'gpt-4o':          { name: 'GPT-4o',           ctx: 128_000, in: 2.50,  out: 10.00, cache: 1.25 },
+  'gemini-2.5-pro':  { name: 'Gemini 2.5 Pro',    ctx: 1_000_000, in: 1.25, out: 5.00, cache: 0.31 },
+};
+const fmtInt = n => Math.round(n).toLocaleString('en-US');
+const fmtUsd = n => n.toFixed(4);
+const fmtCtx = n => n >= 1000 ? (n/1000).toFixed(n%1000===0?0:1) + 'k' : Math.round(n).toString();
+const pad2 = n => String(n).padStart(2, '0');
+const durStr = sec => `${pad2(Math.floor(sec/60))}:${pad2(sec%60)}`;
+
+/* ------------- State ------------- */
+const state = {
+  tasks: [],
+  current: null,        // active task object
+  status: 'idle',       // idle | running | paused | completed
+  resumingFrom: null,
+  // timeseries: arrays of {t, tpm, cost}
+  series: [],
+  startedAt: null,
+  // per-second counters
+  accum: { inTok: 0, outTok: 0, cost: 0, tpm: 0 },
+  windowStartIn: 0,     // accumulator for tokens-in at start of current 1m window
+  windowStartOut: 0,
+  prevTpm: 0,
+  // for sparkline
+  sparkTpm: [],
+  sparkCost: [],
+  peakTpm: 0,
+  tickHandle: null,
+  // for chart
+  maxPoints: 60,
+};
+
+/* ------------- DOM ------------- */
+const $ = id => document.getElementById(id);
+const ui = {
+  statusPill: $('statusPill'),
+  statusText: $('statusText'),
+  startBtn: $('startBtn'),
+  pauseBtn: $('pauseBtn'),
+  stopBtn: $('stopBtn'),
+  model: $('modelSelect'),
+  taskHeader: $('taskHeader'),
+  taskTitle: $('taskTitle'),
+  taskSub: $('taskSub'),
+  taskIcon: $('taskIcon'),
+  taskStarted: $('taskStarted'),
+  taskDuration: $('taskDuration'),
+  taskModel: $('taskModel'),
+  tpmValue: $('tpmValue'),
+  tpmSub: $('tpmSub'),
+  tpmDelta: $('tpmDelta'),
+  tokTag: $('tokTag'),
+  sparkTpm: $('sparkTpm'),
+  sparkCost: $('sparkCost'),
+  costValue: $('costValue'),
+  costSub: $('costSub'),
+  costDelta: $('costDelta'),
+  ctxTag: $('ctxTag'),
+  ctxPct: $('ctxPct'),
+  ctxUsed: $('ctxUsed'),
+  ctxWindow: $('ctxWindow'),
+  ctxRemain: $('ctxRemain'),
+  ctxCache: $('ctxCache'),
+  ctxBarSystem: $('ctxBarSystem'),
+  ctxBarTools: $('ctxBarTools'),
+  ctxBarUser: $('ctxBarUser'),
+  ctxBarFree: $('ctxBarFree'),
+  ringFg: $('ringFg'),
+  tasksBody: $('tasksBody'),
+  taskCountTag: $('taskCountTag'),
+  modalBg: $('modalBg'),
+  modalTitle: $('modalTitle'),
+  modalCancel: $('modalCancel'),
+  modalStart: $('modalStart'),
+  taskName: $('taskName'),
+  taskPrompt: $('taskPrompt'),
+  resumedBanner: $('resumedBanner'),
+  resumedFromName: $('resumedFromName'),
+  chartSvg: $('chartSvg'),
+  chartGrid: $('chartGrid'),
+  linePath: $('linePath'),
+  line2Path: $('line2Path'),
+  areaPath: $('areaPath'),
+  chartLabels: $('chartLabels'),
+  chartPeak: $('chartPeak'),
+  toastWrap: $('toastWrap'),
+};
+
+/* ------------- Toast ------------- */
+function toast(msg, kind='good') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + kind;
+  el.innerHTML = `<div class="ico">✓</div><div>${msg}</div>`;
+  ui.toastWrap.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(8px)'; el.style.transition = 'all .25s ease'; }, 2400);
+  setTimeout(() => el.remove(), 2800);
+}
+
+/* ------------- Status / UI helpers ------------- */
+function setStatus(s) {
+  state.status = s;
+  ui.statusPill.classList.remove('live','idle','paused','error');
+  ui.statusText.textContent = ({idle:'Idle', running:'Running', paused:'Paused', completed:'Completed'})[s] || s;
+  if (s === 'running') ui.statusPill.classList.add('live');
+  else if (s === 'paused') ui.statusPill.classList.add('paused');
+  else if (s === 'completed') ui.statusPill.classList.add('idle');
+  else ui.statusPill.classList.add('idle');
+
+  ui.startBtn.disabled = (s === 'running' || s === 'paused');
+  ui.pauseBtn.disabled = (s !== 'running' && s !== 'paused');
+  ui.pauseBtn.textContent = (s === 'paused' ? 'Resume ' : 'Pause ') + (s === 'paused' ? 'P' : 'P');
+  ui.stopBtn.disabled = (s !== 'running' && s !== 'paused');
+}
+
+/* ------------- Task lifecycle ------------- */
+function openStartModal(resumingFrom = null) {
+  state.resumingFrom = resumingFrom;
+  if (resumingFrom) {
+    ui.modalTitle.textContent = 'Resume task';
+    ui.resumedBanner.classList.remove('hidden');
+    ui.resumedFromName.textContent = resumingFrom.name;
+    ui.taskName.value = resumingFrom.name + ' (continued)';
+    ui.taskName.disabled = true;
+    ui.taskPrompt.value = `Continuing from task ${resumingFrom.id}.\n\nPick up where the previous run left off. Previous context (${fmtInt(resumingFrom.inTok + resumingFrom.outTok)} tokens) will be carried over as a summary.`;
+    ui.taskPrompt.disabled = true;
+  } else {
+    ui.modalTitle.textContent = 'Start a new task';
+    ui.resumedBanner.classList.add('hidden');
+    ui.taskName.value = '';
+    ui.taskName.disabled = false;
+    ui.taskPrompt.value = '';
+    ui.taskPrompt.disabled = false;
+  }
+  ui.modalBg.classList.add('open');
+  setTimeout(() => ui.taskName.focus(), 50);
+}
+function closeModal() { ui.modalBg.classList.remove('open'); state.resumingFrom = null; }
+
+function startTask() {
+  const name = ui.taskName.value.trim() || 'Untitled task';
+  const prompt = ui.taskPrompt.value.trim() || '(no prompt)';
+  const modelKey = ui.model.value;
+  const model = MODELS[modelKey];
+  const isResume = !!state.resumingFrom;
+  const parent = state.resumingFrom;
+
+  const task = {
+    id: 't' + Math.random().toString(36).slice(2, 8),
+    name, prompt, modelKey, modelName: model.name,
+    status: 'running',
+    isResume, parentId: parent ? parent.id : null,
+    inTok: 0, outTok: 0, cost: 0,
+    // context composition (% of model window)
+    ctx: { system: 0.04, tools: 0.0, user: 0.0, free: 1.0 },
+    startedAt: Date.now(),
+    endedAt: null,
+    history: [], // {t, tpm, cost, used}
+  };
+
+  // If resumed, seed with a summary of prior context
+  if (parent) {
+    const seed = (parent.inTok + parent.outTok);
+    task.inTok = Math.round(seed * 0.35);
+    task.outTok = Math.round(seed * 0.20);
+    task.cost = (task.inTok/1e6)*model.in + (task.outTok/1e6)*model.out;
+    task.ctx.system = 0.06;
+    task.ctx.tools = Math.min(0.08, (parent.outTok/1e6) * 0.4);
+    task.ctx.user  = 0.03;
+    // free = 1 - sum
+    task.ctx.free = Math.max(0, 1 - (task.ctx.system + task.ctx.tools + task.ctx.user));
+  }
+
+  state.tasks.unshift(task);
+  state.current = task;
+  state.startedAt = task.startedAt;
+  state.windowStartIn = task.inTok;
+  state.windowStartOut = task.outTok;
+  state.sparkTpm = []; state.sparkCost = []; state.peakTpm = 0; state.series = [];
+  state.accum = { inTok: task.inTok, outTok: task.outTok, cost: task.cost, tpm: 0 };
+  closeModal();
+  setStatus('running');
+  showTaskHeader(task);
+  renderTasks();
+  startTicker();
+  toast(isResume ? `Resumed from <b>${parent.name}</b> with ${fmtInt(task.inTok+task.outTok)} carry-over tokens` : 'Task started', 'good');
+}
+
+function pauseTask() {
+  if (!state.current) return;
+  if (state.status === 'running') { setStatus('paused'); state.current.status = 'paused'; }
+  else if (state.status === 'paused') { setStatus('running'); state.current.status = 'running'; }
+  renderTasks();
+}
+
+function stopTask(reason = 'completed') {
+  if (!state.current) return;
+  state.current.status = reason;
+  state.current.endedAt = Date.now();
+  setStatus('completed');
+  stopTicker();
+  // add final series point
+  pushSeriesPoint();
+  state.current = null;
+  ui.taskHeader.classList.add('hidden');
+  renderTasks();
+  toast(reason === 'completed' ? 'Task completed · you can resume it below' : 'Task stopped', reason === 'completed' ? 'good' : 'good');
+  renderAll();
+}
+
+function resumeTask(taskId) {
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t || t.status === 'running') return;
+  openStartModal(t);
+}
+
+/* ------------- Live ticker ------------- */
+function startTicker() {
+  if (state.tickHandle) clearInterval(state.tickHandle);
+  state.tickHandle = setInterval(tick, 1000);
+}
+function stopTicker() { if (state.tickHandle) { clearInterval(state.tickHandle); state.tickHandle = null; } }
+
+function tick() {
+  if (state.status !== 'running' || !state.current) return;
+  // Simulate streaming tokens. Out tokens roughly 1/3 of in for chat.
+  const model = state.current.modelKey ? MODELS[state.current.modelKey] : MODELS['claude-sonnet-4'];
+  // Variable rate to make it feel real: baseline + jitter
+  const base = 1800;   // tpm
+  const jitter = (Math.random() - 0.3) * 1200; // occasional bursts
+  const tpmNow = Math.max(120, Math.round(base + jitter));
+  const inPerSec = tpmNow * 0.66 / 60;
+  const outPerSec = tpmNow * 0.34 / 60;
+
+  state.current.inTok += inPerSec;
+  state.current.outTok += outPerSec;
+  const incCost = (inPerSec/1e6)*model.in + (outPerSec/1e6)*model.out;
+  state.current.cost += incCost;
+
+  // Update context composition (grows over time, with some compaction)
+  const used = state.current.inTok + state.current.outTok;
+  const usedRatio = Math.min(0.99, used / model.ctx);
+  // model a composition: system 4-6%, tools grow with tool use, user grows with msg history, free shrinks
+  state.current.ctx.system = clamp(0.04 + Math.random()*0.01, 0.04, 0.07);
+  state.current.ctx.tools  = clamp(state.current.ctx.tools + (Math.random() < 0.2 ? 0.005 : 0), 0, 0.18);
+  state.current.ctx.user   = clamp(state.current.ctx.user + 0.0025 + Math.random()*0.0015, 0, usedRatio);
+  state.current.ctx.free   = Math.max(0, 1 - (state.current.ctx.system + state.current.ctx.tools + state.current.ctx.user));
+
+  // update 1m tpm (smoothed)
+  const totalNow = state.current.inTok + state.current.outTok;
+  const total60sAgo = (state._lastSnapshot?.total) ?? (totalNow - inPerSec - outPerSec);
+  const tpm1m = Math.max(0, (totalNow - total60sAgo) * 60); // approximate 1m rate from last second
+  state._lastSnapshot = { t: Date.now(), total: totalNow };
+  state.accum.tpm = state.accum.tpm * 0.7 + tpm1m * 0.3;
+
+  // sparkline + chart sample
+  state.sparkTpm.push(tpm1m); state.sparkCost.push(state.current.cost);
+  if (state.sparkTpm.length > 30) state.sparkTpm.shift();
+  if (state.sparkCost.length > 30) state.sparkCost.shift();
+  state.peakTpm = Math.max(state.peakTpm, tpm1m);
+
+  // push series point once per second
+  pushSeriesPoint();
+
+  renderAll();
+  renderTasks();
+  // Auto-complete after a while (only for the demo, when no user is actively watching)
+  if (state.series.length > 45 && Math.random() < 0.012) {
+    stopTask('completed');
+  }
+}
+
+function pushSeriesPoint() {
+  if (!state.current) return;
+  const t = (Date.now() - state.startedAt) / 1000;
+  const model = MODELS[state.current.modelKey];
+  const usedRatio = Math.min(0.99, (state.current.inTok + state.current.outTok) / model.ctx);
+  state.series.push({ t, tpm: state.accum.tpm, cost: state.current.cost, used: usedRatio });
+  if (state.series.length > state.maxPoints) state.series.shift();
+}
+
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+/* ------------- Rendering ------------- */
+function showTaskHeader(t) {
+  ui.taskHeader.classList.remove('hidden');
+  ui.taskTitle.textContent = t.name;
+  ui.taskSub.textContent = (t.isResume ? 'Resumed task · carry-over context' : 'New task');
+  ui.taskIcon.textContent = t.isResume ? '↻' : '▶';
+  ui.taskStarted.textContent = new Date(t.startedAt).toLocaleTimeString();
+  ui.taskModel.textContent = t.modelName;
+}
+
+function renderAll() {
+  renderKpis();
+  renderContext();
+  renderChart();
+  if (state.current) renderTaskHeaderLive();
+}
+
+function renderTaskHeaderLive() {
+  if (!state.current) return;
+  const sec = Math.floor((Date.now() - state.current.startedAt) / 1000);
+  ui.taskDuration.textContent = durStr(sec);
+}
+
+function renderKpis() {
+  // TPM
+  const tpm = Math.round(state.accum.tpm);
+  ui.tpmValue.textContent = fmtInt(tpm);
+  ui.tpmSub.textContent = state.current
+    ? `In ${fmtInt(state.current.inTok)} · Out ${fmtInt(state.current.outTok)} tokens streamed`
+    : 'Waiting for first chunk…';
+  const prev = state.prevTpm || tpm;
+  const dlt = tpm - prev;
+  const cls = dlt > 5 ? 'up' : dlt < -5 ? 'down' : 'flat';
+  const sign = dlt > 0 ? '▲' : dlt < 0 ? '▼' : '·';
+  ui.tpmDelta.className = 'delta ' + cls;
+  ui.tpmDelta.textContent = `${sign} ${Math.abs(Math.round(dlt))} tpm · vs 1s ago`;
+  state.prevTpm = tpm;
+  ui.tokTag.textContent = state.status === 'running' ? 'live' : (state.status === 'paused' ? 'paused' : 'idle');
+  drawSpark(ui.sparkTpm, state.sparkTpm, '#7c5cff');
+
+  // Cost
+  if (state.current) {
+    ui.costValue.textContent = fmtUsd(state.current.cost);
+    const costIn = (state.current.inTok/1e6) * MODELS[state.current.modelKey].in;
+    const costOut = (state.current.outTok/1e6) * MODELS[state.current.modelKey].out;
+    ui.costSub.textContent = `$${fmtUsd(costIn)} input · $${fmtUsd(costOut)} output`;
+    const hr = state.current.cost * 3600 / Math.max(1, (Date.now() - state.current.startedAt)/1000);
+    ui.costDelta.textContent = `Burn rate $${hr.toFixed(2)}/hr · ${MODELS[state.current.modelKey].name}`;
+  } else {
+    // sum across session
+    const total = state.tasks.reduce((s,t)=>s+t.cost,0);
+    ui.costValue.textContent = fmtUsd(total);
+    const totIn = state.tasks.reduce((s,t)=>s+t.inTok,0);
+    const totOut = state.tasks.reduce((s,t)=>s+t.outTok,0);
+    ui.costSub.textContent = `${fmtInt(totIn+totOut)} tokens total`;
+    ui.costDelta.textContent = `${state.tasks.length} task${state.tasks.length===1?'':'s'} this session`;
+  }
+  drawSpark(ui.sparkCost, state.sparkCost, '#22d3ee');
+  ui.chartPeak.textContent = `peak ${fmtInt(state.peakTpm)} tpm`;
+}
+
+function renderContext() {
+  const t = state.current;
+  if (t) {
+    const m = MODELS[t.modelKey];
+    const used = t.inTok + t.outTok;
+    const pct = used / m.ctx;
+    const pctDisp = (pct * 100);
+    const colorClass = pctDisp > 85 ? 'bad' : pctDisp > 65 ? 'warn' : 'good';
+    ui.ctxTag.className = 'tag ' + colorClass;
+    ui.ctxTag.textContent = pctDisp.toFixed(1) + '%';
+    ui.ctxPct.textContent = pctDisp.toFixed(1) + '%';
+    ui.ctxUsed.textContent = fmtCtx(used);
+    ui.ctxWindow.textContent = fmtCtx(m.ctx);
+    ui.ctxRemain.textContent = fmtCtx(Math.max(0, m.ctx - used));
+    // Cache hit rate (simulated based on resumed vs new)
+    const cache = t.isResume ? 60 + Math.random()*15 : 5 + Math.random()*15;
+    ui.ctxCache.textContent = cache.toFixed(0) + '%';
+    // bar
+    ui.ctxBarSystem.style.width = (t.ctx.system*100).toFixed(2) + '%';
+    ui.ctxBarTools.style.width  = (t.ctx.tools *100).toFixed(2) + '%';
+    ui.ctxBarUser.style.width   = (t.ctx.user  *100).toFixed(2) + '%';
+    ui.ctxBarFree.style.width   = (t.ctx.free  *100).toFixed(2) + '%';
+    // ring
+    const C = 2 * Math.PI * 50;
+    ui.ringFg.style.strokeDasharray = C.toFixed(2);
+    ui.ringFg.style.strokeDashoffset = (C * (1 - pct)).toFixed(2);
+  } else {
+    // session aggregates
+    const totIn = state.tasks.reduce((s,t)=>s+t.inTok,0);
+    const totOut = state.tasks.reduce((s,t)=>s+t.outTok,0);
+    const used = totIn + totOut;
+    const ctx = 200_000;
+    const pct = used / ctx;
+    const pctDisp = (pct*100);
+    ui.ctxTag.className = 'tag ' + (pctDisp > 50 ? 'warn' : 'good');
+    ui.ctxTag.textContent = pctDisp.toFixed(2) + '%';
+    ui.ctxPct.textContent = pctDisp.toFixed(2) + '%';
+    ui.ctxUsed.textContent = fmtCtx(used);
+    ui.ctxWindow.textContent = fmtCtx(ctx);
+    ui.ctxRemain.textContent = fmtCtx(Math.max(0, ctx - used));
+    ui.ctxCache.textContent = '—';
+    const C = 2 * Math.PI * 50;
+    ui.ringFg.style.strokeDasharray = C.toFixed(2);
+    ui.ringFg.style.strokeDashoffset = (C * (1 - pct)).toFixed(2);
+    ui.ctxBarSystem.style.width = '4%';
+    ui.ctxBarTools.style.width = '2%';
+    ui.ctxBarUser.style.width = Math.min(40, pctDisp*0.4) + '%';
+    ui.ctxBarFree.style.width = (100 - 4 - 2 - Math.min(40, pctDisp*0.4)) + '%';
+  }
+}
+
+function drawSpark(svg, data, color) {
+  if (!data || data.length < 2) { svg.innerHTML = ''; return; }
+  const w = 200, h = 38, pad = 2;
+  const max = Math.max(...data, 1);
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+  const pts = data.map((v,i) => {
+    const x = pad + (i / (data.length-1)) * (w - 2*pad);
+    const y = h - pad - ((v - min) / range) * (h - 2*pad);
+    return [x,y];
+  });
+  const d = 'M ' + pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' L ');
+  const area = d + ` L ${pts[pts.length-1][0].toFixed(1)},${h-pad} L ${pts[0][0].toFixed(1)},${h-pad} Z`;
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="sg-${color.slice(1)}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path d="${area}" fill="url(#sg-${color.slice(1)})"/>
+    <path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  `;
+}
+
+function renderChart() {
+  const data = state.series;
+  if (data.length < 2) { ui.linePath.setAttribute('d',''); ui.areaPath.setAttribute('d',''); ui.line2Path.setAttribute('d',''); return; }
+  const w = 800, h = 220, padL = 40, padR = 12, padT = 12, padB = 22;
+  const innerW = w - padL - padR, innerH = h - padT - padB;
+  const maxTpm = Math.max(...data.map(d=>d.tpm), 100);
+  const maxCost = Math.max(...data.map(d=>d.cost), 0.0001);
+  // grid lines
+  let grid = '';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (innerH * i / 4);
+    const v = maxTpm * (1 - i/4);
+    grid += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${w-padR}" y2="${y}"/>`;
+    grid += `<text class="axis-text" x="${padL-6}" y="${y+3}" text-anchor="end">${fmtInt(v)}</text>`;
+  }
+  // x labels
+  const t0 = data[0].t, tEnd = data[data.length-1].t;
+  for (let i = 0; i <= 4; i++) {
+    const x = padL + (innerW * i / 4);
+    const t = t0 + (tEnd - t0) * i / 4;
+    grid += `<text class="axis-text" x="${x}" y="${h-6}" text-anchor="middle">${durStr(Math.round(t))}</text>`;
+  }
+  ui.chartGrid.innerHTML = grid;
+
+  // tpm line
+  const pts1 = data.map((d,i) => {
+    const x = padL + (innerW * (i/(data.length-1)));
+    const y = padT + innerH - (d.tpm/maxTpm)*innerH;
+    return [x,y];
+  });
+  ui.linePath.setAttribute('d', 'M ' + pts1.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' L '));
+  ui.areaPath.setAttribute('d', ui.linePath.getAttribute('d') + ` L ${pts1[pts1.length-1][0]},${padT+innerH} L ${pts1[0][0]},${padT+innerH} Z`);
+  // cost line
+  const pts2 = data.map((d,i) => {
+    const x = padL + (innerW * (i/(data.length-1)));
+    const y = padT + innerH - (d.cost/maxCost)*innerH;
+    return [x,y];
+  });
+  ui.line2Path.setAttribute('d', 'M ' + pts2.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' L '));
+}
+
+function renderTasks() {
+  const tbody = ui.tasksBody;
+  ui.taskCountTag.textContent = `${state.tasks.length} task${state.tasks.length===1?'':'s'}`;
+  if (state.tasks.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-3);padding:32px">No tasks yet. Hit <b>Start task</b> to begin.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = state.tasks.map(t => {
+    const dur = t.endedAt ? Math.floor((t.endedAt - t.startedAt)/1000) : Math.floor((Date.now() - t.startedAt)/1000);
+    const canResume = (t.status === 'completed' || t.status === 'failed') && t.id !== (state.current && state.current.id);
+    const badgeCls = t.status === 'running' ? 'running' : (t.isResume && t.status === 'completed' ? 'resumed' : t.status);
+    return `
+      <tr>
+        <td><div class="name">${escapeHtml(t.name)}<span class="id">#${t.id}</span></div>
+            <div style="color:var(--text-3);font-size:11px;margin-top:2px">${t.isResume ? `↻ continued from #${t.parentId}` : '· new task'}</div></td>
+        <td><span class="badge ${badgeCls}">${t.status}</span></td>
+        <td>${t.modelName}</td>
+        <td style="text-align:right" class="mono">${fmtInt(t.inTok + t.outTok)}</td>
+        <td style="text-align:right" class="mono">$${fmtUsd(t.cost)}</td>
+        <td class="mono">${durStr(dur)}</td>
+        <td style="text-align:right">
+          ${canResume ? `<button class="icon-btn resume" title="Resume task" data-id="${t.id}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
+          </button>` : `<span style="color:var(--text-3);font-size:11px">—</span>`}
+        </td>
+      </tr>
+    `;
+  }).join('');
+  // wire resume buttons
+  tbody.querySelectorAll('.icon-btn.resume').forEach(b => {
+    b.addEventListener('click', () => resumeTask(b.dataset.id));
+  });
+}
+
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+/* ------------- Header ticker (duration) ------------- */
+setInterval(() => { if (state.current) renderTaskHeaderLive(); }, 1000);
+
+/* ------------- Bind UI ------------- */
+ui.startBtn.addEventListener('click', () => openStartModal(null));
+ui.pauseBtn.addEventListener('click', pauseTask);
+ui.stopBtn.addEventListener('click', () => stopTask('completed'));
+ui.modalCancel.addEventListener('click', closeModal);
+ui.modalBg.addEventListener('click', (e) => { if (e.target === ui.modalBg) closeModal(); });
+ui.modalStart.addEventListener('click', startTask);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && ui.modalBg.classList.contains('open')) closeModal();
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key.toLowerCase() === 'n' && !ui.modalBg.classList.contains('open')) openStartModal(null);
+  if (e.key.toLowerCase() === 'p' && state.current) pauseTask();
+  if (e.key.toLowerCase() === 's' && state.current) stopTask('completed');
+});
+
+/* ------------- Seed sample data so the page never looks empty ------------- */
+function seed() {
+  const m = MODELS['claude-sonnet-4'];
+  const samples = [
+    { name: 'Refactor auth middleware',           in: 18420, out: 9430, dur: 312, status: 'completed' },
+    { name: 'Migrate Postgres → SQLite helpers',  in: 24880, out: 11240, dur: 528, status: 'completed' },
+    { name: 'Add hover tooltips to chart',        in: 9210,  out: 4180,  dur: 148, status: 'failed' },
+  ];
+  const now = Date.now();
+  state.tasks = samples.map(s => ({
+    id: 't' + Math.random().toString(36).slice(2,8),
+    name: s.name, prompt: '(seeded)', modelKey: 'claude-sonnet-4', modelName: m.name,
+    status: s.status, isResume: false, parentId: null,
+    inTok: s.in, outTok: s.out, cost: (s.in/1e6)*m.in + (s.out/1e6)*m.out,
+    ctx: { system: 0.05, tools: 0.02, user: 0.10, free: 0.83 },
+    startedAt: now - s.dur*1000 - 5*60*1000,
+    endedAt:   now - 5*60*1000,
+    history: [],
+  }));
+  // demo: pretend one task is a resume of another
+  state.tasks[1].isResume = true;
+  state.tasks[1].parentId = state.tasks[0].id;
+  state.tasks[1].name = state.tasks[0].name + ' (continued)';
+
+  // pre-fill series so the chart looks alive
+  const dur = 30;
+  for (let i = 0; i < dur; i++) {
+    const tpm = 1500 + Math.sin(i*0.6)*400 + Math.random()*250;
+    const cost = (i+1) * 0.00018;
+    state.series.push({ t: i, tpm, cost, used: 0.05 + i*0.002 });
+  }
+  state.peakTpm = Math.max(...state.series.map(s=>s.tpm));
+  state.sparkTpm = state.series.slice(-30).map(s=>s.tpm);
+  state.sparkCost = state.series.slice(-30).map(s=>s.cost);
+
+  renderTasks();
+  renderAll();
+  setStatus('idle');
+}
+seed();
+</script>
+</body>
+</html>

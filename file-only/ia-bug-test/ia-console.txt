@@ -1,0 +1,9 @@
+=== Console ===
+[error] ReferenceError: initializeActiveTab is not defined
+    at http://127.0.0.1:5099/static/js/dashboard.js?v=1.9:245:17
+[log] [VendeurModal] Fetching vendeurs from: /api/vendeurs?date=2026-06-10&category=Chakib%20Equipe
+[log] [VendeurModal] Response status: 200
+[log] [VendeurModal] Data received: {status: success, vendeurs: Array(10)}
+[log] [VendeurModal] Rendering 10 vendeurs
+
+=== JS errors ===

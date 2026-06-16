@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MADEC KPI Analytics - Agadir Sales Force</title>
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- html2pdf.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css?v=1.6">
+</head>
+<body class="cyber-grid theme-1 light-mode">
+    <!-- ===== Animated background layers ===== -->
+    <canvas id="bg-particles" aria-hidden="true"></canvas>
+    <div class="bg-scanline" aria-hidden="true"></div>
+    <div class="bg-vignette" aria-hidden="true"></div>
+    <!-- Cyberpunk Decorative Elements -->
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="cyber-sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <img src="/static/logo.png" alt="MADEC Logo">
+                <span class="brand-text">MADEC<span class="logo-accent">.KPI</span></span>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#summary-section" class="nav-item active" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
+                <a href="#details-container" class="nav-item" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <!-- Category Selector -->
+                <div class="sidebar-category-wrapper" style="display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.25rem;">
+                    <span class="tech-label"><i class="fa-solid fa-users-gear"></i> CATÉGORIE VENDEUR</span>
+                    <select id="category-select" class="cyber-select" style="width: 100%; border-color: var(--neon-blue); text-transform: uppercase;">
+                        <option value="All">TOUTE L'AGENCE</option>
+                        <option value="Pré-vendeur">Pré-vendeur</option>
+                        <option value="Pré-vendeur Chakib">Pré-vendeur Chakib</option>
+                        <option value="Chakib Equipe" selected>Chakib Equipe</option>
+                        <option value="Conventionnel">Conventionnel</option>
+                        <option value="One by One">One by One (Y59)</option>
+                        <option value="SOM pré-vendeur">SOM pré-vendeur</option>
+                        <option value="SOM pré-vendeur Chakib">SOM pré-vendeur Chakib</option>
+                        <option value="VMM pré-vendeur">VMM pré-vendeur</option>
+                        <option value="VMM pré-vendeur Chakib">VMM pré-vendeur Chakib</option>
+                        <option value="SOM All">SOM All</option>
+                        <option value="VMM All">VMM All</option>
+                        <option value="CDZ">CDZ</option>
+                    </select>
+                </div>
+                
+                <div class="sidebar-theme-wrapper">
+                    <span class="tech-label">Thème Visuel</span>
+                    <select id="sidebar-theme-select" class="cyber-select" style="width: 100%; margin-top: 0.25rem; border-color: var(--neon-blue); text-transform: uppercase;">
+                        <option value="theme-1">Contemporary Dark</option>
+                        <option value="theme-2">Synthwave Sunset</option>
+                        <option value="theme-3">Matrix Hack</option>
+                        <option value="theme-4">Crimson Gold</option>
+                        <option value="theme-5">Aurora Ice</option>
+                    </select>
+                </div>
+                <div class="sidebar-status">
+                    <span class="status-dot-green"></span>
+                    <span class="font-mono" style="font-size: 0.75rem;">FDV_KPI: RUNNING</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="cyber-header">
+                <!-- Hamburger menu button for mobile -->
+                <button id="sidebar-toggle-btn" class="cyber-btn" style="padding: 0.5rem 0.75rem; display: none;" title="Menu principal">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+        <div class="header-logo">
+            <img src="/static/logo.png" alt="MADEC Logo">
+            <span class="logo-text">MADEC<span class="logo-accent">.KPI_ANALYTICS</span></span>
+        </div>
+        <div class="header-info" style="display: none;">
+            <div class="status-indicator">
+                <span class="status-dot-green"></span>
+                <span class="tech-label">PROCESS: FDV_KPI_ROUTING</span>
+            </div>
+            <div class="status-indicator">
+                <span class="tech-label">TARGET: SOM_VMM_AGADIR</span>
+            </div>
+            <div class="status-indicator">
+                <span class="tech-label">STATUS: <span class="neon-text-green" id="prorata-label">INITIALIZING...</span></span>
+            </div>
+        </div>
+        <div class="header-actions" style="display: flex; gap: 0.5rem; align-items: center;">
+            <select id="date-select" class="cyber-select" style="display: none; border-color: var(--neon-amber); text-transform: uppercase;" title="Sélectionner la date du suivi">
+            </select>
+            <button id="upload-btn" class="cyber-btn" title="Importer un suivi (Excel)">
+                <i class="fa-solid fa-cloud-arrow-up"></i>
+                <span>IMPORTER</span>
+            </button>
+            <button id="ai-report-btn" class="cyber-btn" title="Générer un rapport d'analyse IA">
+                <i class="fa-solid fa-brain" id="ai-report-icon"></i>
+                <span id="ai-report-label">ANALYSE IA</span>
+            </button>
+            <button id="refresh-btn" class="cyber-btn" title="Rafraîchir depuis Excel">
+                <i class="fa-solid fa-arrows-rotate" id="refresh-icon"></i>
+                <span id="refresh-label">RELOAD</span>
+            </button>
+            <button id="theme-toggle-btn" class="cyber-btn" title="Changer de thème">
+                <i class="fa-solid fa-sun" id="theme-icon"></i>
+                <span id="theme-label">LIGHT</span>
+            </button>
+            <button id="settings-btn" class="cyber-btn" title="Configuration">
+                <i class="fa-solid fa-sliders"></i>
+                <span>CONFIG</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="dashboard-container" id="main-dashboard-container">
+        <!-- TOP SUMMARY CARDS -->
+        <section class="summary-section" id="summary-section">
+            <div class="cyber-card summary-card glow-blue">
+                <div class="card-edge"></div>
+                <div class="summary-icon"><i class="fa-solid fa-cash-register"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">CHIFFRE D'AFFAIRES (REAL)</span>
+                    <h2 class="summary-value neon-text-blue" id="total-ca">0 DH</h2>
+                    <span class="summary-sub" id="ca-vs-obj">VS OBJ: 0 DH (0%)</span>
+                </div>
+            </div>
+            <div class="cyber-card summary-card glow-green">
+                <div class="card-edge"></div>
+                <div class="summary-icon"><i class="fa-solid fa-bullseye"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">ACHIEVEMENT RATE (C.A)</span>
+                    <h2 class="summary-value neon-text-green" id="achievement-rate">0%</h2>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-fill green-fill" id="achievement-bar" style="width: 0%"></div>
+                    </div>
+                    <span class="summary-sub" id="achievement-vs-prorata" style="margin-top: 0.25rem;">vs Prorata: 0%</span>
+                </div>
+            </div>
+            <div class="cyber-card summary-card glow-amber">
+                <div class="card-edge"></div>
+                <div class="summary-icon"><i class="fa-solid fa-users"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">EFFECTIF VENDEURS</span>
+                    <h2 class="summary-value neon-text-amber" id="vendeurs-count">0</h2>
+                    <span class="summary-sub">Actifs ce mois</span>
+                </div>
+            </div>
+            <div class="cyber-card summary-card glow-pink">
+                <div class="card-edge"></div>
+                <div class="summary-icon"><i class="fa-solid fa-calendar-days"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">TEMPS ÉCOULÉ</span>
+                    <h2 class="summary-value neon-text-pink" id="days-ratio">0/0</h2>
+                    <span class="summary-sub" id="days-remaining">0 jours restants</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- FILTERS PANEL & SELECTION -->
+        <section class="filter-section cyber-card" id="filter-section">
+            <div class="card-edge"></div>
+            <div class="filter-controls">
+                <div class="filter-group search-group">
+                    <label class="tech-label"><i class="fa-solid fa-search"></i> RECHERCHE VENDEUR / SECTEUR</label>
+                    <div class="search-input-wrapper">
+                        <input type="text" id="search-input" placeholder="Entrez le nom d'un vendeur ou secteur..." autocomplete="off">
+                        <div class="dropdown-list" id="search-dropdown"></div>
+                    </div>
+                </div>
+                
+                <div class="filter-group select-group">
+                    <label class="tech-label"><i class="fa-solid fa-filter"></i> FILTRER PAR TYPE</label>
+                    <div class="tab-buttons">
+                        <button class="tab-btn active" data-type="all">TOUS</button>
+                        <button class="tab-btn" data-type="som">SOM ONLY</button>
+                        <button class="tab-btn" data-type="vmm">VMM ONLY</button>
+                    </div>
+                </div>
+                
+                <div class="filter-group active-selection-group">
+                    <label class="tech-label">SÉLECTION ACTUELLE</label>
+                    <div class="selection-status">
+                        <span id="current-selection-badge" class="badge-blue">GLOBAL / CHAKIB EQUIPE</span>
+                        <button id="reset-filter-btn" class="cyber-btn-mini" style="display: none;"><i class="fa-solid fa-xmark"></i> RESET</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- MAIN VIEW LAYOUT -->
+        <div class="layout-grid">
+            
+            <!-- LEFT COLUMN: SVG FLOW & CHARTS -->
+            <div class="layout-left">
+                <!-- QUANTITATIVE CHART PANEL -->
+                <div class="cyber-card chart-card" id="quanti-chart-card" style="margin-bottom: 1.5rem;">
+                    <div class="card-edge"></div>
+                    <div class="card-header">
+                        <span class="tech-label"><i class="fa-solid fa-chart-line neon-text-blue"></i> PERFORMANCE QUANTITATIVE : ÉCART VS OBJ (%)</span>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="quanti-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- QUALITATIVE CHART PANEL -->
+                <div class="cyber-card chart-card" id="quali-chart-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header">
+                        <span class="tech-label"><i class="fa-solid fa-chart-line neon-text-green"></i> PERFORMANCE QUALITATIVE : PROFIL (%)</span>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="quali-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: DETAILED DATA & FOCUS -->
+            <div class="layout-right">
+                <!-- FOCUS PRODUCTS PANEL -->
+                <div class="cyber-card focus-card" id="focus-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header">
+                        <span class="tech-label"><i class="fa-solid fa-crosshairs"></i> FOCUS DU MOIS (OBJECTIFS SPÉCIFIQUES)</span>
+                    </div>
+                    <div class="focus-grid">
+                        <!-- VMM Focus Card (Tomate Frito) -->
+                        <div class="focus-item-card">
+                            <div class="focus-header">
+                                <span class="focus-title">TOMATE FRITO (VMM)</span>
+                                <span class="badge-blue" id="focus-vmm-name">Secteurs VMM</span>
+                            </div>
+                            <div class="focus-stats">
+                                <div class="focus-stat">
+                                    <span class="stat-lbl">Clients programmés</span>
+                                    <span class="stat-val" id="focus-vmm-clients">0</span>
+                                </div>
+                                <div class="focus-stat">
+                                    <span class="stat-lbl">Taux Visé ACM</span>
+                                    <span class="stat-val" id="focus-vmm-target-acm">0%</span>
+                                </div>
+                                <div class="focus-stat">
+                                    <span class="stat-lbl">Objectif ACM</span>
+                                    <span class="stat-val" id="focus-vmm-obj-acm">0</span>
+                                </div>
+                            </div>
+                            <div class="focus-progress-wrapper">
+                                <div class="focus-progress-header">
+                                    <span>Taux de Réalisation</span>
+                                    <span class="neon-text-blue" id="focus-vmm-pct">0%</span>
+                                </div>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill blue-fill" id="focus-vmm-bar" style="width: 0%"></div>
+                                </div>
+                                <div class="focus-sub-stats">
+                                    <span id="focus-vmm-real-rest">Réalisé: 0 | Reste: 0</span>
+                                    <span class="neon-text-amber" id="focus-vmm-raf-jour">Reste/Jour: 0.0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SOM Focus Card (Glace) -->
+                        <div class="focus-item-card">
+                            <div class="focus-header">
+                                <span class="focus-title">GLACE TTC (SOM)</span>
+                                <span class="badge-green" id="focus-som-name">Secteurs SOM</span>
+                            </div>
+                            <div class="focus-stats">
+                                <div class="focus-stat" style="display: none;">
+                                    <span class="stat-lbl">Objectif HT</span>
+                                    <span class="stat-val" id="focus-som-obj-ht">0 DH</span>
+                                </div>
+                                <div class="focus-stat">
+                                    <span class="stat-lbl">Objectif TTC</span>
+                                    <span class="stat-val" id="focus-som-obj-ttc">0 DH</span>
+                                </div>
+                            </div>
+                            <div class="focus-progress-wrapper">
+                                <div class="focus-progress-header">
+                                    <span>Taux de Réalisation</span>
+                                    <span class="neon-text-green" id="focus-som-pct">0%</span>
+                                </div>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill green-fill" id="focus-som-bar" style="width: 0%"></div>
+                                </div>
+                                <div class="focus-sub-stats">
+                                    <span id="focus-som-real-rest">Réalisé: 0 DH | Reste: 0 DH</span>
+                                    <span class="neon-text-amber" id="focus-som-raf-jour">Reste/Jour: 0 DH</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DETAILED DATA TABLES -->
+                <div class="cyber-card table-card" id="quanti-table-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header">
+                        <span class="tech-label"><i class="fa-solid fa-list-check"></i> ANALYSE PAR FAMILLE DE PRODUIT (QUANTITATIF)</span>
+                    </div>
+                    <div class="table-container">
+                        <table class="cyber-table" id="quanti-table">
+                            <thead>
+                                <tr>
+                                    <th>Famille</th>
+                                    <th>Réalisé (DH)</th>
+                                    <th>Objectif (DH)</th>
+                                    <th>% Taux</th>
+                                    <th>Réal 2025 (DH)</th>
+                                    <th>Obj Mois (DH)</th>
+                                    <th>Reste à Faire (RAF)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Inserted dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- QUALITATIVE TABLE PANEL -->
+                <div class="cyber-card table-card" id="quali-table-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header">
+                        <span class="tech-label"><i class="fa-solid fa-award"></i> PERFORMANCE QUALITATIVE (KPI VISITES/FACTURES)</span>
+                    </div>
+                    <div class="table-container">
+                        <table class="cyber-table" id="quali-table">
+                            <thead>
+                                <tr>
+                                    <th>Vendeur</th>
+                                    <th>Clts Programme</th>
+                                    <th>Clts Facture</th>
+                                    <th>ACM</th>
+                                    <th>TSM</th>
+                                    <th>LINE</th>
+                                    <th>RAF TSM</th>
+                                    <th>RAF ACM</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Inserted dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+
+        <!-- SYSTEM ALERTS SECTION -->
+        <section class="cyber-card alerts-section" id="alerts-section" style="margin-top: 1.5rem;">
+            <div class="card-edge"></div>
+            <div class="card-header">
+                <span class="tech-label"><i class="fa-solid fa-triangle-exclamation neon-text-pink"></i> ALERTES SYSTÈME & RISQUES TERRAIN</span>
+            </div>
+            <div id="alerts-container" class="alerts-list">
+                <!-- Alerts inserted dynamically -->
+            </div>
+        </section>
+    </main>
+
+    <!-- DETAILS VIEW CONTAINER -->
+    <main class="dashboard-container" id="details-container" style="display: none;">
+        <!-- Section Header / Controls -->
+        <section class="filter-section cyber-card" style="margin-bottom: 1.5rem;">
+            <div class="card-edge"></div>
+            <div class="filter-controls" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; width: 100%;">
+                <div class="filter-group">
+                    <label class="tech-label"><i class="fa-solid fa-filter"></i> SÉLECTIONNER LA FAMILLE</label>
+                    <select id="details-family-select" class="cyber-select" style="width: 100%; border-color: var(--neon-amber); text-transform: uppercase;">
+                        <option value="C.A (TTC)">C.A (TTC)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label class="tech-label"><i class="fa-solid fa-user"></i> FILTRER PAR VENDEUR</label>
+                    <select id="details-vendeur-select" class="cyber-select" style="width: 100%; border-color: var(--neon-blue); text-transform: uppercase;">
+                        <option value="all">TOUS LES VENDEURS</option>
+                    </select>
+                </div>
+                <div class="filter-group" style="display: flex; gap: 0.5rem; align-items: flex-end; justify-content: flex-end;">
+                    <button id="multi-upload-btn" class="cyber-btn" title="Importer plusieurs suivis (Excel)" style="width: 100%; justify-content: center; height: 42px; border-color: var(--neon-blue);">
+                        <i class="fa-solid fa-copy"></i>
+                        <span>MULTI-IMPORTER</span>
+                    </button>
+                    <button id="back-to-dashboard-btn" class="cyber-btn" style="width: 100%; justify-content: center; height: 42px;">
+                        <i class="fa-solid fa-gauge"></i>
+                        <span>RETOUR TABLEAU</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- CHART PANEL -->
+        <section class="cyber-card chart-card" style="margin-bottom: 1.5rem; min-height: 480px;">
+            <div class="card-edge"></div>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                <span class="tech-label"><i class="fa-solid fa-chart-column neon-text-blue"></i> PERFORMANCE QUOTIDIENNE (RÉALISÉ vs OBJECTIF & %)</span>
+                <div style="display: flex; align-items: center; gap: 1.25rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: var(--text-main); font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; text-transform: uppercase; margin: 0; user-select: none;">
+                        <input type="checkbox" id="details-j1-toggle" style="width: 16px; height: 16px; accent-color: var(--neon-pink); cursor: pointer; margin: 0;">
+                        <span>Dates Réelles (J-1)</span>
+                    </label>
+                    <span class="badge-blue" id="details-family-badge">C.A (TTC)</span>
+                </div>
+            </div>
+            <div class="chart-wrapper" style="height: 400px; padding: 1rem 0; position: relative;">
+                <div id="details-loading-placeholder" style="position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem; background: rgba(0,0,0,0.4); border-radius: 6px; z-index: 5;">
+                    <div class="cyber-spinner"></div>
+                    <span class="tech-label" style="color: var(--neon-blue);">CHARGEMENT DE L'HISTORIQUE...</span>
+                </div>
+                <canvas id="details-trend-chart"></canvas>
+            </div>
+        </section>
+
+        <!-- DETAILS RAW DATA TABLE -->
+        <section class="cyber-card table-card">
+            <div class="card-edge"></div>
+            <div class="card-header">
+                <span class="tech-label"><i class="fa-solid fa-list-check"></i> HISTORIQUE DE PERFORMANCE DÉTAILLÉ</span>
+            </div>
+            <div class="table-container">
+                <table class="cyber-table" id="details-trend-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Vendeur</th>
+                            <th>Réalisé (DH)</th>
+                            <th>Objectif (DH)</th>
+                            <th>Écart / Objectif (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Populated dynamically -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- QUALITATIVE CHART PANEL -->
+        <section class="cyber-card chart-card" style="margin-top: 1.5rem; margin-bottom: 1.5rem; min-height: 480px;">
+            <div class="card-edge"></div>
+            <div class="card-header">
+                <span class="tech-label"><i class="fa-solid fa-chart-line neon-text-green"></i> PERFORMANCE QUALITATIVE QUOTIDIENNE (ACM, TSM, LINE)</span>
+            </div>
+            <div class="chart-wrapper" style="height: 400px; padding: 1rem 0;">
+                <canvas id="details-quali-trend-chart"></canvas>
+            </div>
+        </section>
+
+        <!-- QUALITATIVE RAW DATA TABLE -->
+        <section class="cyber-card table-card" style="margin-bottom: 2rem;">
+            <div class="card-edge"></div>
+            <div class="card-header">
+                <span class="tech-label"><i class="fa-solid fa-award"></i> HISTORIQUE DE PERFORMANCE QUALITATIVE DÉTAILLÉ</span>
+            </div>
+            <div class="table-container">
+                <table class="cyber-table" id="details-quali-trend-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Vendeur</th>
+                            <th>Clients Prog</th>
+                            <th>Clients Fact</th>
+                            <th>ACM (%)</th>
+                            <th>TSM (%)</th>
+                            <th>LINE (%)</th>
+                            <th>RAF TSM</th>
+                            <th>RAF ACM</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Populated dynamically -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- PER-DAY QUALITATIVE SECTIONS -->
+        <section class="cyber-card" style="margin-bottom: 2rem; padding: 1.25rem 1.5rem;">
+            <div class="card-edge"></div>
+            <div class="card-header" style="margin-bottom: 1rem;">
+                <span class="tech-label" id="per-day-quali-title">
+                    <i class="fa-solid fa-calendar-days neon-text-amber"></i>
+                    ANALYSE QUALITATIVE PAR JOUR
+                </span>
+            </div>
+            <div id="details-per-day-quali" style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <!-- Populated dynamically per date -->
+            </div>
+        </section>
+    </main>
+        </div> <!-- .main-content -->
+    </div> <!-- .app-layout -->
+
+    <!-- UPLOAD MODAL (MULTI-FILE) -->
+    <div class="modal-backdrop" id="upload-modal">
+        <div class="cyber-modal" style="max-width: 640px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-cloud-arrow-up"></i> IMPORTER UN OU PLUSIEURS SUIVIS EXCEL</h3>
+                <button class="close-btn" id="close-upload-modal-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="upload-form">
+                    <div class="form-group">
+                        <label class="tech-label">FICHIERS EXCEL (SUIVI AGADIR)</label>
+                        <div class="upload-dropzone" id="upload-dropzone">
+                            <i class="fa-solid fa-file-excel dropzone-icon"></i>
+                            <span class="dropzone-text">Glissez-déposez un ou plusieurs fichiers Excel ici ou <strong>cliquez pour parcourir</strong></span>
+                            <span class="dropzone-subtext">Formats acceptés : .xlsx, .xls &mdash; le jour est détecté depuis le nom du fichier (ex. "1.xlsx" → 01/06/2026)</span>
+                            <input type="file" id="upload-file-input" accept=".xlsx, .xls" style="display: none;" multiple>
+                        </div>
+                    </div>
+
+                    <div class="form-group" id="upload-files-list-container" style="display: none; margin-top: 1rem;">
+                        <label class="tech-label">FICHIERS PRÊTS À L'IMPORTATION</label>
+                        <div id="upload-files-list" class="multi-files-list" style="max-height: 240px; overflow-y: auto; margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                            <!-- Filled dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="form-group-info" id="upload-status-container" style="display: none; margin-top: 1.5rem;">
+                        <div class="tech-label" id="upload-status-title">IMPORTATION EN COURS...</div>
+                        <div class="info-details" style="display: flex; align-items: center; gap: 1rem;">
+                            <div class="cyber-spinner" id="upload-spinner"></div>
+                            <p id="upload-status-text" class="font-mono" style="font-size: 0.75rem; margin: 0; color: var(--text-main);"></p>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="cyber-btn-submit" id="upload-submit-btn" style="margin-top: 1.5rem; width: 100%;" disabled>
+                        <i class="fa-solid fa-cloud-arrow-up"></i> IMPORTER ET RECALCULER
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MULTI-UPLOAD MODAL -->
+    <div class="modal-backdrop" id="multi-upload-modal">
+        <div class="cyber-modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-copy"></i> MULTI-IMPORTATION DE SUIVIS</h3>
+                <button class="close-btn" id="close-multi-upload-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="tech-label">SÉLECTIONNEZ LES CLASSEURS EXCEL</label>
+                    <div class="upload-dropzone" id="multi-upload-dropzone" style="min-height: 120px;">
+                        <i class="fa-solid fa-file-excel dropzone-icon" style="font-size: 2.2rem;"></i>
+                        <span class="dropzone-text">Glissez-déposez plusieurs fichiers Excel ici ou <strong>cliquer pour parcourir</strong></span>
+                        <span class="dropzone-subtext">Le nom de chaque fichier doit contenir le jour (ex: '1.xlsx' pour le 01/06/2026)</span>
+                        <input type="file" id="multi-upload-file-input" accept=".xlsx, .xls" style="display: none;" multiple>
+                    </div>
+                </div>
+
+                <!-- LIST OF SELECTED FILES WITH PARSED DATES & STATUS -->
+                <div class="form-group" style="margin-top: 1.5rem; display: none;" id="multi-files-list-container">
+                    <label class="tech-label">FICHIERS PRÊTS À L'IMPORTATION</label>
+                    <div class="multi-files-list" id="multi-files-list" style="max-height: 200px; overflow-y: auto; margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <!-- Injected dynamically -->
+                    </div>
+                </div>
+
+                <div class="form-group-info" id="multi-upload-status-container" style="display: none; margin-top: 1.5rem;">
+                    <div class="tech-label" id="multi-upload-status-title">IMPORTATION EN COURS...</div>
+                    <div class="info-details" style="display: flex; align-items: center; gap: 1rem;">
+                        <div class="cyber-spinner"></div>
+                        <p id="multi-upload-status-text" class="font-mono" style="font-size: 0.75rem; margin: 0; color: var(--text-main);"></p>
+                    </div>
+                </div>
+
+                <button type="button" class="cyber-btn-submit" id="multi-upload-submit-btn" style="margin-top: 1.5rem; width: 100%;" disabled>
+                    <i class="fa-solid fa-cloud-arrow-up"></i> IMPORTER LES SÉLECTIONS
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SETTINGS MODAL -->
+    <div class="modal-backdrop" id="settings-modal">
+        <div class="cyber-modal">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-sliders"></i> PARAMÈTRES DU CALCUL</h3>
+                <button class="close-btn" id="close-modal-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="settings-form">
+                    <div class="form-group">
+                        <label class="tech-label">JOURS RESTANTS (rest_days)</label>
+                        <input type="number" id="input-rest-days" min="1" max="31" class="cyber-input" required>
+                        <span class="input-help">Utilisé pour recalculer le Reste à Faire (RAF) quotidien.</span>
+                    </div>
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label class="tech-label">THÈME VISUEL</label>
+                        <div class="theme-grid-selector" id="theme-grid-selector">
+                            <div class="theme-card" data-theme="theme-1">
+                                <div class="theme-color-bar" style="background: linear-gradient(135deg, #0c0c0e 30%, #C800DF 70%, #E60076 100%);"></div>
+                                <span class="theme-name">Contemporary Dark</span>
+                            </div>
+                            <div class="theme-card" data-theme="theme-2">
+                                <div class="theme-color-bar" style="background: linear-gradient(135deg, #1a0b2e 30%, #fe75fe 70%, #ff007f 100%);"></div>
+                                <span class="theme-name">Synthwave Sunset</span>
+                            </div>
+                            <div class="theme-card" data-theme="theme-3">
+                                <div class="theme-color-bar" style="background: linear-gradient(135deg, #040d04 30%, #00ff46 70%, #10b981 100%);"></div>
+                                <span class="theme-name">Matrix Hack</span>
+                            </div>
+                            <div class="theme-card" data-theme="theme-4">
+                                <div class="theme-color-bar" style="background: linear-gradient(135deg, #0f0505 30%, #ff3b30 70%, #ffcc00 100%);"></div>
+                                <span class="theme-name">Crimson Gold</span>
+                            </div>
+                            <div class="theme-card" data-theme="theme-5">
+                                <div class="theme-color-bar" style="background: linear-gradient(135deg, #0b131a 30%, #00f0ff 70%, #2dd4bf 100%);"></div>
+                                <span class="theme-name">Aurora Ice</span>
+                            </div>
+                        </div>
+                        <select id="modal-theme-select" class="cyber-select" style="display: none;" title="Sélectionner le thème visuel">
+                            <option value="theme-1">Contemporary Dark</option>
+                            <option value="theme-2">Synthwave Sunset</option>
+                            <option value="theme-3">Matrix Hack</option>
+                            <option value="theme-4">Crimson Gold</option>
+                            <option value="theme-5">Aurora Ice</option>
+                        </select>
+                        <span class="input-help">Sélectionnez la palette de couleurs de l'application.</span>
+                    </div>
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label class="tech-label">FAMILLES À MASQUER</label>
+                        <div id="exclude-families-toggles" class="exclude-families-grid">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                        <span class="input-help">Cliquez sur une famille pour basculer son exclusion (les familles masquées apparaissent en rouge).</span>
+                    </div>
+                    <div class="form-group" style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                        <label class="tech-label"><i class="fa-solid fa-calendar-xmark"></i> EXCLURE DES DATES</label>
+                        <select id="details-exclude-date-select" class="cyber-select" style="width: 100%; border-color: var(--neon-pink); text-transform: uppercase;">
+                            <option value="">-- CHOISIR POUR EXCLURE --</option>
+                        </select>
+                        <span class="input-help">Sélectionnez une date pour l'exclure des graphiques et des calculs.</span>
+                        <!-- Container for excluded dates badges -->
+                        <div id="excluded-dates-badges" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem;"></div>
+                    </div>
+                    <div class="form-group-info">
+                        <div class="tech-label">DONNÉES IMPLIQUÉES :</div>
+                        <div class="info-details">
+                            <p><strong>Total Jours Ouvrables (Month):</strong> <span id="info-total-days">24</span></p>
+                            <p><strong>Jours Écoulés:</strong> <span id="info-elapsed-days">4</span></p>
+                        </div>
+                    </div>
+                    <button type="submit" class="cyber-btn-submit">APPLIQUER ET RECALCULER</button>
+                </form>
+
+                <div class="methodology-section" style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                    <div class="tech-label" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; color: var(--text-main);" id="toggle-methodology-btn">
+                        <span><i class="fa-solid fa-circle-info"></i> MÉTHODOLOGIE DES CALCULS</span>
+                        <i class="fa-solid fa-chevron-down" id="methodology-chevron"></i>
+                    </div>
+                    <div id="methodology-content" style="display: none; margin-top: 0.75rem; font-size: 0.75rem; line-height: 1.4; color: var(--text-muted);">
+                        <p style="margin-bottom: 0.5rem;"><strong>Objectif Mois (OBJ MOIS) :</strong> Établi au prorata du nombre de jours total de l'agence.<br><code>OBJ MOIS = Objectif de base × Jours Ouvrés (24) / Total Jours dans le mois (depuis l'Excel)</code></p>
+                        <p style="margin-bottom: 0.5rem;"><strong>Reste à faire (RAF) :</strong> Montant quotidien restant pour atteindre l'objectif ajusté.<br><code>RAF = (Objectif Mois - Réalisé avec Encours) / Jours Restants (Configurés ci-dessus)</code></p>
+                        <p style="margin-bottom: 0.5rem;"><strong>Taux ACM (Achat Client Moyen) :</strong> Pourcentage d'efficacité de commande.<br><code>ACM = Clients Facturés / Clients Programmés</code></p>
+                        <p style="margin-bottom: 0.5rem;"><strong>RAF TSM / ACM :</strong> Nombre de visites/achats quotidiens requis.<br><code>RAF = (Clients Programmés - Réalisé) / Jours Restants</code></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI REPORT MODAL -->
+    <div class="modal-backdrop" id="ai-report-modal">
+        <div class="cyber-modal report-modal">
+            <div class="modal-header">
+                <h3 id="report-modal-title"><i class="fa-solid fa-brain neon-text-blue"></i> RAPPORT D'ANALYSE IA</h3>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button class="close-btn" id="fullscreen-report-modal-btn" title="Plein écran" style="font-size: 0.9rem; padding: 0.2rem;"><i class="fa-solid fa-expand"></i></button>
+                    <button class="close-btn" id="close-report-modal-btn" title="Fermer">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body report-body-container">
+                <!-- VEO 3 VIDEO ENGINE PLAYER -->
+                <div id="report-loading" class="report-loading-wrapper">
+                    <div class="veo-video-player">
+                        <div class="veo-hud-header">
+                            <span class="hud-red-dot neon-pulse"></span>
+                            <span class="hud-text font-mono">VEO 3.0 // ANALYTICAL_VIDEO_STREAM</span>
+                            <span class="hud-timecode font-mono" id="veo-timecode">REC 00:00:00</span>
+                        </div>
+                        <canvas id="veo-canvas"></canvas>
+                        <div class="veo-hud-footer">
+                            <span class="hud-status font-mono">AI_MODEL: GOOGLE_VEO_GEN3</span>
+                            <span class="hud-fps font-mono">60 FPS // STREAMING</span>
+                        </div>
+                    </div>
+                    <p class="tech-label neon-text-blue" style="margin-top: 1rem;">ANALYSE DES KPI EN COURS VIA L'API OPENROUTER...</p>
+                    <p class="tech-label" style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase;">Génération du rapport de performance. Analyse sémantique en cours.</p>
+                </div>
+                <div id="report-content-wrapper" class="report-markdown-content" style="display: none;">
+                    <!-- Inserted dynamically -->
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.5rem;">
+                <button id="download-report-btn" class="cyber-btn" style="padding: 0.45rem 1rem; font-size: 0.75rem; display: none;">
+                    <i class="fa-solid fa-file-pdf"></i> TÉLÉCHARGER PDF
+                </button>
+                <button id="copy-report-btn" class="cyber-btn" style="padding: 0.45rem 1rem; font-size: 0.75rem; display: none;">
+                    <i class="fa-solid fa-copy"></i> COPIER LE RAPPORT
+                </button>
+                <button id="ok-report-btn" class="cyber-btn" style="padding: 0.45rem 1rem; font-size: 0.75rem; display: none;">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vendeur Selection Modal -->
+    <div class="modal-backdrop" id="vendeur-selection-modal">
+        <div class="cyber-modal vendeur-selection-modal">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-users neon-text-amber"></i> SÉLECTIONNER UN VENDEUR</h3>
+                <button class="close-btn" id="close-vendeur-modal-btn" title="Fermer">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem;">
+                <!-- Vendeur Dropdown -->
+                <div class="vendeur-dropdown-wrapper" style="margin-bottom: 1.5rem;">
+                    <label class="tech-label" style="display: block; margin-bottom: 0.5rem; font-size: 0.75rem; color: var(--text-muted);">
+                        <i class="fa-solid fa-user-tie"></i> CHOISIR UN VENDEUR
+                    </label>
+                    <div class="dropdown-container" id="vendeur-dropdown-container">
+                        <button class="dropdown-toggle" id="vendeur-dropdown-toggle" type="button">
+                            <span class="dropdown-toggle-icon"><i class="fa-solid fa-user-tie"></i></span>
+                            <span class="dropdown-selected-text" id="dropdown-selected-text">-- Sélectionner un vendeur --</span>
+                            <i class="fa-solid fa-chevron-down dropdown-chevron"></i>
+                        </button>
+                        <div class="dropdown-menu" id="vendeur-dropdown-menu">
+                            <div class="dropdown-search-wrapper">
+                                <i class="fa-solid fa-search search-icon"></i>
+                                <input type="text" id="vendeur-dropdown-search" class="dropdown-search-input" placeholder="Rechercher...">
+                            </div>
+                            <div class="dropdown-list" id="vendeur-dropdown-list">
+                                <div class="dropdown-loading">
+                                    <i class="fa-solid fa-circle-notch fa-spin"></i>
+                                    <span>Chargement...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analysis Options Checkboxes -->
+                <div class="analysis-options-wrapper">
+                    <label class="tech-label" style="display: block; margin-bottom: 0.75rem; font-size: 0.75rem; color: var(--text-muted);">
+                        <i class="fa-solid fa-tasks"></i> OPTIONS D'ANALYSE
+                    </label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-item" data-option="quanti">
+                            <input type="checkbox" id="check-quanti" checked>
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-label">
+                                <span class="checkbox-icon-wrap"><i class="fa-solid fa-chart-bar"></i></span>
+                                <span class="checkbox-title">Quantitatif</span>
+                                <small>Analyse quantitative des ventes</small>
+                            </span>
+                        </label>
+                        <label class="checkbox-item" data-option="quali">
+                            <input type="checkbox" id="check-quali" checked>
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-label">
+                                <span class="checkbox-icon-wrap"><i class="fa-solid fa-chart-pie"></i></span>
+                                <span class="checkbox-title">Qualitatif</span>
+                                <small>Analyse qualitative (ACM, TSM, LINE)</small>
+                            </span>
+                        </label>
+                        <label class="checkbox-item" data-option="focus">
+                            <input type="checkbox" id="check-focus" checked>
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-label">
+                                <span class="checkbox-icon-wrap"><i class="fa-solid fa-bullseye"></i></span>
+                                <span class="checkbox-title">Focus</span>
+                                <small>Focus produits (Tomate Frito, Glace)</small>
+                            </span>
+                        </label>
+                        <label class="checkbox-item" data-option="anomali">
+                            <input type="checkbox" id="check-anomali">
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-label">
+                                <span class="checkbox-icon-wrap"><i class="fa-solid fa-triangle-exclamation"></i></span>
+                                <span class="checkbox-title">Anomalies</span>
+                                <small>Détection des anomalies</small>
+                            </span>
+                        </label>
+                        <label class="checkbox-item" data-option="rappel">
+                            <input type="checkbox" id="check-rappel">
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-label">
+                                <span class="checkbox-icon-wrap"><i class="fa-solid fa-bell"></i></span>
+                                <span class="checkbox-title">N'oublier Pas</span>
+                                <small>Rappels et alertes importants</small>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                <div class="selected-vendeur-display" id="selected-vendeur-display" style="font-size: 0.85rem; color: var(--text-muted);">
+                    <i class="fa-solid fa-user" id="selected-vendeur-icon"></i> <span id="selected-vendeur-text">Aucun vendeur sélectionné</span>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="cancel-vendeur-btn" class="cyber-btn" style="padding: 0.5rem 1.25rem; font-size: 0.8rem;">
+                        <i class="fa-solid fa-times"></i> ANNULER
+                    </button>
+                    <button id="generate-vendeur-report-btn" class="cyber-btn" style="padding: 0.5rem 1.25rem; font-size: 0.8rem;" disabled>
+                        <i class="fa-solid fa-brain"></i> GÉNÉRER LE RAPPORT
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Script JS -->
+    <script src="/static/js/dashboard.js?v=1.4"></script>
+    <script src="/static/js/bg-anim.js?v=1.0"></script>
+</body>
+</html>
