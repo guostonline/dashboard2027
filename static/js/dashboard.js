@@ -61,6 +61,9 @@ const focusSomRafJour = document.getElementById('focus-som-raf-jour');
 
 const chakibFamiliesProgressCard = document.getElementById('chakib-families-progress-card');
 let chakibFamiliesChartInstance = null;
+const chakibFocusProgressCard = document.getElementById('chakib-focus-progress-card');
+let chakibFocusChartInstance = null;
+let chakibFocusHistoryData = null;
 
 // Layout Manager Configurations & State
 const checkboxMap = {
@@ -69,6 +72,7 @@ const checkboxMap = {
     'radar-chart-card': 'toggle-radar-chart',
     'focus-card': 'toggle-focus-card',
     'chakib-families-progress-card': 'toggle-chakib-families',
+    'chakib-focus-progress-card': 'toggle-chakib-focus',
     'quanti-table-card': 'toggle-quanti-table',
     'quali-table-card': 'toggle-quali-table'
 };
@@ -112,10 +116,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Proceed with initialization
+            const onClientsRoute = window.location.pathname === '/clients';
+            const onDetailsRoute = window.location.pathname === '/details';
+            
+            if (onDetailsRoute) {
+                activeView = 'details';
+            } else if (onClientsRoute) {
+                activeView = 'clients';
+            } else {
+                activeView = 'dashboard';
+            }
+            
+            switchView(activeView);
+            
             // Skip the main dashboard fetch when the user is on the /clients
             // route (the dashboard-container is hidden in that case, but
             // the network call would still fire and trigger a modal error).
-            const onClientsRoute = window.location.pathname === '/clients';
             if (!onClientsRoute) {
                 fetchSuiviDates(() => {
                     fetchDashboardData();
@@ -211,6 +227,7 @@ function switchView(viewName) {
     const mainDashboard = document.getElementById('main-dashboard-container');
     const detailsContainer = document.getElementById('details-container');
     const dateSelect = document.getElementById('date-select');
+    const timelapseCtrl = document.getElementById('timelapse-control');
     
     // Remove active class from all
     [navDashboard, navRealisation, navDetails].forEach(nav => {
@@ -222,6 +239,8 @@ function switchView(viewName) {
         if (mainDashboard) mainDashboard.style.display = 'none';
         if (detailsContainer) detailsContainer.style.display = 'block';
         if (dateSelect) dateSelect.style.display = 'none';
+        if (timelapseCtrl) timelapseCtrl.style.display = 'none';
+        if (timelapseIsPlaying) stopTimelapse();
         loadTrendsData();
     } else {
         if (viewName === 'dashboard' && navDashboard) navDashboard.classList.add('active');
@@ -230,6 +249,7 @@ function switchView(viewName) {
         if (mainDashboard) mainDashboard.style.display = 'block';
         if (detailsContainer) detailsContainer.style.display = 'none';
         if (dateSelect) dateSelect.style.display = 'block';
+        if (timelapseCtrl) timelapseCtrl.style.display = 'flex';
         
         fetchDashboardData();
     }
@@ -491,16 +511,73 @@ function setupEventListeners() {
         categorySelect.addEventListener('change', () => {
             // Reset individual search selection to avoid mismatch
             currentSelection = { type: 'global', name: '' };
-            searchInput.value = '';
-            resetFilterBtn.style.display = 'none';
+            if (searchInput) searchInput.value = '';
+            closeMainVendeurDropdown();
+            if (timelapseIsPlaying) stopTimelapse();
+            if (resetFilterBtn) resetFilterBtn.style.display = 'none';
             const categoryText = categorySelect.options[categorySelect.selectedIndex].text;
-            currentSelectionBadge.innerText = `GLOBAL / ${categoryText.toUpperCase()}`;
-            currentSelectionBadge.className = 'badge-blue';
+            if (currentSelectionBadge) {
+                currentSelectionBadge.innerText = `GLOBAL / ${categoryText.toUpperCase()}`;
+                currentSelectionBadge.className = 'badge-blue';
+            }
             fetchDashboardData();
 
             // Also refresh Details trends
             const familySelect = document.getElementById('details-family-select');
             loadTrendsData(familySelect ? familySelect.value : 'C.A (TTC)');
+        });
+    }
+
+    // Main Vendeur/Secteur selector event listeners
+    const mainVendeurToggle = document.getElementById('main-vendeur-toggle');
+    const mainVendeurSearch = document.getElementById('main-vendeur-search');
+    const mainVendeurMenu = document.getElementById('main-vendeur-menu');
+
+    if (mainVendeurToggle) {
+        mainVendeurToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleMainVendeurDropdown();
+        });
+    }
+    if (mainVendeurSearch) {
+        mainVendeurSearch.addEventListener('input', (e) => {
+            mainVendeurSearchQuery = e.target.value;
+            renderMainVendeurDropdownList();
+        });
+        mainVendeurSearch.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    }
+    if (mainVendeurMenu) {
+        mainVendeurMenu.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    }
+    document.addEventListener('click', (e) => {
+        const container = document.getElementById('main-vendeur-container');
+        if (container && !container.contains(e.target)) {
+            closeMainVendeurDropdown();
+        }
+    });
+
+    // Timelapse control events
+    const playBtn = document.getElementById('timelapse-play-btn');
+    const stopBtn = document.getElementById('timelapse-stop-btn');
+    const speedInd = document.getElementById('timelapse-speed-indicator');
+
+    if (playBtn) {
+        playBtn.addEventListener('click', () => {
+            toggleTimelapse();
+        });
+    }
+    if (stopBtn) {
+        stopBtn.addEventListener('click', () => {
+            stopTimelapse();
+        });
+    }
+    if (speedInd) {
+        speedInd.addEventListener('click', () => {
+            cycleTimelapseSpeed();
         });
     }
 
@@ -728,6 +805,9 @@ function setupEventListeners() {
     const dateSelect = document.getElementById('date-select');
     if (dateSelect) {
         dateSelect.addEventListener('change', () => {
+            if (timelapseIsPlaying) {
+                stopTimelapse();
+            }
             fetchDashboardData();
         });
     }
@@ -1139,6 +1219,9 @@ function handleSettingsSubmit(e) {
 function resetSelection() {
     currentSelection = { type: 'global', name: '' };
     if (searchInput) searchInput.value = '';
+    closeMainVendeurDropdown();
+    updateMainVendeurSelectedText();
+    renderMainVendeurDropdownList();
     if (resetFilterBtn) resetFilterBtn.style.display = 'none';
     const categorySelect = document.getElementById('category-select');
     const categoryText = categorySelect ? categorySelect.options[categorySelect.selectedIndex].text : "TOUTE L'AGENCE";
@@ -1216,6 +1299,17 @@ function populateFilters() {
         ...uniqueSecteursSom.map(s => ({ name: s, type: 'secteur' })),
         { name: 'AUTRE', type: 'vendeur' }
     ];
+
+    mainDropdownItems = [
+        { name: 'RESET_GLOBAL', label: '-- TOUS LES VENDEURS --', type: 'global' },
+        ...uniqueVendeurs.map(v => ({ name: v, label: v, type: 'vendeur' })),
+        ...uniqueSecteursVmm.map(s => ({ name: s, label: s, type: 'secteur_vmm' })),
+        ...uniqueSecteursSom.map(s => ({ name: s, label: s, type: 'secteur_som' })),
+        { name: 'AUTRE', label: 'AUTRE', type: 'vendeur' }
+    ];
+
+    updateMainVendeurSelectedText();
+    renderMainVendeurDropdownList();
 }
 
 // Filter autocomplete dropdown dynamically
@@ -1264,6 +1358,9 @@ function selectFilter(type, name) {
     if (searchInput) searchInput.value = name;
     if (searchDropdown) searchDropdown.style.display = 'none';
     if (resetFilterBtn) resetFilterBtn.style.display = 'inline-block';
+    
+    updateMainVendeurSelectedText();
+    renderMainVendeurDropdownList();
     
     if (currentSelectionBadge) {
         currentSelectionBadge.innerText = `${type.toUpperCase()}: ${name}`;
@@ -1668,6 +1765,23 @@ function updateDashboard() {
                 });
             }
         }
+        
+        if (chakibFocusProgressCard) {
+            applyCardVisibility('chakib-focus-progress-card');
+            if (!chakibFocusHistoryData) {
+                fetch('/api/focus/trend?agence=AGADIR')
+                .then(r => r.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        chakibFocusHistoryData = res;
+                        renderChakibFocusProgress(res.data, res.settings, res.total_days);
+                    }
+                })
+                .catch(err => console.error("Error fetching CHAKIB ELFIL focus trend:", err));
+            } else {
+                renderChakibFocusProgress(chakibFocusHistoryData.data, chakibFocusHistoryData.settings, chakibFocusHistoryData.total_days);
+            }
+        }
     } else {
         if (chakibFamiliesProgressCard) {
             applyCardVisibility('chakib-families-progress-card');
@@ -1675,6 +1789,13 @@ function updateDashboard() {
         if (chakibFamiliesChartInstance) {
             chakibFamiliesChartInstance.destroy();
             chakibFamiliesChartInstance = null;
+        }
+        if (chakibFocusProgressCard) {
+            applyCardVisibility('chakib-focus-progress-card');
+        }
+        if (chakibFocusChartInstance) {
+            chakibFocusChartInstance.destroy();
+            chakibFocusChartInstance = null;
         }
     }
 
@@ -2015,6 +2136,7 @@ function renderQuantiChart(quantiRecords) {
     const neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
     const neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
     const neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
+    const neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
 
     // Extract top sellers performance by volume (real CA)
     const sellerPerformances = {};
@@ -2804,6 +2926,395 @@ let selectedVendeurForReport = null;
 let allVendeursList = [];
 let filteredVendeursList = [];
 
+// Main dashboard vendor/sector dropdown state
+let mainVendeurSearchQuery = '';
+let mainDropdownItems = [];
+
+// Toggle main vendor dropdown
+function toggleMainVendeurDropdown() {
+    const menu = document.getElementById('main-vendeur-menu');
+    const toggle = document.getElementById('main-vendeur-toggle');
+    if (menu && toggle) {
+        const isOpen = menu.classList.contains('open');
+        if (isOpen) {
+            closeMainVendeurDropdown();
+        } else {
+            // Close other dropdowns
+            closeVendeurDropdown(); 
+            
+            menu.classList.add('open');
+            toggle.classList.add('open');
+            
+            // Focus on search input
+            setTimeout(() => {
+                const searchInput = document.getElementById('main-vendeur-search');
+                if (searchInput) searchInput.focus();
+            }, 50);
+        }
+    }
+}
+
+// Close main vendor dropdown
+function closeMainVendeurDropdown() {
+    const menu = document.getElementById('main-vendeur-menu');
+    const toggle = document.getElementById('main-vendeur-toggle');
+    if (menu) menu.classList.remove('open');
+    if (toggle) toggle.classList.remove('open');
+    
+    // Reset search query
+    const searchInput = document.getElementById('main-vendeur-search');
+    if (searchInput) searchInput.value = '';
+    mainVendeurSearchQuery = '';
+}
+
+// Update toggle button text to show current selection
+function updateMainVendeurSelectedText() {
+    const selectedTextSpan = document.getElementById('main-vendeur-selected-text');
+    if (!selectedTextSpan) return;
+
+    if (!currentSelection || currentSelection.type === 'global') {
+        selectedTextSpan.textContent = '-- TOUS LES VENDEURS --';
+    } else {
+        selectedTextSpan.textContent = `${currentSelection.type.toUpperCase()}: ${currentSelection.name}`;
+    }
+}
+
+// Render main dropdown items
+function renderMainVendeurDropdownList() {
+    const listContainer = document.getElementById('main-vendeur-list');
+    if (!listContainer) return;
+
+    const query = mainVendeurSearchQuery.toLowerCase().trim();
+    const filtered = mainDropdownItems.filter(item => {
+        if (item.type === 'global') return !query;
+        return item.label.toLowerCase().includes(query);
+    });
+
+    if (filtered.length === 0) {
+        listContainer.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; font-family: var(--font-mono);"><i class="fa-solid fa-magnifying-glass"></i> AUCUN RÉSULTAT</div>';
+        return;
+    }
+
+    listContainer.innerHTML = filtered.map(item => {
+        const isSelected = (item.type === 'global' && currentSelection.type === 'global') ||
+            (item.type.startsWith('secteur') && currentSelection.type === 'secteur' && currentSelection.name === item.name) ||
+            (item.type === currentSelection.type && currentSelection.name === item.name);
+
+        const iconClass = item.type === 'global' ? 'fa-globe' : 
+                          item.type === 'vendeur' ? 'fa-user' : 
+                          item.type === 'secteur_vmm' ? 'fa-bolt' : 'fa-ice-cream';
+
+        const badgeText = item.type === 'global' ? 'Tous' : 
+                          item.type === 'vendeur' ? 'Vendeur' : 
+                          item.type === 'secteur_vmm' ? 'VMM' : 'SOM';
+
+        const badgeColor = item.type === 'global' ? 'badge-blue' : 
+                            item.type === 'vendeur' ? 'badge-blue' : 
+                            item.type === 'secteur_vmm' ? 'badge-green' : 'badge-green';
+
+        const itemStyle = 'display: flex; align-items: center; gap: 0.75rem; padding: 0.65rem 0.85rem; margin-bottom: 0.25rem; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); font-size: 0.85rem; transition: all 0.2s;';
+        const selectedStyle = isSelected ? ' border-color: var(--primary-color); background: rgba(0, 212, 255, 0.12); font-weight: 600;' : '';
+
+        return `
+            <div class="main-dropdown-item ${isSelected ? 'selected' : ''}" data-type="${item.type}" data-name="${item.name}" style="${itemStyle}${selectedStyle}">
+                <i class="fa-solid ${iconClass}" style="color: var(--primary-color); font-size: 0.85rem; width: 16px; text-align: center; flex-shrink: 0;"></i>
+                <span style="flex: 1; color: var(--text-main); font-size: 0.85rem;">${item.label}</span>
+                <span class="dropdown-item-meta ${badgeColor}" style="margin-right: 0.5rem; font-size: 0.7rem; padding: 0.15rem 0.45rem;">${badgeText}</span>
+                ${isSelected ? '<i class="fa-solid fa-check" style="color: var(--primary-color); font-size: 0.85rem;"></i>' : ''}
+            </div>
+        `;
+    }).join('');
+
+    const items = listContainer.querySelectorAll('.main-dropdown-item');
+    items.forEach(el => {
+        el.addEventListener('click', () => {
+            const type = el.dataset.type;
+            const name = el.dataset.name;
+
+            if (type === 'global') {
+                resetSelection();
+            } else {
+                const normType = type.startsWith('secteur') ? 'secteur' : type;
+                selectFilter(normType, name);
+            }
+            closeMainVendeurDropdown();
+        });
+    });
+}
+
+// Day-by-day Animated Timelapse playback state
+let timelapseIsPlaying = false;
+let timelapseTimer = null;
+let timelapseSpeed = 2000; // default 2s per step
+let timelapseCurrentIndex = -1;
+
+// Beautiful, cyberpunk-themed non-blocking toast notification system
+function showTransientToast(message, type = 'info') {
+    let toastContainer = document.getElementById('transient-toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'transient-toast-container';
+        toastContainer.style.cssText = 'position: fixed; bottom: 24px; right: 24px; z-index: 10000; display: flex; flex-direction: column; gap: 8px; pointer-events: none;';
+        document.body.appendChild(toastContainer);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = 'cyber-toast';
+    
+    let icon = 'fa-circle-info';
+    let colorClass = 'neon-text-blue';
+    let borderColor = 'var(--neon-blue)';
+    
+    if (type === 'success') {
+        icon = 'fa-circle-check';
+        colorClass = 'neon-text-green';
+        borderColor = 'var(--neon-green)';
+    } else if (type === 'error' || type === 'warning') {
+        icon = 'fa-triangle-exclamation';
+        colorClass = 'neon-text-pink';
+        borderColor = 'var(--neon-pink)';
+    }
+    
+    toast.style.cssText = `
+        background: rgba(10, 12, 22, 0.95);
+        border: 1px solid ${borderColor};
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5), inset 0 0 10px rgba(0, 212, 255, 0.1);
+        color: var(--text-main);
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 250px;
+        max-width: 400px;
+        pointer-events: auto;
+        opacity: 0;
+        transform: translateY(20px);
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    `;
+    
+    toast.innerHTML = `
+        <i class="fa-solid ${icon} ${colorClass}" style="font-size: 1.1rem;"></i>
+        <span style="flex-grow: 1;">${message}</span>
+    `;
+    
+    toastContainer.appendChild(toast);
+    
+    // Trigger transition
+    setTimeout(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateY(0)';
+    }, 10);
+    
+    // Auto remove after 2.8s
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-20px)';
+        setTimeout(() => {
+            toast.remove();
+        }, 300);
+    }, 2800);
+}
+
+// Start day-by-day timelapse chronological playback
+function startTimelapse() {
+    if (availableDates.length <= 1) {
+        showTransientToast("Pas assez de dates pour lancer le timelapse.", "warning");
+        return;
+    }
+    
+    // Switch to dashboard view if not already there
+    if (activeView === 'details') {
+        showView('dashboard');
+    }
+    
+    timelapseIsPlaying = true;
+    
+    // Update UI controls
+    const playBtn = document.getElementById('timelapse-play-btn');
+    const stopBtn = document.getElementById('timelapse-stop-btn');
+    const container = document.getElementById('timelapse-control');
+    const progressContainer = document.getElementById('timelapse-progress-container');
+    const progressText = document.getElementById('timelapse-progress-text');
+    
+    if (playBtn) playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+    if (playBtn) playBtn.title = "Mettre en pause";
+    if (stopBtn) stopBtn.style.display = 'inline-block';
+    if (container) container.classList.add('playing');
+    if (progressContainer) progressContainer.style.display = 'flex';
+    if (progressText) progressText.style.display = 'inline-block';
+    
+    // Find where to start in chronological order (oldest first)
+    const chronoDates = [...availableDates].reverse();
+    const dateSelect = document.getElementById('date-select');
+    const currentDate = dateSelect ? dateSelect.value : '';
+    
+    let currentChronoIdx = chronoDates.indexOf(currentDate);
+    
+    // If at the end, restart from the oldest date
+    if (currentChronoIdx === -1 || currentChronoIdx >= chronoDates.length - 1) {
+        timelapseCurrentIndex = 0;
+    } else {
+        timelapseCurrentIndex = currentChronoIdx;
+    }
+    
+    showTransientToast("Démarrage du timelapse...", "info");
+    
+    // Execute first step
+    runTimelapseStep();
+}
+
+// Pause timelapse playback
+function pauseTimelapse() {
+    timelapseIsPlaying = false;
+    if (timelapseTimer) {
+        clearTimeout(timelapseTimer);
+        timelapseTimer = null;
+    }
+    
+    const playBtn = document.getElementById('timelapse-play-btn');
+    const container = document.getElementById('timelapse-control');
+    if (playBtn) playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+    if (playBtn) playBtn.title = "Lancer le timelapse";
+    if (container) container.classList.remove('playing');
+    
+    showTransientToast("Timelapse mis en pause.", "info");
+}
+
+// Stop timelapse playback
+function stopTimelapse() {
+    timelapseIsPlaying = false;
+    if (timelapseTimer) {
+        clearTimeout(timelapseTimer);
+        timelapseTimer = null;
+    }
+    timelapseCurrentIndex = -1;
+    
+    const playBtn = document.getElementById('timelapse-play-btn');
+    const stopBtn = document.getElementById('timelapse-stop-btn');
+    const container = document.getElementById('timelapse-control');
+    const progressContainer = document.getElementById('timelapse-progress-container');
+    const progressText = document.getElementById('timelapse-progress-text');
+    const progressBar = document.getElementById('timelapse-progress-bar');
+    
+    if (playBtn) playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+    if (playBtn) playBtn.title = "Lancer le timelapse";
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (container) container.classList.remove('playing');
+    if (progressContainer) progressContainer.style.display = 'none';
+    if (progressText) progressText.style.display = 'none';
+    if (progressBar) progressBar.style.width = '0%';
+    
+    // Restore latest date if playing was stopped
+    const dateSelect = document.getElementById('date-select');
+    if (dateSelect && availableDates.length > 0 && dateSelect.value !== availableDates[0]) {
+        dateSelect.value = availableDates[0];
+        fetchDashboardData();
+    }
+}
+
+// Toggle play/pause
+function toggleTimelapse() {
+    if (timelapseIsPlaying) {
+        pauseTimelapse();
+    } else {
+        startTimelapse();
+    }
+}
+
+// Cycle speed: 2s -> 1s -> 4s -> 2s
+function cycleTimelapseSpeed() {
+    const indicator = document.getElementById('timelapse-speed-indicator');
+    if (!indicator) return;
+    
+    if (timelapseSpeed === 2000) {
+        timelapseSpeed = 1000;
+        indicator.textContent = '1s';
+    } else if (timelapseSpeed === 1000) {
+        timelapseSpeed = 4000;
+        indicator.textContent = '4s';
+    } else {
+        timelapseSpeed = 2000;
+        indicator.textContent = '2s';
+    }
+    
+    // If playing, restart the step delay
+    if (timelapseIsPlaying) {
+        if (timelapseTimer) {
+            clearTimeout(timelapseTimer);
+        }
+        timelapseTimer = setTimeout(runTimelapseStep, timelapseSpeed);
+    }
+    
+    showTransientToast(`Intervalle réglé à ${timelapseSpeed / 1000}s`, "success");
+}
+
+// Promise-safe frame-rate safe step execution
+function runTimelapseStep() {
+    if (!timelapseIsPlaying) return;
+    
+    const chronoDates = [...availableDates].reverse();
+    if (timelapseCurrentIndex >= chronoDates.length) {
+        stopTimelapse();
+        showTransientToast("Timelapse terminé !", "success");
+        return;
+    }
+    
+    const targetDate = chronoDates[timelapseCurrentIndex];
+    const dateSelect = document.getElementById('date-select');
+    if (dateSelect) {
+        dateSelect.value = targetDate;
+    }
+    
+    // Update progress bar and text day-by-day
+    const progressBar = document.getElementById('timelapse-progress-bar');
+    const progressText = document.getElementById('timelapse-progress-text');
+    if (chronoDates.length > 0) {
+        const pct = Math.round(((timelapseCurrentIndex + 1) / chronoDates.length) * 100);
+        if (progressBar) progressBar.style.width = `${pct}%`;
+        if (progressText) progressText.textContent = `${timelapseCurrentIndex + 1}/${chronoDates.length}`;
+    }
+    
+    prorataLabelEl.innerText = "TIMELAPSE...";
+    const categorySelect = document.getElementById('category-select');
+    const category = categorySelect ? categorySelect.value : 'All';
+    
+    let queryDate = targetDate;
+    if (activeView === 'realisation') {
+        const idx = availableDates.indexOf(targetDate);
+        if (idx > 0) {
+            queryDate = availableDates[idx - 1];
+        }
+    }
+    
+    fetch(`/api/data?category=${encodeURIComponent(category)}&date=${encodeURIComponent(queryDate)}&_=${Date.now()}`)
+        .then(response => response.json())
+        .then(res => {
+            if (res.status === 'success' && timelapseIsPlaying) {
+                dashboardData = res.data;
+                updateDashboard();
+                populateFilters();
+                
+                prorataLabelEl.innerText = `TIMELAPSE: ${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} J`;
+                
+                // Move to next index for the next frame
+                timelapseCurrentIndex++;
+                
+                // Wait for speed delay, then run the next frame
+                timelapseTimer = setTimeout(runTimelapseStep, timelapseSpeed);
+            } else {
+                stopTimelapse();
+            }
+        })
+        .catch(err => {
+            console.error("Timelapse fetch error:", err);
+            stopTimelapse();
+            showTransientToast("Erreur lors du timelapse.", "error");
+        });
+}
+
 // Open Vendeur Selection Modal
 function openVendeurSelectionModal() {
     const modal = document.getElementById('vendeur-selection-modal');
@@ -3052,6 +3563,7 @@ function generateReportForSelectedVendeur() {
 
 // Open AI Report modal & run backend generation (modified to show vendeur selection first)
 function openAiReportModal() {
+    if (timelapseIsPlaying) stopTimelapse();
     // Check if a specific vendor is already selected
     const categorySelect = document.getElementById('category-select');
     const selectedCategory = categorySelect ? categorySelect.value : 'All';
@@ -6845,6 +7357,7 @@ function initLayoutManager() {
         'radar-chart-card',
         'focus-card',
         'chakib-families-progress-card',
+        'chakib-focus-progress-card',
         'quanti-table-card',
         'quali-table-card'
     ];
@@ -7016,7 +7529,7 @@ function applyCardVisibility(cardId) {
     const isVisibleInManager = layoutStates.visible[cardId] !== false;
     
     let shouldBeVisible = isVisibleInManager;
-    if (cardId === 'chakib-families-progress-card') {
+    if (cardId === 'chakib-families-progress-card' || cardId === 'chakib-focus-progress-card') {
         const isChakib = currentSelection && currentSelection.type === 'vendeur' && currentSelection.name.trim().toUpperCase() === 'CHAKIB ELFIL';
         shouldBeVisible = isVisibleInManager && isChakib;
     }
@@ -7091,4 +7604,195 @@ function escapeAttr(s) {
         .replace(/&/g, '&amp;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+function renderChakibFocusProgress(historyData, settings, totalDays) {
+    if (!historyData) return;
+    
+    const glaceCdz = (historyData.glace && historyData.glace.cdz) ? historyData.glace.cdz : [];
+    const tomateCdz = (historyData.tomate && historyData.tomate.cdz) ? historyData.tomate.cdz : [];
+    
+    // Filter for CHAKIB EL FIL
+    const chakibGlace = glaceCdz.filter(r => (r.cdz || '').replace(/\s+/g, '').toUpperCase() === 'CHAKIBELFIL');
+    const chakibTomate = tomateCdz.filter(r => (r.cdz || '').replace(/\s+/g, '').toUpperCase() === 'CHAKIBELFIL');
+    
+    // Get all unique sorted dates
+    const allDates = [...new Set([
+        ...chakibGlace.map(r => r.upload_date.substring(0, 10)),
+        ...chakibTomate.map(r => r.upload_date.substring(0, 10))
+    ])].sort();
+    
+    // Populate Table
+    const tbody = document.getElementById('chakib-focus-progress-tbody');
+    if (tbody) {
+        tbody.innerHTML = '';
+        allDates.forEach(date => {
+            const gRec = chakibGlace.find(r => r.upload_date.startsWith(date));
+            const tRec = chakibTomate.find(r => r.upload_date.startsWith(date));
+            
+            const gDev = gRec ? Math.round(gRec.deviation * 100) : null;
+            const tDev = tRec ? Math.round(tRec.deviation * 100) : null;
+            
+            const gText = gDev !== null ? (gDev > 0 ? '+' : '') + gDev + '%' : 'N/A';
+            const tText = tDev !== null ? (tDev > 0 ? '+' : '') + tDev + '%' : 'N/A';
+            
+            // Color codes
+            const gColorClass = gDev !== null ? (gDev >= 0 ? 'neon-text-green' : (gDev >= -20 ? 'neon-text-amber' : 'neon-text-pink')) : '';
+            const tColorClass = tDev !== null ? (tDev >= 0 ? 'neon-text-green' : (tDev >= -20 ? 'neon-text-amber' : 'neon-text-pink')) : '';
+            
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${date}</td>
+                <td class="${gColorClass}">${gText}</td>
+                <td class="${tColorClass}">${tText}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+    
+    // Render Line Chart
+    const canvas = document.getElementById('chakib-focus-progress-chart');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (chakibFocusChartInstance) {
+        chakibFocusChartInstance.destroy();
+    }
+    
+    const isWhiteMode = document.body.classList.contains('light-mode');
+    const styles = getComputedStyle(document.body);
+    const neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
+    const neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
+    const neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
+    const neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
+    const gridColor = isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+    const textColor = isWhiteMode ? '#334155' : '#e2e8f0';
+    
+    // Date formatting helper
+    const formatShortDate = (dateStr) => {
+        const parts = dateStr.split('-');
+        if (parts.length !== 3) return dateStr;
+        const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+        const idx = parseInt(parts[1]) - 1;
+        return `${parts[2]} ${months[idx] || parts[1]}`;
+    };
+    
+    const labels = allDates.map(formatShortDate);
+    
+    const glaceData = allDates.map(date => {
+        const r = chakibGlace.find(x => x.upload_date.startsWith(date));
+        return r ? Math.round(r.deviation * 100) : null;
+    });
+    
+    const tomateData = allDates.map(date => {
+        const r = chakibTomate.find(x => x.upload_date.startsWith(date));
+        return r ? Math.round(r.deviation * 100) : null;
+    });
+    
+    const prorataDeviations = allDates.map(date => {
+        const rest = settings ? settings[date] : null;
+        if (rest === null || rest === undefined) return null;
+        const elapsed = totalDays - rest;
+        const prorataVal = (elapsed / totalDays - 1.0) * 100;
+        return Math.round(prorataVal);
+    });
+    
+    chakibFocusChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Glace (SOM) (%)',
+                    data: glaceData,
+                    borderColor: neonBlue,
+                    backgroundColor: neonBlue + '15',
+                    borderWidth: 2.5,
+                    pointBackgroundColor: neonBlue,
+                    pointRadius: 4,
+                    fill: false,
+                    tension: 0.15
+                },
+                {
+                    label: 'Tomate Frito (VMM) (%)',
+                    data: tomateData,
+                    borderColor: neonPink,
+                    backgroundColor: neonPink + '15',
+                    borderWidth: 2.5,
+                    pointBackgroundColor: neonPink,
+                    pointRadius: 4,
+                    fill: false,
+                    tension: 0.15
+                },
+                {
+                    label: 'Cible Partielle (%)',
+                    data: prorataDeviations,
+                    borderColor: neonAmber,
+                    borderWidth: 1.5,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0.1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        color: textColor,
+                        font: { family: 'JetBrains Mono', size: 9 }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            const val = context.raw;
+                            if (val === null) return ` N/A`;
+                            return ` ${context.dataset.label.split(' ')[0]}: ${(val > 0 ? '+' : '') + val}%`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: gridColor },
+                    ticks: {
+                        color: textColor,
+                        font: { family: 'JetBrains Mono', size: 9 }
+                    }
+                },
+                y: {
+                    grid: {
+                        color: function (context) {
+                            if (context.tick && context.tick.value === 0) {
+                                return isWhiteMode ? 'rgba(15, 23, 42, 0.6)' : '#00d4ff';
+                            }
+                            return gridColor;
+                        },
+                        lineWidth: function (context) {
+                            if (context.tick && context.tick.value === 0) return 2;
+                            return 1;
+                        }
+                    },
+                    ticks: {
+                        color: function (context) {
+                            if (context.tick && context.tick.value === 0) {
+                                return isWhiteMode ? '#0f172a' : '#00d4ff';
+                            }
+                            return textColor;
+                        },
+                        font: { family: 'JetBrains Mono', size: 9 },
+                        callback: function (value) {
+                            return (value > 0 ? '+' : '') + value + '%';
+                        }
+                    }
+                }
+            }
+        }
+    });
 }

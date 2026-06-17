@@ -9,7 +9,11 @@
     let focusData = null;
     let focusHistoryData = null;
     let selectedVendeurFilter = '';
+    let selectedCdzFilter = '';
     let selectedUploadFile = null;
+    let focusWorkdays = null;
+    let focusSettings = null;
+    let focusTotalDays = 24;
 
     // Wait until DOM is ready
     document.addEventListener('DOMContentLoaded', function () {
@@ -140,6 +144,10 @@
                 selectedVendeurFilter = vendeurFilter.value;
                 console.log("Selected vendeur filter:", selectedVendeurFilter);
                 
+                if (selectedVendeurFilter) {
+                    selectedCdzFilter = ''; // Reset CDZ filter when vendor selected
+                }
+                
                 const comparisonCard = document.getElementById('focus-comparison-card');
                 if (comparisonCard) {
                     if (selectedVendeurFilter) {
@@ -149,6 +157,7 @@
                     }
                 }
                 
+                renderFocusView();
                 renderFocusTrendChart();
             });
         }
@@ -213,6 +222,7 @@
 
     function switchTab(type) {
         currentFocusType = type;
+        selectedCdzFilter = ''; // Reset CDZ filter on tab switch
         
         const tabGlace = document.getElementById('focus-tab-glace');
         const tabTomate = document.getElementById('focus-tab-tomate');
@@ -294,6 +304,7 @@
         .then(res => {
             if (res.status === 'success' && res.data) {
                 focusData = res.data;
+                focusWorkdays = res.workdays || null;
                 if (statusEl) {
                     statusEl.innerHTML = `<i class="fa-solid fa-clock"></i> Dernière mise à jour : <strong>${res.upload_date}</strong>`;
                 }
@@ -318,6 +329,8 @@
         .then(res => {
             if (res.status === 'success') {
                 focusHistoryData = res.data;
+                focusSettings = res.settings || null;
+                focusTotalDays = res.total_days || 24;
                 renderFocusTrendChart();
             }
         })
@@ -330,8 +343,18 @@
         if (!focusData) return;
 
         const cohort = currentFocusType === 'GLACE' ? focusData.glace : focusData.tomate;
-        const reps = cohort.reps || [];
+        let reps = cohort.reps || [];
         const cdz = cohort.cdz || [];
+        
+        // Filter representatives based on vendedor selection
+        if (selectedVendeurFilter) {
+            reps = reps.filter(r => r.representative.startsWith(selectedVendeurFilter));
+        }
+        
+        // Filter representatives based on CDZ selection
+        if (selectedCdzFilter) {
+            reps = reps.filter(r => (r.cdz || '').trim().toUpperCase() === selectedCdzFilter.trim().toUpperCase());
+        }
         
         // 1. Populate summary cards
         document.getElementById('focus-summary-sellers').innerText = reps.length;
@@ -498,6 +521,37 @@
                 <td>${c.agence}</td>
                 <td class="${devClass}"><strong>${deviationFormatted}</strong></td>
             `;
+            
+            // Add custom interactivity for CDZ table click filtering
+            tr.style.cursor = 'pointer';
+            const isActive = selectedCdzFilter && c.cdz.trim().toUpperCase() === selectedCdzFilter.trim().toUpperCase();
+            if (isActive) {
+                const accentColor = currentFocusType === 'GLACE' ? 'rgba(0, 212, 255, 0.18)' : 'rgba(255, 45, 85, 0.18)';
+                const borderNeon = currentFocusType === 'GLACE' ? 'var(--neon-blue)' : 'var(--neon-pink)';
+                tr.style.background = accentColor;
+                tr.style.borderLeft = `3px solid ${borderNeon}`;
+                tr.style.boxShadow = `inset 0 0 10px ${accentColor}`;
+            }
+            
+            tr.addEventListener('click', function () {
+                const cdzName = c.cdz.trim().toUpperCase();
+                if (selectedCdzFilter === cdzName) {
+                    selectedCdzFilter = ''; // Deselect
+                } else {
+                    selectedCdzFilter = cdzName; // Select
+                    selectedVendeurFilter = ''; // Reset seller dropdown
+                    const vf = document.getElementById('focus-vendeur-filter');
+                    if (vf) vf.value = '';
+                    
+                    // Show comparison card if it was hidden by vendor selection
+                    const comparisonCard = document.getElementById('focus-comparison-card');
+                    if (comparisonCard) {
+                        comparisonCard.style.display = 'block';
+                    }
+                }
+                renderFocusView();
+            });
+            
             cdzTbody.appendChild(tr);
         });
 
@@ -570,8 +624,36 @@
         const focusLabelsPlugin = {
             id: 'focusLabels',
             afterDatasetsDraw(chart) {
-                const { ctx, data } = chart;
+                const { ctx, data, chartArea, scales: { x } } = chart;
                 ctx.save();
+                
+                // Draw vertical target/prorata line if workdays info is available
+                if (focusWorkdays && focusWorkdays.total > 0 && chartArea) {
+                    const total = focusWorkdays.total;
+                    const rest = focusWorkdays.rest !== undefined ? focusWorkdays.rest : 20;
+                    const elapsed = total - rest;
+                    const prorataDeviation = (elapsed / total - 1.0) * 100;
+                    
+                    const xPx = x.getPixelForValue(prorataDeviation);
+                    
+                    if (xPx >= chartArea.left && xPx <= chartArea.right) {
+                        ctx.beginPath();
+                        ctx.setLineDash([5, 5]);
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = '#f0a030'; // neonAmber
+                        ctx.moveTo(xPx, chartArea.top);
+                        ctx.lineTo(xPx, chartArea.bottom);
+                        ctx.stroke();
+                        
+                        // Text label for vertical prorata line
+                        ctx.font = 'bold 9px JetBrains Mono';
+                        ctx.fillStyle = '#f0a030';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText(`CIBLE PARTIELLE (${prorataDeviation.toFixed(1)}%)`, xPx, chartArea.top - 4);
+                    }
+                }
+                
                 ctx.textBaseline = 'middle';
                 ctx.font = 'bold 10px JetBrains Mono';
                 
@@ -689,6 +771,7 @@
         const neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
         const neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
         const neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
+        const neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
         const gridColor = isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
         const textColor = isWhiteMode ? '#334155' : '#e2e8f0';
 
@@ -781,6 +864,29 @@
                 tension: 0.15
             });
         }
+
+        // 3. Add Cible Partielle (Objectif Partiel) dataset to trend line chart
+        const prorataDeviations = dates.map(d => {
+            const rest = focusSettings ? focusSettings[d] : null;
+            if (rest === null || rest === undefined) return null;
+            const elapsed = focusTotalDays - rest;
+            const prorataVal = (elapsed / focusTotalDays - 1.0) * 100;
+            return Math.round(prorataVal);
+        });
+
+        datasets.push({
+            label: 'Cible Partielle (%)',
+            data: prorataDeviations,
+            borderColor: neonAmber,
+            borderWidth: 2,
+            borderDash: [6, 4],
+            pointRadius: 4,
+            pointBackgroundColor: neonAmber,
+            pointBorderColor: '#fff',
+            pointBorderWidth: 1,
+            fill: false,
+            tension: 0.1
+        });
 
         document.getElementById('focus-trend-title').innerHTML = `<i class="fa-solid fa-chart-line"></i> ${trendTitle}`;
         document.getElementById('focus-trend-seller-name').innerText = displayBadgeName;

@@ -17,7 +17,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=2.1">
+    <link rel="stylesheet" href="/static/css/style.css?v=2.4">
 </head>
 <body class="cyber-grid {% if theme %}{{ theme }}{% endif %} {% if light_mode %}light-mode{% endif %}">
     <!-- ===== Animated background layers ===== -->
@@ -101,6 +101,10 @@
                             <span>Suivi Familles</span>
                         </label>
                         <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                            <input type="checkbox" id="toggle-chakib-focus" checked style="accent-color: var(--neon-blue);">
+                            <span>Progression Focus</span>
+                        </label>
+                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
                             <input type="checkbox" id="toggle-quanti-table" checked style="accent-color: var(--neon-blue);">
                             <span>Tableau Quanti</span>
                         </label>
@@ -153,6 +157,19 @@
         <div class="header-actions" style="display: flex; gap: 0.5rem; align-items: center;">
             <select id="date-select" class="cyber-select" style="display: none; border-color: var(--neon-amber); text-transform: uppercase;" title="Sélectionner la date du suivi">
             </select>
+            <div class="timelapse-control" id="timelapse-control" style="display: none; align-items: center; gap: 0.35rem; margin-right: 0.5rem;">
+                <button id="timelapse-play-btn" class="cyber-btn-mini" title="Lancer le timelapse (déroulement jour par jour)" style="padding: 0.55rem 0.75rem; font-size: 0.75rem; border-color: var(--neon-amber); color: var(--neon-amber);">
+                    <i class="fa-solid fa-play"></i>
+                </button>
+                <button id="timelapse-stop-btn" class="cyber-btn-mini" title="Arrêter" style="display: none; padding: 0.55rem 0.75rem; font-size: 0.75rem; border-color: var(--neon-pink); color: var(--neon-pink);">
+                    <i class="fa-solid fa-stop"></i>
+                </button>
+                <span id="timelapse-speed-indicator" class="tech-label-mini" style="font-size: 0.7rem; color: var(--neon-blue); cursor: pointer; border: 1px solid var(--border-color); padding: 0.25rem 0.5rem; border-radius: 4px; font-family: var(--font-mono); margin-left: 0.2rem;" title="Changer la vitesse">2s</span>
+                <div id="timelapse-progress-container" style="display: none; align-items: center; width: 60px; height: 8px; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 3px; overflow: hidden; margin-left: 0.2rem;">
+                    <div id="timelapse-progress-bar" style="width: 0%; height: 100%; background: var(--neon-green); transition: width 0.3s ease; box-shadow: 0 0 5px var(--neon-green-glow);"></div>
+                </div>
+                <span id="timelapse-progress-text" class="tech-label-mini" style="display: none; font-size: 0.65rem; color: var(--neon-green); font-family: var(--font-mono); margin-left: 0.2rem; white-space: nowrap;" title="Jour actuel / Total"></span>
+            </div>
             <button id="upload-btn" class="cyber-btn" title="Importer un suivi (Excel)">
                 <i class="fa-solid fa-cloud-arrow-up"></i>
                 <span>IMPORTER</span>
@@ -225,10 +242,24 @@
             <div class="card-edge"></div>
             <div class="filter-controls">
                 <div class="filter-group search-group">
-                    <label class="tech-label"><i class="fa-solid fa-search"></i> RECHERCHE VENDEUR / SECTEUR</label>
+                    <label class="tech-label"><i class="fa-solid fa-user"></i> SÉLECTIONNER UN VENDEUR / SECTEUR</label>
                     <div class="search-input-wrapper">
-                        <input type="text" id="search-input" placeholder="Entrez le nom d'un vendeur ou secteur..." autocomplete="off">
-                        <div class="dropdown-list" id="search-dropdown"></div>
+                        <div class="dropdown-container" id="main-vendeur-container">
+                            <button class="dropdown-toggle" id="main-vendeur-toggle" type="button">
+                                <span class="dropdown-toggle-icon"><i class="fa-solid fa-user-tie"></i></span>
+                                <span class="dropdown-selected-text" id="main-vendeur-selected-text">-- TOUS LES VENDEURS --</span>
+                                <i class="fa-solid fa-chevron-down dropdown-chevron"></i>
+                            </button>
+                            <div class="dropdown-menu" id="main-vendeur-menu">
+                                <div class="dropdown-search-wrapper">
+                                    <i class="fa-solid fa-search search-icon"></i>
+                                    <input type="text" id="main-vendeur-search" class="dropdown-search-input" placeholder="Rechercher un vendeur ou secteur..." autocomplete="off">
+                                </div>
+                                <div class="dropdown-list vendeur-dropdown-list" id="main-vendeur-list">
+                                    <!-- Dynamic list of sellers and sectors -->
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -374,6 +405,33 @@
                     </div>
                     <div class="chart-wrapper" style="height: 380px; padding: 1.25rem;">
                         <canvas id="chakib-families-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- CHAKIB ELFIL SPECIFIC FOCUS TREND -->
+                <div class="cyber-card focus-card" id="chakib-focus-progress-card" style="display: none; margin-bottom: 1.5rem;">
+                    <div class="card-edge"></div>
+                    <div class="card-header">
+                        <span class="tech-label"><i class="fa-solid fa-chart-line"></i> PROGRESSION FOCUS DE CHAKIB ELFIL (DÉVIATION DATE PAR DATE)</span>
+                    </div>
+                    <div class="focus-trend-grid">
+                        <div class="chart-wrapper" style="height: 380px; position: relative;">
+                            <canvas id="chakib-focus-progress-chart"></canvas>
+                        </div>
+                        <div class="table-container" style="max-height: 280px; overflow-y: auto;">
+                            <table class="cyber-table" id="chakib-focus-progress-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Écart Glace (SOM)</th>
+                                        <th>Écart Tomate (VMM)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="chakib-focus-progress-tbody">
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
@@ -1675,7 +1733,7 @@
 
 
     <!-- Custom Script JS -->
-    <script src="/static/js/dashboard.js?v=2.1"></script>
+    <script src="/static/js/dashboard.js?v=2.4"></script>
     <script src="/static/js/fdv.js?v=1.0"></script>
     <script src="/static/js/bg-anim.js?v=1.0"></script>
     <script src="/static/js/terrain.js?v=1.0"></script>

@@ -42,9 +42,16 @@ def generate_fallback_report_vendeur(vendeur, summary_data):
 *   **Verdict :** {verdict}
 """
 
-    # Compute RAF total for the headline
-    total_raf = sum(f.get("raf", 0) for f in summary_data["families_performance"])
+    # Compute full month objective and RAF correctly
+    # The stored obj is the prorated objective for elapsed days.
+    # Full month objective = prorated_obj * total_days / elapsed_days
     rest_days = workdays["rest"]
+    elapsed_days = workdays["elapsed"]
+    total_days = workdays["total"]
+    prorated_obj = summary_data["agency_totals"]["total_obj_ca_ttc"]
+    full_month_obj = prorated_obj * total_days / elapsed_days if elapsed_days > 0 else prorated_obj
+    total_real_ca = ca_ttc  # already the real TTC
+    total_raf = max(0, full_month_obj - total_real_ca)
     raf_per_day = total_raf / rest_days if rest_days > 0 else 0
 
     report = f"""**RAPPORT DE PERFORMANCE INDIVIDUEL - VENDEUR : {vendeur}**
@@ -53,7 +60,7 @@ def generate_fallback_report_vendeur(vendeur, summary_data):
 **1. INTRODUCTION ET CHIFFRE D'AFFAIRES INDIVIDUEL**
 Pour la période active, le vendeur {vendeur} a réalisé les performances de chiffre d'affaires suivantes :
 *   **Chiffre d'Affaires Réel (TTC) :** {ca_ttc:,.0f} MAD
-*   **Objectif de Chiffre d'Affaires (TTC) :** {obj_ttc:,.0f} MAD
+*   **Objectif Mensuel Complet (TTC) :** {full_month_obj:,.0f} MAD (= {prorated_obj:,.0f} × {total_days}/{elapsed_days} jours)
 *   **Taux d'Atteinte :** {rate}
 *   **Reste à Faire Total (RAF) :** {total_raf:,.0f} MAD → soit **{raf_per_day:,.0f} MAD / jour** sur les {rest_days} jours restants.
 {positioning_section}

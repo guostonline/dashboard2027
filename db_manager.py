@@ -589,17 +589,17 @@ def get_all_suivi_dates():
     return dates
 
 def get_workdays_info(rest_days):
-    elapsed = 5
     total = 24
     if os.path.exists("days.json"):
         import json
         try:
             with open("days.json", "r") as f:
                 d_info = json.load(f)
-                elapsed = int(d_info["from_file"]["d"])
                 total = int(d_info["from_file"]["t"])
         except Exception:
             pass
+    # Always compute elapsed from total - rest_days for accuracy
+    elapsed = max(0, total - int(rest_days))
     return {"elapsed": elapsed, "total": total, "rest": rest_days}
 
 def get_all_suivi_data_records():

@@ -959,20 +959,15 @@ def _build_rapport_text(vendeur, data_or_md):
     rest = workdays.get("rest", 0)
     
     agency_totals = summary_data.get("agency_totals", {})
-    real_ca = agency_totals.get("total_real_ca_ht", 0)
-    obj_ca = agency_totals.get("total_obj_ca_ht", 0)
+    real_ca = agency_totals.get("total_real_ca_ttc", 0) or agency_totals.get("total_real_ca_ht", 0)
+    prorated_obj_ca = agency_totals.get("total_obj_ca_ttc", 0) or agency_totals.get("total_obj_ca_ht", 0)
     rate = agency_totals.get("achievement_rate_ca", "0%")
     variance = agency_totals.get("variance_rate_ca", "0%")
-    
-    # Calculate RAF total and daily RAF from C.A (HT) row if available, else sum
-    families_performance = summary_data.get("families_performance", [])
-    total_raf = 0
-    ca_perf = next((f for f in families_performance if f.get("famille", "").strip().upper() in ("C.A (HT)", "C.A (TTC)")), None)
-    if ca_perf:
-        total_raf = ca_perf.get("raf", 0)
-    else:
-        total_raf = sum(f.get("raf", 0) for f in families_performance)
-        
+
+    # Compute full month objective and correct RAF
+    # stored obj is prorated for elapsed days; scale back to full month
+    full_month_obj_ca = prorated_obj_ca * total / elapsed if elapsed > 0 else prorated_obj_ca
+    total_raf = max(0, full_month_obj_ca - real_ca)
     raf_per_day = total_raf / rest if rest > 0 else 0
     
     # Positioning
@@ -1132,7 +1127,7 @@ def _build_rapport_text(vendeur, data_or_md):
         "",
         "*📈 CHIFFRE D'AFFAIRES GLOBAL*",
         f"• *CA Réalisé :* {real_ca:,.0f} MAD",
-        f"• *Objectif CA :* {obj_ca:,.0f} MAD",
+        f"• *Objectif Mensuel :* {full_month_obj_ca:,.0f} MAD",
         f"• *Taux d'Atteinte :* {rate} (Écart : {variance})",
         f"• *Reste à Faire (RAF) :* {total_raf:,.0f} MAD",
         f"• *🎯 Objectif Quotidien :* *{raf_per_day:,.0f} MAD / jour* pour les {rest} jours restants.",
@@ -1463,12 +1458,15 @@ def import_focus_rankings_file(filepath="focus2.xlsx", date_str=None):
                     rep = str(row.get("Repr\u00e9sentant") or "").strip()
                     if not rep or rep.lower() == "nan" or "repr" in rep.lower():
                         continue
+                    agence = str(row.get("Agence") or "").strip()
+                    if agence.upper() != "AGADIR":
+                        continue
                     pct_col = [c for c in df.columns if '%' in c]
                     deviation = float(row.get(pct_col[0])) if pct_col and pd.notna(row.get(pct_col[0])) else 0.0
                     reps.append({
                         "focus_type": "GLACE",
                         "rank": int(row.get("CLASSEMENT") or 0) if pd.notna(row.get("CLASSEMENT")) else 0,
-                        "agence": str(row.get("Agence") or "").strip(),
+                        "agence": agence,
                         "secteur": str(row.get("Secteur") or "").strip(),
                         "representative": rep,
                         "deviation": deviation,
@@ -1483,13 +1481,16 @@ def import_focus_rankings_file(filepath="focus2.xlsx", date_str=None):
                     cdz = str(row.get("CDZ") or "").strip()
                     if not cdz or cdz.lower() == "nan" or "cdz" in cdz.lower():
                         continue
+                    agence = str(row.get("Agence") or "").strip()
+                    if agence.upper() != "AGADIR":
+                        continue
                     pct_col = [c for c in df.columns if '%' in c]
                     deviation = float(row.get(pct_col[0])) if pct_col and pd.notna(row.get(pct_col[0])) else 0.0
                     cdzs.append({
                         "focus_type": "GLACE",
                         "rank": int(row.get("CLASSEMENT") or 0) if pd.notna(row.get("CLASSEMENT")) else 0,
                         "cdz": cdz,
-                        "agence": str(row.get("Agence") or "").strip(),
+                        "agence": agence,
                         "deviation": deviation
                     })
                     
@@ -1501,12 +1502,15 @@ def import_focus_rankings_file(filepath="focus2.xlsx", date_str=None):
                     rep = str(row.get("Repr\u00e9sentant") or "").strip()
                     if not rep or rep.lower() == "nan" or "repr" in rep.lower():
                         continue
+                    agence = str(row.get("Agence") or "").strip()
+                    if agence.upper() != "AGADIR":
+                        continue
                     pct_col = [c for c in df.columns if '%' in c]
                     deviation = float(row.get(pct_col[0])) if pct_col and pd.notna(row.get(pct_col[0])) else 0.0
                     reps.append({
                         "focus_type": "TOMATE_FRITO",
                         "rank": int(row.get("CLASSEMENT") or 0) if pd.notna(row.get("CLASSEMENT")) else 0,
-                        "agence": str(row.get("Agence") or "").strip(),
+                        "agence": agence,
                         "secteur": str(row.get("Secteur") or "").strip(),
                         "representative": rep,
                         "deviation": deviation,
@@ -1521,18 +1525,21 @@ def import_focus_rankings_file(filepath="focus2.xlsx", date_str=None):
                     cdz = str(row.get("CDZ") or "").strip()
                     if not cdz or cdz.lower() == "nan" or "cdz" in cdz.lower():
                         continue
+                    agence = str(row.get("Agence") or "").strip()
+                    if agence.upper() != "AGADIR":
+                        continue
                     pct_col = [c for c in df.columns if '%' in c]
                     deviation = float(row.get(pct_col[0])) if pct_col and pd.notna(row.get(pct_col[0])) else 0.0
                     cdzs.append({
                         "focus_type": "TOMATE_FRITO",
                         "rank": int(row.get("CLASSEMENT") or 0) if pd.notna(row.get("CLASSEMENT")) else 0,
                         "cdz": cdz,
-                        "agence": str(row.get("Agence") or "").strip(),
+                        "agence": agence,
                         "deviation": deviation
                     })
                     
             if not date_str:
-                date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                date_str = datetime.datetime.now().strftime("%Y-%m-%d")
             return date_str, reps, cdzs
     except Exception as e:
         print(f"Error parsing rankings file: {e}")
@@ -1551,6 +1558,92 @@ def focus_page():
     return render_template(
         "index.html", theme=theme, light_mode=light_mode, active_tab="focus"
     )
+
+
+def save_focus_data_all(date_str, reps, cdzs):
+    """Save rankings and calculate/populate focus_som_data and focus_vmm_data tables."""
+    # 1. Save rankings
+    db_manager.save_focus_rankings(date_str, reps)
+    db_manager.save_focus_cdz_rankings(date_str, cdzs)
+    
+    # 2. Populate focus_som_data and focus_vmm_data
+    conn = db_manager.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc FROM focus_objectives")
+    objectives_rows = [dict(o) for o in cursor.fetchall()]
+    
+    cursor.execute("SELECT rest_days FROM settings WHERE date = ?", (date_str,))
+    settings_row = cursor.fetchone()
+    rest_days = settings_row[0] if settings_row else 20
+    conn.close()
+
+    objectives_by_type_code = {}
+    for obj in objectives_rows:
+        ft = obj['focus_type']
+        v = obj['vendeur']
+        if not v:
+            continue
+        code = v.split()[0].upper()
+        if ft not in objectives_by_type_code:
+            objectives_by_type_code[ft] = {}
+        objectives_by_type_code[ft][code] = obj
+
+    focus_som_list = []
+    focus_vmm_list = []
+
+    for r in reps:
+        ft = r['focus_type']
+        rep = r['representative']
+        code = rep.split()[0].upper() if rep else ""
+        obj = objectives_by_type_code.get(ft, {}).get(code)
+        
+        dev = r['deviation'] or 0.0
+        percent_val = 1.0 + dev
+        
+        if ft == 'GLACE':
+            ttc_val = obj['ttc'] if obj else 0.0
+            glace_ht_val = obj['glace_ht'] if obj else 0.0
+            realise_val = round(percent_val * ttc_val, 2)
+            rest_val = round(ttc_val - realise_val, 2)
+            rest_jour_val = round(rest_val / rest_days, 2) if rest_days > 0 else 0.0
+            
+            focus_som_list.append({
+                "vendeur": rep,
+                "secteur": r['secteur'],
+                "glace_ht": glace_ht_val,
+                "ttc": ttc_val,
+                "percent": percent_val,
+                "realise": realise_val,
+                "rest": rest_val,
+                "rest_jour": rest_jour_val,
+                "jour_rest": rest_days
+            })
+        elif ft == 'TOMATE_FRITO':
+            obj_acm_val = obj['obj_acm'] if obj else 0.0
+            obj_juin_val = obj['obj_juin'] if obj else 0.0
+            nb_clients_val = obj['number_client'] if obj else 0
+            realise_val = round(percent_val * obj_acm_val, 2)
+            rest_val = round(obj_acm_val - realise_val, 2)
+            rest_jour_val = round(rest_val / rest_days, 2) if rest_days > 0 else 0.0
+            
+            focus_vmm_list.append({
+                "vendeur": rep,
+                "secteur": r['secteur'],
+                "dn_fin_mai": 0.0,
+                "obj_juin": obj_juin_val,
+                "nb_clients": nb_clients_val,
+                "obj_acm": obj_acm_val,
+                "percent": percent_val,
+                "realise": realise_val,
+                "rest": rest_val,
+                "jour_rest": rest_days,
+                "rest_jour": rest_jour_val
+            })
+
+    if focus_som_list:
+        db_manager.save_focus_som_data(date_str, focus_som_list)
+    if focus_vmm_list:
+        db_manager.save_focus_vmm_data(date_str, focus_vmm_list)
 
 
 @app.route("/api/focus/upload", methods=["POST"])
@@ -1578,8 +1671,7 @@ def upload_focus_rankings():
         if not reps:
             return jsonify({"status": "error", "message": "Aucune donnée de classement valide n'a pu être extraite."}), 400
             
-        db_manager.save_focus_rankings(date_str, reps)
-        db_manager.save_focus_cdz_rankings(date_str, cdzs)
+        save_focus_data_all(date_str, reps, cdzs)
         
         return jsonify({
             "status": "success", 
@@ -1607,11 +1699,23 @@ def get_focus_data_api():
             return jsonify({"status": "success", "data": None, "message": "Aucune donnée de classement focus disponible."})
             
         data = db_manager.get_focus_data(upload_date, agence)
+        
+        # Fetch workdays info for this date
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT rest_days FROM settings WHERE date = ?", (upload_date,))
+        row = cursor.fetchone()
+        rest_days = row[0] if row else 20
+        conn.close()
+        
+        workdays_info = db_manager.get_workdays_info(rest_days)
+        
         return jsonify({
             "status": "success",
             "upload_date": upload_date,
             "agence": agence,
-            "data": data
+            "data": data,
+            "workdays": workdays_info
         })
     except Exception as e:
         import traceback
@@ -1624,10 +1728,24 @@ def get_focus_trend_api():
     try:
         agence = request.args.get("agence", "AGADIR").strip().upper()
         history = db_manager.get_focus_history(agence)
+        
+        # Fetch settings dictionary to get rest_days for each history date
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT date, rest_days FROM settings")
+        settings_data = {row["date"]: row["rest_days"] for row in cursor.fetchall()}
+        conn.close()
+        
+        # Fetch total workdays
+        workdays_info = db_manager.get_workdays_info(20)
+        total_days = workdays_info.get("total", 24)
+        
         return jsonify({
             "status": "success",
             "agence": agence,
-            "data": history
+            "data": history,
+            "settings": settings_data,
+            "total_days": total_days
         })
     except Exception as e:
         import traceback
@@ -1638,28 +1756,23 @@ def get_focus_trend_api():
 if __name__ == "__main__":
     db_manager.init_db()
     
-    # Startup seeding for Focus data
+    # Startup seeding for Focus objectives only
     try:
-        latest_date = db_manager.get_latest_focus_upload_date()
-        if not latest_date:
-            print("[STARTUP] Seeding focus data from Focus.xlsx and focus2.xlsx...")
-            
-            # Seed objectives
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM focus_objectives")
+        objs_count = cursor.fetchone()[0]
+        conn.close()
+        
+        if objs_count == 0:
             if os.path.exists("Focus.xlsx"):
+                print("[STARTUP] Seeding focus objectives from Focus.xlsx...")
                 objs = import_focus_objectives_file("Focus.xlsx")
                 if objs:
                     db_manager.save_focus_objectives(objs)
                     print(f"[STARTUP] Seeded {len(objs)} focus objectives.")
-                    
-            # Seed rankings
-            if os.path.exists("focus2.xlsx"):
-                date_str, reps, cdzs = import_focus_rankings_file("focus2.xlsx")
-                if reps:
-                    db_manager.save_focus_rankings(date_str, reps)
-                    db_manager.save_focus_cdz_rankings(date_str, cdzs)
-                    print(f"[STARTUP] Seeded {len(reps)} representatives and {len(cdzs)} CDZs for date {date_str}.")
     except Exception as e:
-        print(f"[STARTUP ERROR] Seeding focus data failed: {e}")
+        print(f"[STARTUP ERROR] Seeding focus objectives failed: {e}")
 
     # Perform initial run to check if data is populated
     try:
