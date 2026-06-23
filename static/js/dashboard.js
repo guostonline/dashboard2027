@@ -3,7 +3,11 @@
    ---------------------------------------------------- */
 
 // Global State
+let rawDashboardData = null;
 let dashboardData = null;
+let rawTrendsData = null;
+let trendsData = null;
+let currentTaxMode = localStorage.getItem('taxMode') || 'TTC'; // 'TTC' or 'HT'
 let currentSelection = { type: 'global', name: '' }; // 'global', 'vendeur', 'secteur'
 let currentFilterType = 'all'; // 'all', 'som', 'vmm'
 let quantiChartInstance = null;
@@ -116,23 +120,36 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Proceed with initialization
-            const onClientsRoute = window.location.pathname === '/clients';
-            const onDetailsRoute = window.location.pathname === '/details';
+            const path = window.location.pathname;
+            const onClientsRoute = path === '/clients';
+            const onDetailsRoute = path === '/details';
+            const onFdvRoute = path === '/fdv';
+            const onTerrainRoute = path === '/terrain';
+            const onFocusRoute = path === '/focus';
+            const onRapportRoute = path === '/rapport';
             
             if (onDetailsRoute) {
                 activeView = 'details';
             } else if (onClientsRoute) {
                 activeView = 'clients';
+            } else if (onFdvRoute) {
+                activeView = 'fdv';
+            } else if (onTerrainRoute) {
+                activeView = 'terrain';
+            } else if (onFocusRoute) {
+                activeView = 'focus';
+            } else if (onRapportRoute) {
+                activeView = 'rapport';
             } else {
                 activeView = 'dashboard';
             }
             
             switchView(activeView);
             
-            // Skip the main dashboard fetch when the user is on the /clients
-            // route (the dashboard-container is hidden in that case, but
+            // Skip the main dashboard fetch when the user is on sub routes
+            // (the dashboard-container is hidden in that case, but
             // the network call would still fire and trigger a modal error).
-            if (!onClientsRoute) {
+            if (!onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute) {
                 fetchSuiviDates(() => {
                     fetchDashboardData();
                 });
@@ -142,6 +159,10 @@ document.addEventListener('DOMContentLoaded', () => {
             setupEventListeners();
             initDetailsView();
             initMultiUploadView();
+            const dropdownList = document.getElementById('vendeur-dropdown-list');
+            if (dropdownList) {
+                loadVendeursList();
+            }
         })
         .catch(err => {
             console.error("Error loading config:", err);
@@ -176,6 +197,10 @@ document.addEventListener('DOMContentLoaded', () => {
             setupEventListeners();
             initDetailsView();
             initMultiUploadView();
+            const dropdownList = document.getElementById('vendeur-dropdown-list');
+            if (dropdownList) {
+                loadVendeursList();
+            }
         });
 });
 
@@ -223,36 +248,181 @@ function switchView(viewName) {
     const navDashboard = document.getElementById('nav-dashboard');
     const navRealisation = document.getElementById('nav-realisation');
     const navDetails = document.getElementById('nav-details');
+    const navClients = document.getElementById('nav-clients');
+    const navFdv = document.getElementById('nav-fdv');
+    const navTerrain = document.getElementById('nav-terrain');
+    const navFocus = document.getElementById('nav-focus');
+    const navRapport = document.getElementById('nav-rapport');
     
     const mainDashboard = document.getElementById('main-dashboard-container');
     const detailsContainer = document.getElementById('details-container');
+    const clientsContainer = document.getElementById('clients-container');
+    const fdvContainer = document.getElementById('fdv-container');
+    const terrainContainer = document.getElementById('terrain-container');
+    const focusContainer = document.getElementById('focus-container');
+    const rapportContainer = document.getElementById('rapport-container');
+    
     const dateSelect = document.getElementById('date-select');
     const timelapseCtrl = document.getElementById('timelapse-control');
     
-    // Remove active class from all
-    [navDashboard, navRealisation, navDetails].forEach(nav => {
+    // Remove active class from all nav items
+    [navDashboard, navRealisation, navDetails, navClients, navFdv, navTerrain, navFocus, navRapport].forEach(nav => {
         if (nav) nav.classList.remove('active');
     });
     
+    // Hide all view containers
+    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, focusContainer, rapportContainer].forEach(container => {
+        if (container) container.style.display = 'none';
+    });
+    
+    // Default: hide date selector and timelapse control for subviews
+    if (dateSelect) dateSelect.style.display = 'none';
+    if (timelapseCtrl) timelapseCtrl.style.display = 'none';
+    if (timelapseIsPlaying) stopTimelapse();
+    
     if (viewName === 'details') {
         if (navDetails) navDetails.classList.add('active');
-        if (mainDashboard) mainDashboard.style.display = 'none';
         if (detailsContainer) detailsContainer.style.display = 'block';
-        if (dateSelect) dateSelect.style.display = 'none';
-        if (timelapseCtrl) timelapseCtrl.style.display = 'none';
-        if (timelapseIsPlaying) stopTimelapse();
         loadTrendsData();
+    } else if (viewName === 'clients') {
+        if (navClients) navClients.classList.add('active');
+        if (clientsContainer) clientsContainer.style.display = 'block';
+    } else if (viewName === 'fdv') {
+        if (navFdv) navFdv.classList.add('active');
+        if (fdvContainer) fdvContainer.style.display = 'block';
+    } else if (viewName === 'terrain') {
+        if (navTerrain) navTerrain.classList.add('active');
+        if (terrainContainer) terrainContainer.style.display = 'block';
+    } else if (viewName === 'focus') {
+        if (navFocus) navFocus.classList.add('active');
+        if (focusContainer) focusContainer.style.display = 'block';
+    } else if (viewName === 'rapport') {
+        if (navRapport) navRapport.classList.add('active');
+        if (rapportContainer) {
+            rapportContainer.style.display = 'flex';
+            // Always reload the vendeur list when switching to rapport
+            loadVendeursList();
+        }
     } else {
+        // dashboard or realisation
         if (viewName === 'dashboard' && navDashboard) navDashboard.classList.add('active');
         if (viewName === 'realisation' && navRealisation) navRealisation.classList.add('active');
         
         if (mainDashboard) mainDashboard.style.display = 'block';
-        if (detailsContainer) detailsContainer.style.display = 'none';
         if (dateSelect) dateSelect.style.display = 'block';
         if (timelapseCtrl) timelapseCtrl.style.display = 'flex';
         
         fetchDashboardData();
     }
+}
+
+function updateTaxToggleUI() {
+    const taxSelect = document.getElementById('tax-select');
+    if (taxSelect) {
+        taxSelect.value = currentTaxMode;
+    }
+    
+    // Update main dashboard quanti-table headers
+    const thReal = document.getElementById('th-quanti-real');
+    const thObj = document.getElementById('th-quanti-obj');
+    const thReal2025 = document.getElementById('th-quanti-real2025');
+    const thObjMois = document.getElementById('th-quanti-objmois');
+    const thRaf = document.getElementById('th-quanti-raf');
+    
+    if (thReal) thReal.innerText = `Réalisé (${currentTaxMode})`;
+    if (thObj) thObj.innerText = `Objectif (${currentTaxMode})`;
+    if (thReal2025) thReal2025.innerText = `Réal 2025 (${currentTaxMode})`;
+    if (thObjMois) thObjMois.innerText = `Obj Mois (${currentTaxMode})`;
+    if (thRaf) thRaf.innerText = `Reste à Faire (${currentTaxMode})`;
+
+    // Update details view headers
+    const thDetailsReal = document.getElementById('th-details-real');
+    const thDetailsObj = document.getElementById('th-details-obj');
+    if (thDetailsReal) thDetailsReal.innerText = `Réalisé (${currentTaxMode})`;
+    if (thDetailsObj) thDetailsObj.innerText = `Objectif (${currentTaxMode})`;
+
+    // Update terrain headers
+    const thTerrainReal = document.getElementById('th-terrain-real');
+    const thTerrainGlace = document.getElementById('th-terrain-glace');
+    if (thTerrainReal) thTerrainReal.innerText = `Real CA (${currentTaxMode})`;
+    if (thTerrainGlace) thTerrainGlace.innerText = `CA Glace (${currentTaxMode})`;
+
+    // Toggle Som Focus HT/TTC visibility
+    const focusSomObjHt = document.getElementById('focus-som-obj-ht');
+    const focusSomObjTtc = document.getElementById('focus-som-obj-ttc');
+    if (focusSomObjHt && focusSomObjTtc) {
+        if (currentTaxMode === 'HT') {
+            focusSomObjHt.parentElement.style.display = 'block';
+            focusSomObjTtc.parentElement.style.display = 'none';
+        } else {
+            focusSomObjHt.parentElement.style.display = 'none';
+            focusSomObjTtc.parentElement.style.display = 'block';
+        }
+    }
+
+    // Synchronize report tax mode radio buttons check state
+    const reportTaxTtc = document.getElementById('report-tax-mode-ttc');
+    const reportTaxHt = document.getElementById('report-tax-mode-ht');
+    if (currentTaxMode === 'HT') {
+        if (reportTaxHt) reportTaxHt.checked = true;
+    } else {
+        if (reportTaxTtc) reportTaxTtc.checked = true;
+    }
+}
+
+function applyTrendsTaxMode() {
+    if (!rawTrendsData) return;
+    
+    // Deep copy rawTrendsData
+    trendsData = JSON.parse(JSON.stringify(rawTrendsData));
+    
+    if (currentTaxMode === 'HT') {
+        if (trendsData.trends) {
+            for (let v in trendsData.trends) {
+                trendsData.trends[v] = trendsData.trends[v].map(pt => ({
+                    ...pt,
+                    real: Math.round(pt.real / 1.2),
+                    obj: Math.round(pt.obj / 1.2),
+                    encours: Math.round((pt.encours || 0) / 1.2)
+                }));
+            }
+        }
+    }
+}
+
+function applyTaxMode() {
+    if (!rawDashboardData) return;
+    
+    // Deep copy rawDashboardData so we don't modify the source
+    dashboardData = JSON.parse(JSON.stringify(rawDashboardData));
+    
+    if (currentTaxMode === 'HT') {
+        if (dashboardData.quantitative) {
+            dashboardData.quantitative = dashboardData.quantitative.map(r => ({
+                ...r,
+                real: Math.round(r.real / 1.2),
+                obj: Math.round(r.obj / 1.2),
+                real_2025: Math.round(r.real_2025 / 1.2),
+                h_2024: Math.round(r.h_2024 / 1.2),
+                obj_mois: Math.round(r.obj_mois / 1.2),
+                raf: Math.round(r.raf / 1.2),
+                encours: Math.round(r.encours / 1.2)
+            }));
+        }
+        
+        if (dashboardData.focus_som) {
+            dashboardData.focus_som = dashboardData.focus_som.map(item => ({
+                ...item,
+                ttc: Math.round(item.ttc / 1.2),
+                realise: Math.round(item.realise / 1.2),
+                rest: Math.round(item.rest / 1.2),
+                rest_jour: Math.round(item.rest_jour / 1.2)
+            }));
+        }
+    }
+    
+    applyTrendsTaxMode();
+    updateTaxToggleUI();
 }
 
 function fetchDashboardData() {
@@ -279,10 +449,16 @@ function fetchDashboardData() {
         .then(response => response.json())
         .then(res => {
             if (res.status === 'success') {
-                dashboardData = res.data;
+                rawDashboardData = res.data;
+                applyTaxMode();
+                populateCategoryDropdown();
                 updateDashboard();
                 populateFilters();
                 prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS`;
+                const headerElapsedInput = document.getElementById('header-elapsed-days');
+                if (headerElapsedInput && dashboardData && dashboardData.workdays) {
+                    headerElapsedInput.value = dashboardData.workdays.elapsed;
+                }
                 // Initialize the correct tab based on URL (function defined later in file)
                 if (typeof initializeActiveTab === 'function') {
                     initializeActiveTab();
@@ -340,6 +516,40 @@ function setupEventListeners() {
         resetFilterBtn.addEventListener('click', resetSelection);
     }
 
+    // Tax selector (HT / TTC)
+    const taxSelect = document.getElementById('tax-select');
+    if (taxSelect) {
+        taxSelect.value = currentTaxMode;
+        taxSelect.addEventListener('change', (e) => {
+            currentTaxMode = e.target.value;
+            localStorage.setItem('taxMode', currentTaxMode);
+            applyTaxMode();
+            updateDashboard();
+            if (activeView === 'details') {
+                loadTrendsData(document.getElementById('details-family-select')?.value || 'C.A (TTC)');
+            }
+            document.dispatchEvent(new CustomEvent('taxModeChanged', { detail: { taxMode: currentTaxMode } }));
+        });
+    }
+
+    // Synchronize report tax mode radio buttons change
+    const reportTaxTtcInput = document.getElementById('report-tax-mode-ttc');
+    const reportTaxHtInput = document.getElementById('report-tax-mode-ht');
+    if (reportTaxTtcInput && reportTaxHtInput) {
+        const handleRadioChange = (e) => {
+            currentTaxMode = e.target.value;
+            localStorage.setItem('taxMode', currentTaxMode);
+            applyTaxMode();
+            updateDashboard();
+            if (activeView === 'details') {
+                loadTrendsData(document.getElementById('details-family-select')?.value || 'C.A (TTC)');
+            }
+            document.dispatchEvent(new CustomEvent('taxModeChanged', { detail: { taxMode: currentTaxMode } }));
+        };
+        reportTaxTtcInput.addEventListener('change', handleRadioChange);
+        reportTaxHtInput.addEventListener('change', handleRadioChange);
+    }
+
     // Tab Type buttons (SOM/VMM)
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -359,6 +569,69 @@ function setupEventListeners() {
         if (e.target === settingsModal) closeSettingsModal();
     });
     settingsForm.addEventListener('submit', handleSettingsSubmit);
+
+    const headerElapsedInput = document.getElementById('header-elapsed-days');
+    if (headerElapsedInput) {
+        headerElapsedInput.addEventListener('change', () => {
+            if (!dashboardData) return;
+            const newElapsed = parseInt(headerElapsedInput.value);
+            if (isNaN(newElapsed) || newElapsed < 0 || newElapsed > dashboardData.workdays.total) {
+                showToast("Veuillez saisir un nombre de jours valide.", "error");
+                headerElapsedInput.value = dashboardData.workdays.elapsed;
+                return;
+            }
+            
+            // Update frontend data
+            dashboardData.workdays.elapsed = newElapsed;
+            dashboardData.workdays.rest = dashboardData.workdays.total - newElapsed;
+            
+            // Recalculate other displays
+            prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS`;
+            
+            // Update other workday fields on the screen if they exist
+            if (infoElapsedDays) infoElapsedDays.innerText = newElapsed;
+            if (inputRestDays) inputRestDays.value = dashboardData.workdays.rest;
+            
+            // Trigger instant redraw
+            updateDashboard();
+            
+            // Persist the change to the backend settings
+            const dateSelect = document.getElementById('date-select');
+            const dateVal = dateSelect ? dateSelect.value : 'default';
+            
+            // Retrieve currently excluded families to keep them
+            const excludedFamilies = [];
+            const container = document.getElementById('exclude-families-toggles');
+            if (container) {
+                container.querySelectorAll('.family-toggle-pill.excluded').forEach(pill => {
+                    excludedFamilies.push(pill.querySelector('span').innerText.trim());
+                });
+            }
+            
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    rest_days: dashboardData.workdays.rest,
+                    exclude_families: excludedFamilies,
+                    date: dateVal
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast("Jours travaillés mis à jour et sauvegardés !", "success");
+                } else {
+                    showToast("Erreur lors de la sauvegarde: " + data.message, "error");
+                }
+            })
+            .catch(err => {
+                console.error("Error saving workdays:", err);
+            });
+        });
+    }
 
     // Toggle methodology collapsible inside settings modal
     const toggleMethodologyBtn = document.getElementById('toggle-methodology-btn');
@@ -412,6 +685,19 @@ function setupEventListeners() {
     }
     if (generateVendeurReportBtn) {
         generateVendeurReportBtn.addEventListener('click', generateReportForSelectedVendeur);
+    }
+    const resetVendeurSelectionBtn = document.getElementById('reset-vendeur-selection-btn');
+    if (resetVendeurSelectionBtn) {
+        resetVendeurSelectionBtn.addEventListener('click', () => {
+            selectedVendeurForReport = null;
+            const dropdownText = document.getElementById('dropdown-selected-text');
+            if (dropdownText) {
+                dropdownText.textContent = 'Sélectionner un vendeur (Optionnel)';
+                dropdownText.classList.add('placeholder');
+            }
+            updateSelectedVendeurDisplay();
+            renderDropdownList();
+        });
     }
     if (vendeurSelectionModal) {
         vendeurSelectionModal.addEventListener('click', (e) => {
@@ -1101,7 +1387,77 @@ function applyThemeClass(themeName) {
 
 // Open modal
 function openSettingsModal() {
-    if (!dashboardData) return;
+    if (!dashboardData) {
+        showToast("Chargement des paramètres...", "info");
+        
+        const categorySelect = document.getElementById('category-select');
+        const category = categorySelect ? categorySelect.value : 'All';
+        const dateSelect = document.getElementById('date-select');
+        const dateVal = dateSelect ? dateSelect.value : 'default';
+        
+        fetch(`/api/data?category=${encodeURIComponent(category)}&date=${encodeURIComponent(dateVal)}&_=${Date.now()}`)
+            .then(res => res.json())
+            .then(res => {
+                if (res.status === 'success') {
+                    rawDashboardData = res.data;
+                    applyTaxMode();
+                    openSettingsModal();
+                } else {
+                    // Fallback to fetch config directly if data load failed (e.g. database empty)
+                    fetch(`/api/config?_=${Date.now()}`)
+                        .then(configRes => configRes.json())
+                        .then(configData => {
+                            if (configData.status === 'success') {
+                                const config = configData.config;
+                                dashboardData = {
+                                    workdays: {
+                                        total: 24,
+                                        elapsed: 24 - (config.rest_days || 20),
+                                        rest: config.rest_days || 20
+                                    },
+                                    all_families: [],
+                                    exclude_families: config.exclude_families || []
+                                };
+                                openSettingsModal();
+                            } else {
+                                showToast("Erreur lors de la récupération des paramètres : " + configData.message, "error");
+                            }
+                        })
+                        .catch(err => {
+                            console.error(err);
+                            showToast("Erreur de connexion au serveur", "error");
+                        });
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                // Fallback to fetch config directly if data load failed
+                fetch(`/api/config?_=${Date.now()}`)
+                    .then(configRes => configRes.json())
+                    .then(configData => {
+                        if (configData.status === 'success') {
+                            const config = configData.config;
+                            dashboardData = {
+                                workdays: {
+                                    total: 24,
+                                    elapsed: 24 - (config.rest_days || 20),
+                                    rest: config.rest_days || 20
+                                },
+                                all_families: [],
+                                exclude_families: config.exclude_families || []
+                            };
+                            openSettingsModal();
+                        } else {
+                            showToast("Erreur de connexion au serveur", "error");
+                        }
+                    })
+                    .catch(() => {
+                        showToast("Erreur de connexion au serveur", "error");
+                    });
+            });
+        return;
+    }
+    
     inputRestDays.value = dashboardData.workdays.rest;
     
     const modalThemeSelect = document.getElementById('modal-theme-select');
@@ -1204,7 +1560,17 @@ function handleSettingsSubmit(e) {
         if (data.status === 'success') {
             showToast("Paramètres mis à jour et données recalculées !", "success");
             closeSettingsModal();
-            fetchDashboardData();
+            
+            // Only fetch dashboard data if we are not on a sub-route that skips it
+            const path = window.location.pathname;
+            const onClientsRoute = path === '/clients';
+            const onFdvRoute = path === '/fdv';
+            const onTerrainRoute = path === '/terrain';
+            const onFocusRoute = path === '/focus';
+            const onRapportRoute = path === '/rapport';
+            if (!onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute) {
+                fetchDashboardData();
+            }
         } else {
             showToast("Erreur: " + data.message, "error");
         }
@@ -1232,6 +1598,39 @@ function resetSelection() {
     updateDashboard();
 }
 
+let categoryDropdownPopulated = false;
+
+function getTeamName(cdz) {
+    if (!cdz) return '';
+    if (cdz.toUpperCase().includes('CHAKIB')) return 'Chakib Equipe';
+    if (cdz.toUpperCase().includes('BOUTMEZGUINE')) return 'Boutmezguine Equipe';
+    const firstWord = cdz.trim().split(' ')[0];
+    return firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase() + ' Equipe';
+}
+
+function populateCategoryDropdown() {
+    if (categoryDropdownPopulated) return;
+    const categorySelect = document.getElementById('category-select');
+    if (!categorySelect || !dashboardData || !dashboardData.fdv) return;
+    
+    // Extract unique CDZs
+    const cdzList = [...new Set(dashboardData.fdv.map(r => r.cdz).filter(c => c && c.trim() !== ''))];
+    
+    // Track if we have a default selected category
+    const savedCategory = categorySelect.value || 'Chakib Equipe';
+    
+    // Generate options
+    let html = '<option value="All">TOUTE L\'AGENCE</option>';
+    cdzList.forEach(cdz => {
+        const teamName = getTeamName(cdz);
+        const isSelected = (teamName === savedCategory) ? 'selected' : '';
+        html += `<option value="${teamName}" ${isSelected}>${teamName}</option>`;
+    });
+    
+    categorySelect.innerHTML = html;
+    categoryDropdownPopulated = true;
+}
+
 // Populate search autocomplete values
 function populateFilters() {
     if (!dashboardData) return;
@@ -1250,37 +1649,22 @@ function populateFilters() {
             allowedSellers = fdvList.map(r => r.vendeur.trim());
         } else if (categoryVal === 'Chakib Equipe') {
             allowedSellers = fdvList.filter(r => (r.cdz || '').trim().toUpperCase() === 'CHAKIB ELFIL').map(r => r.vendeur.trim());
-        } else if (categoryVal === 'Pré-vendeur Chakib') {
-            allowedSellers = fdvList.filter(r => (r.cdz || '').trim().toUpperCase() === 'CHAKIB ELFIL' && (r.type_role || '').trim().toUpperCase() === 'PREV').map(r => r.vendeur.trim());
-        } else if (categoryVal === 'SOM pré-vendeur Chakib') {
-            allowedSellers = fdvList.filter(r => (r.cdz || '').trim().toUpperCase() === 'CHAKIB ELFIL' && (r.type_role || '').trim().toUpperCase() === 'PREV' && (r.role || '').toUpperCase().includes('SOM')).map(r => r.vendeur.trim());
-        } else if (categoryVal === 'VMM pré-vendeur Chakib') {
-            allowedSellers = fdvList.filter(r => (r.cdz || '').trim().toUpperCase() === 'CHAKIB ELFIL' && (r.type_role || '').trim().toUpperCase() === 'PREV' && (r.role || '').toUpperCase().includes('VMM')).map(r => r.vendeur.trim());
-        } else if (categoryVal === 'Pré-vendeur') {
-            allowedSellers = fdvList.filter(r => (r.type_role || '').trim().toUpperCase() === 'PREV').map(r => r.vendeur.trim());
-        } else if (categoryVal === 'Conventionnel') {
-            allowedSellers = fdvList.filter(r => (r.type_role || '').trim().toUpperCase() === 'CNV').map(r => r.vendeur.trim());
-        } else if (categoryVal === 'SOM pré-vendeur') {
-            allowedSellers = fdvList.filter(r => (r.type_role || '').trim().toUpperCase() === 'PREV' && (r.role || '').toUpperCase().includes('SOM')).map(r => r.vendeur.trim());
-        } else if (categoryVal === 'VMM pré-vendeur') {
-            allowedSellers = fdvList.filter(r => (r.type_role || '').trim().toUpperCase() === 'PREV' && (r.role || '').toUpperCase().includes('VMM')).map(r => r.vendeur.trim());
-        } else if (categoryVal === 'SOM All') {
-            allowedSellers = fdvList.filter(r => (r.role || '').toUpperCase().includes('SOM')).map(r => r.vendeur.trim());
-        } else if (categoryVal === 'VMM All') {
-            allowedSellers = fdvList.filter(r => (r.role || '').toUpperCase().includes('VMM')).map(r => r.vendeur.trim());
-        } else if (categoryVal === 'CDZ') {
-            // Only CDZs themselves
-            allowedSellers = [];
+        } else if (categoryVal === 'Boutmezguine Equipe') {
+            allowedSellers = fdvList.filter(r => (r.cdz || '').trim().toUpperCase() === 'BOUTMEZGUINE EL MOSTAFA').map(r => r.vendeur.trim());
         } else {
-            allowedSellers = fdvList.map(r => r.vendeur.trim());
+            // Check if matches dynamic CDZ team name
+            const matchedCdz = fdvList.find(r => r.cdz && getTeamName(r.cdz) === categoryVal);
+            if (matchedCdz) {
+                allowedSellers = fdvList.filter(r => (r.cdz || '').trim().toUpperCase() === matchedCdz.cdz.trim().toUpperCase()).map(r => r.vendeur.trim());
+            } else {
+                allowedSellers = fdvList.map(r => r.vendeur.trim());
+            }
         }
 
-        // Always add the CDZ names to category team selections or CDZ category
-        if (categoryVal === 'All' || categoryVal === 'Chakib Equipe' || categoryVal === 'CDZ') {
+        // Always add the CDZ names to category team selections
+        if (categoryVal === 'All' || categoryVal === 'Chakib Equipe' || categoryVal === 'Boutmezguine Equipe') {
             if (!allowedSellers.includes('CHAKIB ELFIL')) allowedSellers.push('CHAKIB ELFIL');
             if (!allowedSellers.includes('BOUTMEZGUINE EL MOSTAFA')) allowedSellers.push('BOUTMEZGUINE EL MOSTAFA');
-        } else if (categoryVal === 'Pré-vendeur Chakib' || categoryVal === 'SOM pré-vendeur Chakib' || categoryVal === 'VMM pré-vendeur Chakib') {
-            if (!allowedSellers.includes('CHAKIB ELFIL')) allowedSellers.push('CHAKIB ELFIL');
         }
     } else {
         // Fallback to quantitative dataset unique vendors if fdv list is missing
@@ -1375,18 +1759,24 @@ function updateDashboard() {
     if (!dashboardData) return;
 
     if (!currentSelection || currentSelection.type === 'global') {
-        selectFilter('vendeur', 'CHAKIB ELFIL');
+        const categorySelect = document.getElementById('category-select');
+        const categoryVal = categorySelect ? categorySelect.value : 'All';
+        if (categoryVal === 'Boutmezguine Equipe') {
+            selectFilter('vendeur', 'BOUTMEZGUINE EL MOSTAFA');
+        } else {
+            selectFilter('vendeur', 'CHAKIB ELFIL');
+        }
         return;
     }
 
-    if (currentSelection.type === 'vendeur' && currentSelection.name === 'CHAKIB ELFIL') {
-        const hasChakib = dashboardData.quantitative.some(r => r.vendeur.trim().toLowerCase() === 'chakib elfil');
-        if (!hasChakib) {
-            console.log("CHAKIB ELFIL not found in current category dataset. Switching category to All.");
-            const categorySelect = document.getElementById('category-select');
-            if (categorySelect) {
-                categorySelect.value = 'All';
-                fetchDashboardData();
+    if (currentSelection.type === 'vendeur' && (currentSelection.name === 'CHAKIB ELFIL' || currentSelection.name === 'BOUTMEZGUINE EL MOSTAFA')) {
+        const hasSelectedCdz = dashboardData.quantitative.some(r => r.vendeur.trim().toUpperCase() === currentSelection.name.toUpperCase());
+        if (!hasSelectedCdz) {
+            console.log(`${currentSelection.name} not found in current category dataset. Selecting first active seller.`);
+            // Find another active seller in the dataset to select
+            const activeSellers = [...new Set(dashboardData.quantitative.map(r => r.vendeur.trim()))].filter(v => v && v.toUpperCase() !== 'AUTRE');
+            if (activeSellers.length > 0) {
+                selectFilter('vendeur', activeSellers[0]);
                 return;
             }
         }
@@ -1577,8 +1967,7 @@ function updateDashboard() {
                 "BOUILLON",
                 "CONDIMENTS",
                 "CONFITURE",
-                "CONSERVES",
-                "MISWAK"
+                "CONSERVES"
             ];
             
             const sortedFamilies = Object.keys(families).sort((a, b) => {
@@ -1858,8 +2247,7 @@ function renderQuantiTable(records) {
         "BOUILLON",
         "CONDIMENTS",
         "CONFITURE",
-        "CONSERVES",
-        "MISWAK"
+        "CONSERVES"
     ];
 
     const sortedFamilies = Object.keys(families).sort((a, b) => {
@@ -3293,7 +3681,8 @@ function runTimelapseStep() {
         .then(response => response.json())
         .then(res => {
             if (res.status === 'success' && timelapseIsPlaying) {
-                dashboardData = res.data;
+                rawDashboardData = res.data;
+                applyTaxMode();
                 updateDashboard();
                 populateFilters();
                 
@@ -3490,10 +3879,14 @@ function selectVendeur(vendeur) {
 // Update selected vendeur display
 function updateSelectedVendeurDisplay() {
     const display = document.getElementById('selected-vendeur-display');
+    const resetVendeurBtn = document.getElementById('reset-vendeur-selection-btn');
+    if (!display) return;
     if (selectedVendeurForReport) {
-        display.innerHTML = `<i class="fa-solid fa-user-check"></i> <span style="color: var(--primary-color); font-weight: 600;">${selectedVendeurForReport}</span>`;
+        display.innerHTML = `<i class="fa-solid fa-user-check" style="color: var(--neon-blue);"></i> <span style="color: var(--neon-blue); font-weight: 600;">${selectedVendeurForReport}</span>`;
+        if (resetVendeurBtn) resetVendeurBtn.style.display = 'inline-block';
     } else {
-        display.innerHTML = '<i class="fa-solid fa-user-check"></i> <span>Aucun vendeur sélectionné</span>';
+        display.innerHTML = '<i class="fa-solid fa-user-check"></i> <span style="color: var(--text-muted);">Aucun vendeur sélectionné (Génération globale)</span>';
+        if (resetVendeurBtn) resetVendeurBtn.style.display = 'none';
     }
 }
 
@@ -3523,11 +3916,6 @@ function getSelectedAnalysisOptions() {
 
 // Generate report for selected vendeur
 function generateReportForSelectedVendeur() {
-    if (!selectedVendeurForReport) {
-        showToast("Veuillez sélectionner un vendeur", "warning");
-        return;
-    }
-
     // Get selected options
     const options = getSelectedAnalysisOptions();
     const selectedOptions = Object.keys(options).filter(k => options[k]);
@@ -3537,72 +3925,61 @@ function generateReportForSelectedVendeur() {
         return;
     }
 
-    // CRITICAL: capture the vendeur name BEFORE closing the modal,
-    // because closeVendeurSelectionModal() resets selectedVendeurForReport = null.
     const vendeurForReport = selectedVendeurForReport;
 
-    // Update dashboard to show only this vendeur's data
-    if (typeof selectFilter === 'function') {
-        selectFilter('vendeur', vendeurForReport);
-    } else {
-        // Fallback: directly set currentSelection
-        currentSelection = { type: 'vendeur', name: vendeurForReport };
-        if (typeof updateDashboard === 'function') {
-            updateDashboard();
+    // Update dashboard selection if a specific vendor is selected
+    if (vendeurForReport) {
+        if (typeof selectFilter === 'function') {
+            selectFilter('vendeur', vendeurForReport);
+        } else {
+            currentSelection = { type: 'vendeur', name: vendeurForReport };
+            if (typeof updateDashboard === 'function') {
+                updateDashboard();
+            }
         }
     }
 
-    // Open AI report modal with the selected vendeur and options
-    // (do this BEFORE closing the selection modal so the captured name
-    // is what gets sent to the backend)
+    // Open AI report for the selected vendeur and options
     openAiReportModalForVendeur(vendeurForReport, options);
-
-    // Close vendeur selection modal LAST (this resets selectedVendeurForReport = null)
-    closeVendeurSelectionModal();
 }
 
-// Open AI Report modal & run backend generation (modified to show vendeur selection first)
+// Redirects header/modal calls to the new tab page
 function openAiReportModal() {
     if (timelapseIsPlaying) stopTimelapse();
-    // Check if a specific vendor is already selected
-    const categorySelect = document.getElementById('category-select');
-    const selectedCategory = categorySelect ? categorySelect.value : 'All';
-    const selectedVendeur = currentSelection && currentSelection.type === 'vendeur' ? currentSelection.name : null;
-
-    // If a specific vendor is selected, generate report directly
-    if (selectedVendeur) {
-        // Use default options (all checked ones)
-        const options = getSelectedAnalysisOptions();
-        openAiReportModalForVendeur(selectedVendeur, options);
-    } else {
-        // Otherwise, show the vendeur selection modal
-        openVendeurSelectionModal();
-    }
+    window.location.href = '/rapport';
 }
 
-// Open AI Report modal for a specific vendeur
+// Open AI Report for a specific vendeur (displays in the tab panel, not modal)
 function openAiReportModalForVendeur(vendeurName, options = null) {
-    const modal = document.getElementById('ai-report-modal');
+    const modal = document.getElementById('ai-report-modal'); // Keep reference for backwards compatibility
     const loading = document.getElementById('report-loading');
     const content = document.getElementById('report-content-wrapper');
-    const aiIcon = document.getElementById('ai-report-icon');
-    const aiLabel = document.getElementById('ai-report-label');
-    const aiBtn = document.getElementById('ai-report-btn');
+    const generateBtn = document.getElementById('generate-vendeur-report-btn');
+    const initialState = document.getElementById('report-initial-state');
+    const actionsHeader = document.getElementById('report-actions-header');
 
     const copyBtn = document.getElementById('copy-report-btn');
     const downloadBtn = document.getElementById('download-report-btn');
     const okBtn = document.getElementById('ok-report-btn');
-    const titleEl = document.getElementById('report-modal-title');
+    const titleEl = document.getElementById('report-title-display') || document.getElementById('report-modal-title');
 
-    if (!modal) return;
+    // Show the result panel (hidden by default until first generate)
+    const resultPanel = document.getElementById('rp-result-panel');
+    if (resultPanel) resultPanel.style.display = 'block';
 
-    modal.classList.add('open');
-    loading.style.display = 'flex';
-    content.style.display = 'none';
+    if (modal) modal.classList.add('open');
+    if (actionsHeader) actionsHeader.style.display = 'none';
+    if (loading) loading.style.display = 'flex';
+    if (content) content.style.display = 'none';
 
     if (copyBtn) copyBtn.style.display = 'none';
     if (downloadBtn) downloadBtn.style.display = 'none';
     if (okBtn) okBtn.style.display = 'none';
+
+    if (generateBtn) {
+        generateBtn.disabled = true;
+        generateBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> EN COURS...';
+    }
 
     const categorySelect = document.getElementById('category-select');
     const selectedCategory = categorySelect ? categorySelect.value : 'All';
@@ -3611,7 +3988,7 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     const selectedDate = dateSelect ? dateSelect.value : 'default';
 
     let url = '/api/generate_report';
-    const params = [];
+    const params = [`tax_mode=${currentTaxMode}`];
     if (vendeurName) params.push(`vendeur=${encodeURIComponent(vendeurName)}`);
     else if (selectedCategory && selectedCategory !== 'All') params.push(`category=${encodeURIComponent(selectedCategory)}`);
     if (selectedDate && selectedDate !== 'default') params.push(`date=${encodeURIComponent(selectedDate)}`);
@@ -3637,10 +4014,6 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
         }
     }
 
-    if (aiIcon) aiIcon.className = 'fa-solid fa-circle-notch fa-spin';
-    if (aiLabel) aiLabel.innerText = 'ANALYSING...';
-    if (aiBtn) aiBtn.disabled = true;
-
     // Start Veo canvas animation
     startVeoAnimation();
 
@@ -3650,8 +4023,9 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            loading.style.display = 'none';
-            content.style.display = 'block';
+            if (loading) loading.style.display = 'none';
+            if (content) content.style.display = 'block';
+            if (actionsHeader) actionsHeader.style.display = 'flex';
 
             // Clear any previously queued charts
             window.reportChartsToRender = [];
@@ -3659,11 +4033,9 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
             // Store the report text so the WhatsApp button can read it later
             currentReportText = data.report || '';
             currentReportTitle = (titleEl && titleEl.innerText) ? titleEl.innerText : 'Rapport IA';
-            // Remember the vendeur (if any) so the WhatsApp button can
-            // pre-fill the phone number from the FDV database.
             currentReportVendeur = vendeurName || '';
 
-            content.innerHTML = parseMarkdown(data.report);
+            if (content) content.innerHTML = parseMarkdown(data.report);
 
             // Render the charts!
             renderReportCharts();
@@ -3687,13 +4059,21 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     })
     .finally(() => {
         stopVeoAnimation();
+        const aiIcon = document.getElementById('ai-report-icon');
+        const aiLabel = document.getElementById('ai-report-label');
+        const aiBtn = document.getElementById('ai-report-btn');
         if (aiIcon) aiIcon.className = 'fa-solid fa-brain';
         if (aiLabel) aiLabel.innerText = 'ANALYSE IA';
         if (aiBtn) aiBtn.disabled = false;
+        
+        if (generateBtn) {
+            generateBtn.disabled = false;
+            generateBtn.innerHTML = '<i class="fa-solid fa-brain"></i> GÉNÉRER LE RAPPORT';
+        }
     });
 }
 
-// Close AI Report modal
+// Resets/Clears the report view in the tab panel
 function closeAiReportModal() {
     const modal = document.getElementById('ai-report-modal');
     currentReportVendeur = '';
@@ -3711,6 +4091,18 @@ function closeAiReportModal() {
             fullscreenBtn.title = "Plein écran";
         }
     }
+    
+    const loading = document.getElementById('report-loading');
+    const content = document.getElementById('report-content-wrapper');
+    const actionsHeader = document.getElementById('report-actions-header');
+    const resultPanel = document.getElementById('rp-result-panel');
+
+    // Hide the entire result panel on reset
+    if (resultPanel) resultPanel.style.display = 'none';
+    if (loading) loading.style.display = 'none';
+    if (content) content.style.display = 'none';
+    if (actionsHeader) actionsHeader.style.display = 'none';
+
     stopVeoAnimation();
 }
 
@@ -3983,13 +4375,15 @@ function openWhatsappShareDialog() {
             previewEl.textContent = "Génération du rapport WhatsApp optimisé...";
         }
         
-        fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(currentReportVendeur) + '&include_rapport=true')
+        // Fast lookup to auto-fill the phone number instantly (6ms)
+        fetch('/api/fdv?vendeur=' + encodeURIComponent(currentReportVendeur))
             .then((r) => r.json())
             .then((d) => {
-                if (d.status === 'success' && d.message) {
-                    currentVendeurWhatsappMessage = d.message;
-                    if (d.phone) {
-                        phoneInput.value = d.phone.replace(/^\+/, '').trim();
+                if (d.status === 'success' && d.rows && d.rows.length > 0) {
+                    const row = d.rows[0];
+                    const rawPhone = row.whatsapp || row.telephone || '';
+                    if (rawPhone) {
+                        phoneInput.value = rawPhone.replace(/^\+/, '').trim();
                         if (fdvInfo) {
                             fdvInfo.style.display = '';
                             fdvInfo.style.color = 'var(--neon-green)';
@@ -4007,13 +4401,26 @@ function openWhatsappShareDialog() {
                             fdvInfoText.textContent = 'Ce vendeur est dans la FDV mais n\'a pas de numéro WhatsApp — renseignez-le ci-dessus.';
                         }
                     }
-                } else {
-                    if (fdvInfo) {
-                        fdvInfo.style.display = '';
-                        fdvInfo.style.color = 'var(--neon-pink)';
-                    }
-                    if (fdvInfoText) {
-                        fdvInfoText.textContent = 'Erreur lors de la récupération des infos vendeur.';
+                }
+            })
+            .catch((e) => console.error('FDV fast lookup failed', e));
+
+        // Slow lookup to fetch the optimized message text
+        fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(currentReportVendeur) + '&include_rapport=true')
+            .then((r) => r.json())
+            .then((d) => {
+                if (d.status === 'success' && d.message) {
+                    currentVendeurWhatsappMessage = d.message;
+                    if (d.phone && !phoneInput.value) {
+                        phoneInput.value = d.phone.replace(/^\+/, '').trim();
+                        if (fdvInfo) {
+                            fdvInfo.style.display = '';
+                            fdvInfo.style.color = 'var(--neon-green)';
+                        }
+                        if (fdvInfoText) {
+                            fdvInfoText.textContent = 'Numéro récupéré depuis la base FDV. Vous pouvez le modifier ci-dessus.';
+                        }
+                        phoneInput.focus();
                     }
                 }
                 updateWhatsappFormatUi();
@@ -4221,6 +4628,7 @@ function renderTableHtml(rows) {
     let isQuantiTable = headers.some(h => h.toLowerCase().includes('famille')) && headers.some(h => h.toLowerCase().includes('réalisé'));
     let isQualiTable = headers.some(h => h.toLowerCase().includes('facturé') || h.toLowerCase().includes('commandes') || h.toLowerCase().includes('acm') || h.toLowerCase().includes('tsm'));
     let isRankTable = headers.some(h => h.toLowerCase().includes('vendeur')) && headers.some(h => h.toLowerCase().includes('taux'));
+    let isDailySalesTable = headers.some(h => h.toLowerCase().includes('date')) && headers.some(h => h.toLowerCase().includes('ventes réelles')) && headers.some(h => h.toLowerCase().includes('objectif du jour'));
     
     let tableId = "report-table-" + Math.random().toString(36).substring(2, 9);
     let chartCanvasId = "chart-" + tableId;
@@ -4370,6 +4778,44 @@ function renderTableHtml(rows) {
             <div class="report-chart-header">
                 <span class="tech-label"><i class="fa-solid fa-trophy neon-text-amber"></i> CLASSEMENT DES PERFORMANCES</span>
             </div>
+            <div class="report-chart-body" style="height: 480px;">
+                <canvas id="${chartCanvasId}"></canvas>
+            </div>
+        </div>
+        `;
+        
+        if (!window.reportChartsToRender) window.reportChartsToRender = [];
+        
+        let items = [];
+        dataRows.forEach(row => {
+            if (row.length >= 3) {
+                let seller = row[0].replace(/\*\*/g, '').trim();
+                let realVal = parseFloat(row[1].replace(/,/g, '').replace(/\s/g, '').replace(/\*/g, '')) || 0;
+                let objVal = parseFloat(row[2].replace(/,/g, '').replace(/\s/g, '').replace(/\*/g, '')) || 0;
+                items.push({ seller, realVal, objVal });
+            }
+        });
+        
+        // Sort by realVal ascending (A to B)
+        items.sort((a, b) => a.realVal - b.realVal);
+        
+        let labels = items.map(x => x.seller);
+        let realVals = items.map(x => x.realVal);
+        let objVals = items.map(x => x.objVal);
+        
+        window.reportChartsToRender.push({
+            id: chartCanvasId,
+            type: 'rank',
+            data: { labels, realVals, objVals }
+        });
+    }
+    // 5. If it's a daily sales table, render a bar chart comparing daily sales
+    else if (isDailySalesTable && dataRows.length > 0) {
+        html += `
+        <div class="report-chart-card">
+            <div class="report-chart-header">
+                <span class="tech-label"><i class="fa-solid fa-chart-bar neon-text-pink"></i> VENTES QUOTIDIENNES NON CUMULÉES (DH)</span>
+            </div>
             <div class="report-chart-body">
                 <canvas id="${chartCanvasId}"></canvas>
             </div>
@@ -4384,11 +4830,11 @@ function renderTableHtml(rows) {
         
         dataRows.forEach(row => {
             if (row.length >= 3) {
-                let seller = row[0].replace(/\*\*/g, '').trim();
+                let label = row[0].replace(/\*\*/g, '').trim();
                 let realVal = parseFloat(row[1].replace(/,/g, '').replace(/\s/g, '').replace(/\*/g, '')) || 0;
                 let objVal = parseFloat(row[2].replace(/,/g, '').replace(/\s/g, '').replace(/\*/g, '')) || 0;
                 
-                labels.push(seller);
+                labels.push(label);
                 realVals.push(realVal);
                 objVals.push(objVal);
             }
@@ -4396,44 +4842,47 @@ function renderTableHtml(rows) {
         
         window.reportChartsToRender.push({
             id: chartCanvasId,
-            type: 'rank',
+            type: 'dailySales',
             data: { labels, realVals, objVals }
         });
     }
     
     // Render the table
-    html += `<div class="report-table-wrapper"><table class="cyber-table report-table"><thead><tr>`;
-    headers.forEach(h => {
-        html += `<th>${h.replace(/\*\*/g, '').trim()}</th>`;
-    });
-    html += `</tr></thead><tbody>`;
-    
-    dataRows.forEach(row => {
-        let isCARow = row.length > 0 && (row[0].replace(/\*\*/g, '').trim().toUpperCase().includes('C.A (HT)') || row[0].replace(/\*\*/g, '').trim().toUpperCase().includes('C.A (TTC)'));
-        let rowStyle = isCARow ? ' style="font-weight: bold; background: rgba(0, 212, 255, 0.05); border-top: 1.5px solid var(--neon-blue);"' : '';
-        
-        html += `<tr${rowStyle}>`;
-        row.forEach((cell, idx) => {
-            let isBold = cell.startsWith('**') && cell.endsWith('**');
-            let clean = cell.replace(/\*\*/g, '').trim();
-            let style = '';
-            
-            // Highlight color markers (+ / -)
-            if (clean.startsWith('+') && clean.includes('%')) {
-                style = ' style="color: var(--neon-green); font-weight: bold;"';
-            } else if (clean.startsWith('-') && clean.includes('%')) {
-                style = ' style="color: var(--neon-pink); font-weight: bold;"';
-            }
-            
-            if (idx === 0 && (isBold || clean.toUpperCase().includes('TOTAL') || clean.toUpperCase().includes('MOYENNE') || isCARow)) {
-                html += `<td${style}><strong>${clean}</strong></td>`;
-            } else {
-                html += `<td${style}>${clean}</td>`;
-            }
+    if (!isDailySalesTable && !isRankTable) {
+        html += `<div class="report-table-wrapper"><table class="cyber-table report-table"><thead><tr>`;
+        headers.forEach(h => {
+            html += `<th>${h.replace(/\*\*/g, '').trim()}</th>`;
         });
-        html += `</tr>`;
-    });
-    html += `</tbody></table></div>`;
+        html += `</tr></thead><tbody>`;
+        
+        dataRows.forEach(row => {
+            let isCARow = row.length > 0 && (row[0].replace(/\*\*/g, '').trim().toUpperCase().includes('C.A (HT)') || row[0].replace(/\*\*/g, '').trim().toUpperCase().includes('C.A (TTC)'));
+            let rowStyle = isCARow ? ' style="font-weight: bold; background: rgba(0, 212, 255, 0.05); border-top: 1.5px solid var(--neon-blue);"' : '';
+            
+            html += `<tr${rowStyle}>`;
+            row.forEach((cell, idx) => {
+                let isBold = cell.startsWith('**') && cell.endsWith('**');
+                let clean = cell.replace(/\*\*/g, '').trim();
+                let style = '';
+                
+                // Highlight color markers (+ / -)
+                if (clean.startsWith('+') && clean.includes('%')) {
+                    style = ' style="color: var(--neon-green); font-weight: bold;"';
+                } else if (clean.startsWith('-') && clean.includes('%')) {
+                    style = ' style="color: var(--neon-pink); font-weight: bold;"';
+                }
+                
+                if (idx === 0 && (isBold || clean.toUpperCase().includes('TOTAL') || clean.toUpperCase().includes('MOYENNE') || isCARow)) {
+                    html += `<td${style}><strong>${clean}</strong></td>`;
+                } else {
+                    html += `<td${style}>${clean}</td>`;
+                }
+            });
+            html += `</tr>`;
+        });
+        html += `</tbody></table></div>`;
+    }
+    
     return html;
 }
 
@@ -4644,6 +5093,34 @@ function renderReportCharts() {
             });
         } else if (chartConfig.type === 'rank') {
             const { labels, realVals, objVals } = chartConfig.data;
+            
+            // Highlight currentReportVendeur if it matches the label
+            const activeVendeurNormalized = (currentReportVendeur || '').trim().toUpperCase();
+            
+            const backgroundColors = labels.map(label => {
+                const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
+                    return neonPink + 'a0';
+                }
+                return neonAmber + '60';
+            });
+            
+            const borderColors = labels.map(label => {
+                const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
+                    return neonPink;
+                }
+                return neonAmber;
+            });
+
+            const borderWidths = labels.map(label => {
+                const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
+                    return 2.5;
+                }
+                return 1.5;
+            });
+
             new Chart(ctx, {
                 type: 'bar',
                 data: {
@@ -4652,9 +5129,9 @@ function renderReportCharts() {
                         {
                             label: 'Réalisé (DH)',
                             data: realVals,
-                            backgroundColor: neonAmber + '60',
-                            borderColor: neonAmber,
-                            borderWidth: 1.5
+                            backgroundColor: backgroundColors,
+                            borderColor: borderColors,
+                            borderWidth: borderWidths
                         },
                         {
                             label: 'Objectif (DH)',
@@ -4663,6 +5140,52 @@ function renderReportCharts() {
                             borderColor: neonBlue,
                             borderWidth: 1.5,
                             borderDash: [3, 3]
+                        }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            grid: { color: gridColor },
+                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                        },
+                        y: {
+                            grid: { color: gridColor },
+                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                        }
+                    }
+                }
+            });
+        } else if (chartConfig.type === 'dailySales') {
+            const { labels, realVals, objVals } = chartConfig.data;
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Vente Réelle (DH)',
+                            data: realVals,
+                            backgroundColor: neonPink + '80',
+                            borderColor: neonPink,
+                            borderWidth: 1.5,
+                            borderRadius: 4
+                        },
+                        {
+                            label: 'Objectif du Jour (DH)',
+                            data: objVals,
+                            backgroundColor: isLight ? 'rgba(71, 85, 105, 0.12)' : 'rgba(148, 163, 184, 0.12)',
+                            borderColor: isLight ? '#475569' : '#94a3b8',
+                            borderWidth: 1.5,
+                            borderRadius: 4
                         }
                     ]
                 },
@@ -4940,9 +5463,9 @@ function calculateRemainingWorkDays(dateStr) {
    DETAILS VIEW TREND CHART CONTROLLERS
    ---------------------------------------------------- */
 let detailsChartInstance = null;
+let detailsDailySalesChartInstance = null;
 let detailsQualiChartInstance = null;
 let perDayQualiCharts = [];
-let trendsData = null;
 let excludedDates = [];
 
 function initDetailsView() {
@@ -5048,7 +5571,8 @@ function loadTrendsData(family = 'C.A (TTC)') {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                trendsData = data;
+                rawTrendsData = data;
+                applyTrendsTaxMode();
 
                 // Populate Family Select dropdown if it has only one option
                 if (familySelect && familySelect.options.length <= 1 && data.families.length > 0) {
@@ -5459,8 +5983,114 @@ function renderTrends() {
     // Populate raw data table
     populateTrendsTable(vendeursList);
     
+    // Render daily non-cumulative sales chart
+    renderDailySalesChart(dates, realPoints, objPoints, formattedLabels, isWhiteMode, neonPink, neonBlue);
+    
     // Render Qualitative trends chart and table
     renderQualiTrends(vendeursList);
+}
+
+function renderDailySalesChart(dates, realPoints, objPoints, formattedLabels, isWhiteMode, neonPink, neonBlue) {
+    const canvas = document.getElementById('details-daily-sales-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    if (detailsDailySalesChartInstance) {
+        detailsDailySalesChartInstance.destroy();
+    }
+    
+    const dailyRealPoints = [];
+    const dailyObjPoints = [];
+    
+    for (let i = 0; i < realPoints.length; i++) {
+        if (i === 0) {
+            const isFirstDayLegacy = (dates[0] === '2026-06-01' && realPoints.length > 1);
+            if (isFirstDayLegacy && realPoints[0] > realPoints[1] * 2) {
+                dailyRealPoints.push(0);
+            } else {
+                dailyRealPoints.push(realPoints[0]);
+            }
+            
+            if (isFirstDayLegacy && objPoints[0] > objPoints[1] * 2) {
+                dailyObjPoints.push(0);
+            } else {
+                dailyObjPoints.push(objPoints[0]);
+            }
+        } else {
+            const dReal = realPoints[i] - realPoints[i-1];
+            dailyRealPoints.push(dReal >= 0 ? dReal : realPoints[i]);
+            
+            const dObj = objPoints[i] - objPoints[i-1];
+            dailyObjPoints.push(dObj >= 0 ? dObj : objPoints[i]);
+        }
+    }
+    
+    detailsDailySalesChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: formattedLabels,
+            datasets: [
+                {
+                    label: 'Vente Réelle (DH)',
+                    data: dailyRealPoints,
+                    backgroundColor: neonPink + '80', // Pink bar with 50% opacity
+                    borderColor: neonPink,
+                    borderWidth: 1.5,
+                    borderRadius: 4,
+                    borderSkipped: 'bottom'
+                },
+                {
+                    label: 'Objectif du Jour (DH)',
+                    data: dailyObjPoints,
+                    backgroundColor: isWhiteMode ? 'rgba(71, 85, 105, 0.12)' : 'rgba(148, 163, 184, 0.12)',
+                    borderColor: isWhiteMode ? '#475569' : '#94a3b8',
+                    borderWidth: 1.5,
+                    borderRadius: 4,
+                    borderSkipped: 'bottom'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    grid: { color: isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: isWhiteMode ? '#475569' : '#64748b', font: { family: 'JetBrains Mono', size: 10 } }
+                },
+                y: {
+                    min: 0,
+                    grid: { color: isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)' },
+                    ticks: {
+                        color: isWhiteMode ? '#475569' : '#64748b',
+                        font: { family: 'JetBrains Mono', size: 10 },
+                        callback: function(value) {
+                            return formatNumber(value) + ' DH';
+                        }
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        color: isWhiteMode ? '#1e293b' : '#e2e8f0',
+                        font: { family: 'Inter', weight: 'bold', size: 11 },
+                        boxWidth: 15
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const datasetLabel = context.dataset.label || '';
+                            const val = context.parsed.y;
+                            return `${datasetLabel} : ${formatNumber(val)} DH`;
+                        }
+                    }
+                }
+            }
+        }
+    });
 }
 
 function renderQualiTrends(vendeursList) {
@@ -6321,8 +6951,8 @@ function populateTrendsTable(vendeursList) {
                 <tr>
                     <th>Date</th>
                     <th>Vendeur</th>
-                    <th>Réalisé (DH)</th>
-                    <th>Objectif (DH)</th>
+                    <th>Réalisé (${currentTaxMode})</th>
+                    <th>Objectif (${currentTaxMode})</th>
                     <th>Écart / Objectif (%)</th>
                 </tr>
             `;

@@ -867,7 +867,76 @@ function applyThemeClass(themeName) {
 
 // Open modal
 function openSettingsModal() {
-    if (!dashboardData) return;
+    if (!dashboardData) {
+        showToast("Chargement des paramètres...", "info");
+        
+        const categorySelect = document.getElementById('category-select');
+        const category = categorySelect ? categorySelect.value : 'All';
+        const dateSelect = document.getElementById('date-select');
+        const dateVal = dateSelect ? dateSelect.value : 'default';
+        
+        fetch(`/api/data?category=${encodeURIComponent(category)}&date=${encodeURIComponent(dateVal)}&_=${Date.now()}`)
+            .then(res => res.json())
+            .then(res => {
+                if (res.status === 'success') {
+                    dashboardData = res.data;
+                    openSettingsModal();
+                } else {
+                    // Fallback to fetch config directly if data load failed (e.g. database empty)
+                    fetch(`/api/config?_=${Date.now()}`)
+                        .then(configRes => configRes.json())
+                        .then(configData => {
+                            if (configData.status === 'success') {
+                                const config = configData.config;
+                                dashboardData = {
+                                    workdays: {
+                                        total: 24,
+                                        elapsed: 24 - (config.rest_days || 20),
+                                        rest: config.rest_days || 20
+                                    },
+                                    all_families: [],
+                                    exclude_families: config.exclude_families || []
+                                };
+                                openSettingsModal();
+                            } else {
+                                showToast("Erreur lors de la récupération des paramètres : " + configData.message, "error");
+                            }
+                        })
+                        .catch(err => {
+                            console.error(err);
+                            showToast("Erreur de connexion au serveur", "error");
+                        });
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                // Fallback to fetch config directly if data load failed
+                fetch(`/api/config?_=${Date.now()}`)
+                    .then(configRes => configRes.json())
+                    .then(configData => {
+                        if (configData.status === 'success') {
+                            const config = configData.config;
+                            dashboardData = {
+                                workdays: {
+                                    total: 24,
+                                    elapsed: 24 - (config.rest_days || 20),
+                                    rest: config.rest_days || 20
+                                },
+                                all_families: [],
+                                exclude_families: config.exclude_families || []
+                            };
+                            openSettingsModal();
+                        } else {
+                            showToast("Erreur de connexion au serveur", "error");
+                        }
+                    })
+                    .catch(() => {
+                        showToast("Erreur de connexion au serveur", "error");
+                    });
+            });
+        return;
+    }
+    
     inputRestDays.value = dashboardData.workdays.rest;
     
     const modalThemeSelect = document.getElementById('modal-theme-select');
@@ -970,7 +1039,17 @@ function handleSettingsSubmit(e) {
         if (data.status === 'success') {
             showToast("Paramètres mis à jour et données recalculées !", "success");
             closeSettingsModal();
-            fetchDashboardData();
+            
+            // Only fetch dashboard data if we are not on a sub-route that skips it
+            const path = window.location.pathname;
+            const onClientsRoute = path === '/clients';
+            const onFdvRoute = path === '/fdv';
+            const onTerrainRoute = path === '/terrain';
+            const onFocusRoute = path === '/focus';
+            const onRapportRoute = path === '/rapport';
+            if (!onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute) {
+                fetchDashboardData();
+            }
         } else {
             showToast("Erreur: " + data.message, "error");
         }
@@ -1312,8 +1391,7 @@ function renderQuantiTable(records) {
         "BOUILLON",
         "CONDIMENTS",
         "CONFITURE",
-        "CONSERVES",
-        "MISWAK"
+        "CONSERVES"
     ];
 
     const sortedFamilies = Object.keys(families).sort((a, b) => {

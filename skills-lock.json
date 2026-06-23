@@ -13,6 +13,12 @@
       "skillPath": "plugins/business-analytics/skills/kpi-dashboard-design/SKILL.md",
       "computedHash": "237c91f703641b4abd39600062d55de1dbfb1ff6d42608b0ba5bd729aefa6f55"
     },
+    "persona-sales-ops": {
+      "source": "googleworkspace/cli",
+      "sourceType": "github",
+      "skillPath": "skills/persona-sales-ops/SKILL.md",
+      "computedHash": "0f8863949efd497b4d98e6f8a73b79fa1ee6c2b213f0c60e6115a0dac7ee5fb3"
+    },
     "ui-ux-pro-max": {
       "source": "nextlevelbuilder/ui-ux-pro-max-skill",
       "sourceType": "github",

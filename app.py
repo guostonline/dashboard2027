@@ -79,7 +79,7 @@ def process_and_save_suivi(date, file_content, force_extract_rest_days=False):
         rest_days = None
         exclude_families = settings["exclude_families"] if settings else []
         
-    p = ExcelProcessor(path=temp_in, output_path=temp_out, rest_days=rest_days, exclude_families=exclude_families)
+    p = ExcelProcessor(path=temp_in, output_path=temp_out, rest_days=rest_days, exclude_families=exclude_families, date=date)
     
     try:
         # Extract default rest days from file if not specified
@@ -88,7 +88,7 @@ def process_and_save_suivi(date, file_content, force_extract_rest_days=False):
             rest_days = total - elapsed
             db_manager.save_suivi_settings(date, rest_days, exclude_families)
             # Re-initialize processor with determined rest days
-            p = ExcelProcessor(path=temp_in, output_path=temp_out, rest_days=rest_days, exclude_families=exclude_families)
+            p = ExcelProcessor(path=temp_in, output_path=temp_out, rest_days=rest_days, exclude_families=exclude_families, date=date)
             
         p.fix_sheet(jour_rest=rest_days)
         data = p.get_data()
@@ -130,6 +130,13 @@ def clients():
     theme = config.get("theme", "theme-1")
     light_mode = config.get("light_mode", False)
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="clients")
+
+@app.route("/rapport")
+def rapport():
+    config = load_config()
+    theme = config.get("theme", "theme-1")
+    light_mode = config.get("light_mode", False)
+    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="rapport")
 
 @app.route("/theme1")
 def theme1():
@@ -278,7 +285,8 @@ def run_ai_analysis():
         category = request.args.get("category")
         date = request.args.get("date")
         options_str = request.args.get("options")
-
+        tax_mode = request.args.get("tax_mode", "TTC")
+        
         # Parse options if provided
         options = None
         if options_str:
@@ -291,7 +299,7 @@ def run_ai_analysis():
                 "rappel": "rappel" in selected_options
             }
 
-        report_content = generate_report(vendeur=vendeur, category=category, date=date, options=options)
+        report_content = generate_report(vendeur=vendeur, category=category, date=date, options=options, tax_mode=tax_mode)
         if report_content:
             return jsonify({"status": "success", "report": report_content})
         else:

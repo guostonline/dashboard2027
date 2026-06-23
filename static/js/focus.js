@@ -23,6 +23,13 @@
         }
     });
 
+    document.addEventListener('taxModeChanged', function () {
+        const focusContainer = document.getElementById('focus-container');
+        if (focusContainer && focusData) {
+            renderFocusView();
+        }
+    });
+
     function initFocusTab() {
         console.log("Initializing Focus Tab...");
         
@@ -423,13 +430,14 @@
         repsTbody.innerHTML = '';
 
         if (currentFocusType === 'GLACE') {
+            const taxMode = localStorage.getItem('taxMode') || 'TTC';
             tableTitle.innerHTML = `<i class="fa-solid fa-list-ol"></i> CLASSEMENT REPRÉSENTANTS GLACE (SOM)`;
             repsHeaders.innerHTML = `
                 <th>Rang</th>
                 <th>Vendeur</th>
                 <th>Secteur</th>
-                <th>Objectif TTC</th>
-                <th>Réalisé TTC</th>
+                <th>Objectif ${taxMode}</th>
+                <th>Réalisé ${taxMode}</th>
                 <th>Écart (%)</th>
                 <th>Chef de Zone</th>
             `;
@@ -442,8 +450,11 @@
                 const devSign = devPct > 0 ? '+' : '';
                 const deviationFormatted = devSign + devPct.toFixed(1) + '%';
                 
-                const objVal = r.obj_ttc > 0 ? formatCurrency(r.obj_ttc) + ' DH' : 'N/A';
-                const realVal = r.obj_ttc > 0 ? formatCurrency(r.realised_ttc) + ' DH' : 'N/A';
+                const targetObj = taxMode === 'HT' ? r.obj_ht : r.obj_ttc;
+                const targetReal = taxMode === 'HT' ? (r.realised_ttc / 1.2) : r.realised_ttc;
+
+                const objVal = r.obj_ttc > 0 ? formatCurrency(targetObj) + ' DH' : 'N/A';
+                const realVal = r.obj_ttc > 0 ? formatCurrency(targetReal) + ' DH' : 'N/A';
                 
                 tr.innerHTML = `
                     <td><strong>${r.rank}</strong></td>

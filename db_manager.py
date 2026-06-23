@@ -348,6 +348,14 @@ def save_quantitative_data(date, data_dict):
 
 def get_quantitative_data(date, exclude_families=None):
     """Get quantitative data from column-based table"""
+    if exclude_families is None:
+        exclude_families = []
+    else:
+        exclude_families = list(exclude_families)
+    
+    if "MISWAK" not in [f.strip().upper() for f in exclude_families]:
+        exclude_families.append("MISWAK")
+
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -588,16 +596,30 @@ def get_all_suivi_dates():
     conn.close()
     return dates
 
-def get_workdays_info(rest_days):
-    total = 24
-    if os.path.exists("days.json"):
-        import json
+def get_workdays_info(rest_days, date_str=None):
+    from data_processor import calculate_calendar_workdays
+    
+    if date_str:
         try:
-            with open("days.json", "r") as f:
-                d_info = json.load(f)
-                total = int(d_info["from_file"]["t"])
-        except Exception:
-            pass
+            dynamic_days = calculate_calendar_workdays(date_str)
+            total = dynamic_days["total"]
+            elapsed = dynamic_days["elapsed"]
+            rest = dynamic_days["rest"]
+            
+            # Respect manual override if it is not the default fallback (20) and differs from dynamic calculation
+            if rest_days is not None:
+                try:
+                    custom_rest = int(rest_days)
+                    if custom_rest != 20 and custom_rest != rest:
+                        rest = custom_rest
+                        elapsed = max(0, total - rest)
+                except ValueError:
+                    pass
+            return {"elapsed": elapsed, "total": total, "rest": rest}
+        except Exception as e:
+            print(f"Error in dynamic get_workdays_info: {e}")
+
+    total = 24
     # Always compute elapsed from total - rest_days for accuracy
     elapsed = max(0, total - int(rest_days))
     return {"elapsed": elapsed, "total": total, "rest": rest_days}
@@ -723,7 +745,7 @@ def get_all_suivi_data_records():
                 "qualitative": list(qual_by_date.get(date, [])),
                 "focus_vmm": list(vmm_by_date.get(date, [])),
                 "focus_som": list(som_by_date.get(date, [])),
-                "workdays": get_workdays_info(rest_days),
+                "workdays": get_workdays_info(rest_days, date),
                 "exclude_families": exclude_families,
                 "all_families": list({q["famille"] for q in quant_list if q["famille"]}),
             },
@@ -733,12 +755,7 @@ def get_all_suivi_data_records():
 
 def get_full_data(date):
     """Get complete data for a date"""
-    quant_data = get_quantitative_data(date)
-    qual_data = get_qualitative_data(date)
-    vmm_data = get_focus_vmm_data(date)
-    som_data = get_focus_som_data(date)
-
-    # Get settings
+    # Get settings first to retrieve exclude_families
     settings = get_settings(date)
     if settings:
         rest_days = settings.get("rest_days") or 20
@@ -746,6 +763,11 @@ def get_full_data(date):
     else:
         rest_days = 20
         exclude_families = []
+
+    quant_data = get_quantitative_data(date, exclude_families)
+    qual_data = get_qualitative_data(date)
+    vmm_data = get_focus_vmm_data(date, exclude_families)
+    som_data = get_focus_som_data(date, exclude_families)
 
     # Group quantitative data by vendeur and famille
     grouped_quant = {}
@@ -788,7 +810,7 @@ def get_full_data(date):
         "qualitative": qual_list,
         "focus_vmm": vmm_data,
         "focus_som": som_data,
-        "workdays": get_workdays_info(rest_days),
+        "workdays": get_workdays_info(rest_days, date),
         "exclude_families": exclude_families,
         "all_families": list(set(q["famille"] for q in quant_data if q["famille"]))
     }

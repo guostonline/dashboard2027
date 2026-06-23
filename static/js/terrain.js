@@ -9,6 +9,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+document.addEventListener('taxModeChanged', () => {
+    if (document.getElementById('terrain-container') && terrainRawData.length > 0) {
+        renderTerrainView();
+    }
+});
+
 function initTerrainPage() {
     fetchTerrainData();
     setupTerrainEventListeners();
@@ -121,6 +127,14 @@ function applyTerrainFilters() {
 }
 
 function renderTerrainView() {
+    const taxMode = localStorage.getItem('taxMode') || 'TTC';
+    
+    // Update headers text dynamically
+    const thTerrainReal = document.getElementById('th-terrain-real');
+    const thTerrainGlace = document.getElementById('th-terrain-glace');
+    if (thTerrainReal) thTerrainReal.innerText = `Real CA (${taxMode})`;
+    if (thTerrainGlace) thTerrainGlace.innerText = `CA Glace (${taxMode})`;
+
     // 1. Calculate and render KPIs
     let totalCa = 0;
     let totalBl = 0;
@@ -128,10 +142,16 @@ function renderTerrainView() {
     let totalGlace = 0;
 
     terrainFilteredData.forEach(r => {
-        totalCa += r.realisation_ca || 0;
+        let ca = r.realisation_ca || 0;
+        let glace = r.glass_ca || 0;
+        if (taxMode === 'HT') {
+            ca = ca / 1.2;
+            glace = glace / 1.2;
+        }
+        totalCa += ca;
         totalBl += r.bl || 0;
         totalTomate += r.tomate_frito || 0;
-        totalGlace += r.glass_ca || 0;
+        totalGlace += glace;
     });
 
     const formatCurrency = (val) => {
@@ -153,18 +173,26 @@ function renderTerrainView() {
         if (terrainFilteredData.length === 0) {
             tableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Aucune donnée disponible avec les filtres sélectionnés.</td></tr>`;
         } else {
-            tableBody.innerHTML = terrainFilteredData.map(r => `
-                <tr>
-                    <td><span class="tech-label" style="font-size: 0.75rem;">${r.date}</span></td>
-                    <td><small style="color: var(--text-muted); font-size: 0.7rem; font-family: var(--font-mono);">${r.timestamp}</small></td>
-                    <td><strong style="color: var(--text-main);">${r.vendeur}</strong></td>
-                    <td><span class="badge-blue" style="text-transform: uppercase;">${r.activite}</span></td>
-                    <td class="neon-text-blue" style="text-align: right; font-family: var(--font-mono); font-weight: bold;">${formatNumber(r.realisation_ca)} DH</td>
-                    <td class="neon-text-green" style="text-align: right; font-family: var(--font-mono); font-weight: bold;">${r.bl}</td>
-                    <td class="neon-text-amber" style="text-align: right; font-family: var(--font-mono);">${r.tomate_frito || 0}</td>
-                    <td class="neon-text-pink" style="text-align: right; font-family: var(--font-mono);">${formatNumber(r.glass_ca || 0)} DH</td>
-                </tr>
-            `).join('');
+            tableBody.innerHTML = terrainFilteredData.map(r => {
+                let ca = r.realisation_ca || 0;
+                let glace = r.glass_ca || 0;
+                if (taxMode === 'HT') {
+                    ca = ca / 1.2;
+                    glace = glace / 1.2;
+                }
+                return `
+                    <tr>
+                        <td><span class="tech-label" style="font-size: 0.75rem;">${r.date}</span></td>
+                        <td><small style="color: var(--text-muted); font-size: 0.7rem; font-family: var(--font-mono);">${r.timestamp}</small></td>
+                        <td><strong style="color: var(--text-main);">${r.vendeur}</strong></td>
+                        <td><span class="badge-blue" style="text-transform: uppercase;">${r.activite}</span></td>
+                        <td class="neon-text-blue" style="text-align: right; font-family: var(--font-mono); font-weight: bold;">${formatNumber(ca)} DH</td>
+                        <td class="neon-text-green" style="text-align: right; font-family: var(--font-mono); font-weight: bold;">${r.bl}</td>
+                        <td class="neon-text-amber" style="text-align: right; font-family: var(--font-mono);">${r.tomate_frito || 0}</td>
+                        <td class="neon-text-pink" style="text-align: right; font-family: var(--font-mono);">${formatNumber(glace)} DH</td>
+                    </tr>
+                `;
+            }).join('');
         }
     }
 
@@ -181,14 +209,22 @@ function renderTerrainChart() {
         terrainChartInstance.destroy();
     }
 
+    const taxMode = localStorage.getItem('taxMode') || 'TTC';
+
     // Aggregate data by Date for the chart trend
     const dateData = {};
     terrainFilteredData.forEach(r => {
         if (!dateData[r.date]) {
             dateData[r.date] = { ca: 0, glass: 0 };
         }
-        dateData[r.date].ca += r.realisation_ca || 0;
-        dateData[r.date].glass += r.glass_ca || 0;
+        let ca = r.realisation_ca || 0;
+        let glass = r.glass_ca || 0;
+        if (taxMode === 'HT') {
+            ca = ca / 1.2;
+            glass = glass / 1.2;
+        }
+        dateData[r.date].ca += ca;
+        dateData[r.date].glass += glass;
     });
 
     // Sort dates chronologically
@@ -216,7 +252,7 @@ function renderTerrainChart() {
             datasets: [
                 {
                     type: 'line',
-                    label: 'CA Réalisé Total',
+                    label: `CA Réalisé Total (${taxMode})`,
                     data: caTrend,
                     borderColor: neonBlue,
                     borderWidth: 3,
@@ -227,7 +263,7 @@ function renderTerrainChart() {
                 },
                 {
                     type: 'bar',
-                    label: 'CA Glace (SOM)',
+                    label: `CA Glace (SOM) (${taxMode})`,
                     data: glassTrend,
                     backgroundColor: neonPink + '44',
                     borderColor: neonPink,

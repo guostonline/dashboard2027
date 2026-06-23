@@ -17,7 +17,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=2.4">
+    <link rel="stylesheet" href="/static/css/style.css?v=2.6">
 </head>
 <body class="cyber-grid {% if theme %}{{ theme }}{% endif %} {% if light_mode %}light-mode{% endif %}">
     <!-- ===== Animated background layers ===== -->
@@ -37,12 +37,13 @@
             </div>
             
             <nav class="sidebar-nav">
-                <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
+                <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
                 <a href="/details" class="nav-item {% if active_tab == 'details' %}active{% endif %}" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
                 <a href="/clients" class="nav-item {% if active_tab == 'clients' %}active{% endif %}" id="nav-clients"><i class="fa-solid fa-address-book"></i> <span>Client</span></a>
                 <a href="/fdv" class="nav-item {% if active_tab == 'fdv' %}active{% endif %}" id="nav-fdv"><i class="fa-solid fa-people-group"></i> <span>FDV</span></a>
                 <a href="/terrain" class="nav-item {% if active_tab == 'terrain' %}active{% endif %}" id="nav-terrain"><i class="fa-solid fa-file-invoice-dollar"></i> <span>Suivi Terrain</span></a>
                 <a href="/focus" class="nav-item {% if active_tab == 'focus' %}active{% endif %}" id="nav-focus"><i class="fa-solid fa-bullseye"></i> <span>Focus</span></a>
+                <a href="/rapport" class="nav-item {% if active_tab == 'rapport' %}active{% endif %}" id="nav-rapport"><i class="fa-solid fa-brain"></i> <span>Rapport</span></a>
             </nav>
             
             <div class="sidebar-footer">
@@ -51,18 +52,8 @@
                     <span class="tech-label"><i class="fa-solid fa-users-gear"></i> CATÉGORIE VENDEUR</span>
                     <select id="category-select" class="cyber-select" style="width: 100%; border-color: var(--neon-blue); text-transform: uppercase;">
                         <option value="All">TOUTE L'AGENCE</option>
-                        <option value="Pré-vendeur">Pré-vendeur</option>
-                        <option value="Pré-vendeur Chakib">Pré-vendeur Chakib</option>
                         <option value="Chakib Equipe" selected>Chakib Equipe</option>
-                        <option value="Conventionnel">Conventionnel</option>
-                        <option value="One by One">One by One (Y59)</option>
-                        <option value="SOM pré-vendeur">SOM pré-vendeur</option>
-                        <option value="SOM pré-vendeur Chakib">SOM pré-vendeur Chakib</option>
-                        <option value="VMM pré-vendeur">VMM pré-vendeur</option>
-                        <option value="VMM pré-vendeur Chakib">VMM pré-vendeur Chakib</option>
-                        <option value="SOM All">SOM All</option>
-                        <option value="VMM All">VMM All</option>
-                        <option value="CDZ">CDZ</option>
+                        <option value="Boutmezguine Equipe">Boutmezguine Equipe</option>
                     </select>
                 </div>
                 
@@ -170,13 +161,22 @@
                 </div>
                 <span id="timelapse-progress-text" class="tech-label-mini" style="display: none; font-size: 0.65rem; color: var(--neon-green); font-family: var(--font-mono); margin-left: 0.2rem; white-space: nowrap;" title="Jour actuel / Total"></span>
             </div>
+            <!-- Header Jours Travaillés Input -->
+            <div class="header-workdays-input-wrapper" style="display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--border-color); padding: 0.25rem 0.5rem; border-radius: 4px; background: rgba(0, 0, 0, 0.25); height: 38px;">
+                <span class="tech-label" style="font-size: 0.72rem; color: var(--text-muted); font-weight: bold; white-space: nowrap; text-transform: uppercase;"><i class="fa-solid fa-calendar-day neon-text-blue"></i> Jours Travaillés</span>
+                <input type="number" id="header-elapsed-days" min="0" max="31" class="cyber-input" style="width: 55px; height: 26px; padding: 0 0.25rem; font-size: 0.85rem; font-family: var(--font-mono); text-align: center; border-color: var(--neon-blue); background: rgba(0,0,0,0.5); color: #fff; margin: 0; border-radius: 3px;" title="Nombre de jours travaillés écoulés">
+            </div>
+            <!-- Header HT/TTC Toggler -->
+            <div class="header-tax-toggle-wrapper" style="display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--border-color); padding: 0.25rem 0.5rem; border-radius: 4px; background: rgba(0, 0, 0, 0.25); height: 38px;">
+                <span class="tech-label" style="font-size: 0.72rem; color: var(--text-muted); font-weight: bold; white-space: nowrap; text-transform: uppercase;"><i class="fa-solid fa-receipt neon-text-blue"></i> MONTANT</span>
+                <select id="tax-select" class="cyber-select" style="width: 60px; height: 26px; padding: 0 0.25rem; font-size: 0.85rem; font-family: var(--font-mono); text-align: center; border-color: var(--neon-blue); background: rgba(0,0,0,0.5); color: #fff; margin: 0; border-radius: 3px;" title="Afficher les données en HT ou TTC">
+                    <option value="TTC" selected>TTC</option>
+                    <option value="HT">HT</option>
+                </select>
+            </div>
             <button id="upload-btn" class="cyber-btn" title="Importer un suivi (Excel)">
                 <i class="fa-solid fa-cloud-arrow-up"></i>
                 <span>IMPORTER</span>
-            </button>
-            <button id="ai-report-btn" class="cyber-btn" title="Générer un rapport d'analyse IA">
-                <i class="fa-solid fa-brain" id="ai-report-icon"></i>
-                <span id="ai-report-label">ANALYSE IA</span>
             </button>
             <button id="refresh-btn" class="cyber-btn" title="Rafraîchir depuis Excel">
                 <i class="fa-solid fa-arrows-rotate" id="refresh-icon"></i>
@@ -193,7 +193,7 @@
         </div>
     </header>
 
-    <main class="dashboard-container" id="main-dashboard-container" style="{% if active_tab == 'details' or active_tab == 'clients' or active_tab == 'fdv' or active_tab == 'terrain' or active_tab == 'focus' %}display: none;{% endif %}; position: relative; z-index: 10;">
+    <main class="dashboard-container" id="main-dashboard-container" style="{% if active_tab == 'details' or active_tab == 'clients' or active_tab == 'fdv' or active_tab == 'terrain' or active_tab == 'focus' or active_tab == 'rapport' %}display: none;{% endif %}; position: relative; z-index: 10;">
         <!-- TOP SUMMARY CARDS -->
         <section class="summary-section" id="summary-section">
             <div class="cyber-card summary-card glow-blue">
@@ -446,12 +446,12 @@
                             <thead>
                                 <tr>
                                     <th>Famille</th>
-                                    <th>Réalisé (DH)</th>
-                                    <th>Objectif (DH)</th>
+                                    <th id="th-quanti-real">Réalisé (TTC)</th>
+                                    <th id="th-quanti-obj">Objectif (TTC)</th>
                                     <th>% Taux</th>
-                                    <th>Réal 2025 (DH)</th>
-                                    <th>Obj Mois (DH)</th>
-                                    <th>Reste à Faire (RAF)</th>
+                                    <th id="th-quanti-real2025">Réal 2025 (TTC)</th>
+                                    <th id="th-quanti-objmois">Obj Mois (TTC)</th>
+                                    <th id="th-quanti-raf">Reste à Faire (TTC)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -556,6 +556,17 @@
             </div>
         </section>
 
+        <!-- DAILY SALES CHART PANEL -->
+        <section class="cyber-card chart-card" style="margin-top: 1.5rem; min-height: 480px;">
+            <div class="card-edge"></div>
+            <div class="card-header">
+                <span class="tech-label"><i class="fa-solid fa-chart-bar neon-text-pink"></i> VENTES QUOTIDIENNES NON CUMULÉES (DH)</span>
+            </div>
+            <div class="chart-wrapper" style="height: 400px; padding: 1rem 0; position: relative;">
+                <canvas id="details-daily-sales-chart"></canvas>
+            </div>
+        </section>
+
         <!-- DETAILS RAW DATA TABLE -->
         <section class="cyber-card table-card">
             <div class="card-edge"></div>
@@ -568,8 +579,8 @@
                         <tr>
                             <th>Date</th>
                             <th>Vendeur</th>
-                            <th>Réalisé (DH)</th>
-                            <th>Objectif (DH)</th>
+                            <th id="th-details-real">Réalisé (TTC)</th>
+                            <th id="th-details-obj">Objectif (TTC)</th>
                             <th>Écart / Objectif (%)</th>
                         </tr>
                     </thead>
@@ -1101,10 +1112,10 @@
                             <th>Timestamp</th>
                             <th>Vendeur</th>
                             <th>Activité</th>
-                            <th>Real CA (DH)</th>
+                            <th id="th-terrain-real">Real CA (TTC)</th>
                             <th>BL (Cmds)</th>
                             <th>Act. Tomate (VMM)</th>
-                            <th>CA Glace (SOM)</th>
+                            <th id="th-terrain-glace">CA Glace (TTC)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1257,6 +1268,194 @@
         </section>
 
     </main>
+
+    <main class="rp-page" id="rapport-container" style="{% if active_tab != 'rapport' %}display: none;{% endif %}">
+        <!-- ══ HERO HEADER ══════════════════════════════════════════════════ -->
+        <div class="rp-hero">
+            <div class="rp-hero-glow"></div>
+            <div class="rp-hero-content">
+                <div class="rp-hero-badge">
+                    <i class="fa-solid fa-brain"></i>
+                    <span>IA ANALYTIQUE</span>
+                </div>
+                <h1 class="rp-hero-title">Rapport d'Analyse<br><span class="rp-hero-title-accent">Force de Vente</span></h1>
+                <p class="rp-hero-sub">Analyse sémantique &amp; prédictive générée par intelligence artificielle</p>
+            </div>
+            <div class="rp-hero-pills">
+                <span class="rp-pill rp-pill-blue"><i class="fa-solid fa-chart-line"></i> KPI Quanti</span>
+                <span class="rp-pill rp-pill-green"><i class="fa-solid fa-comments"></i> Qualitatif</span>
+                <span class="rp-pill rp-pill-purple"><i class="fa-solid fa-bullseye"></i> Focus</span>
+                <span class="rp-pill rp-pill-amber"><i class="fa-solid fa-triangle-exclamation"></i> Anomalies</span>
+            </div>
+        </div>
+
+        <!-- ══ BENTO CONTROL GRID ═══════════════════════════════════════════ -->
+        <div class="rp-bento">
+
+            <!-- CELL 1 — Vendeur selector -->
+            <div class="rp-bento-cell rp-cell-vendeur" style="position: relative; z-index: 200;">
+                <div class="rp-cell-label"><i class="fa-solid fa-user-tie"></i> Cible</div>
+                <div class="rp-cell-title">Choisir un Vendeur</div>
+                <div class="rp-cell-sub">Laissez vide pour un rapport agence global</div>
+
+                <div class="dropdown-container rp-dropdown-wrap" id="vendeur-dropdown-container">
+                    <button class="rp-dropdown-btn" id="vendeur-dropdown-toggle" type="button">
+                        <span class="rp-dropdown-icon"><i class="fa-solid fa-user-tie"></i></span>
+                        <span class="rp-dropdown-text" id="dropdown-selected-text">Tous les vendeurs</span>
+                        <i class="fa-solid fa-chevron-down rp-dropdown-chevron dropdown-chevron"></i>
+                    </button>
+                    <div class="dropdown-menu" id="vendeur-dropdown-menu">
+                        <div class="dropdown-search-wrapper">
+                            <i class="fa-solid fa-search search-icon"></i>
+                            <input type="text" id="vendeur-dropdown-search" class="dropdown-search-input" placeholder="Rechercher...">
+                        </div>
+                        <div class="dropdown-list vendeur-dropdown-list" id="vendeur-dropdown-list">
+                            <div class="dropdown-loading">
+                                <i class="fa-solid fa-circle-notch fa-spin"></i>
+                                <span>Chargement...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="selected-vendeur-display-container" class="rp-selected-badge-wrap">
+                    <div id="selected-vendeur-display" class="rp-selected-badge">
+                        <i class="fa-solid fa-globe"></i>
+                        <span>Agence globale</span>
+                    </div>
+                    <button id="reset-vendeur-selection-btn" class="rp-reset-btn" style="display:none;">
+                        <i class="fa-solid fa-xmark"></i> Effacer
+                    </button>
+                </div>
+            </div>
+
+            <!-- CELL 2 — Analysis toggles -->
+            <div class="rp-bento-cell rp-cell-options">
+                <div class="rp-cell-label"><i class="fa-solid fa-sliders"></i> Configuration</div>
+                <div class="rp-cell-title">Modules d'Analyse</div>
+                <div class="rp-toggles">
+                    <label class="rp-toggle" data-option="quanti">
+                        <input type="checkbox" id="check-quanti" checked>
+                        <span class="rp-toggle-track">
+                            <span class="rp-toggle-icon"><i class="fa-solid fa-chart-bar"></i></span>
+                            <span class="rp-toggle-label">Quantitatif</span>
+                        </span>
+                    </label>
+                    <label class="rp-toggle" data-option="quali">
+                        <input type="checkbox" id="check-quali" checked>
+                        <span class="rp-toggle-track">
+                            <span class="rp-toggle-icon"><i class="fa-solid fa-comments"></i></span>
+                            <span class="rp-toggle-label">Qualitatif</span>
+                        </span>
+                    </label>
+                    <label class="rp-toggle" data-option="focus">
+                        <input type="checkbox" id="check-focus" checked>
+                        <span class="rp-toggle-track">
+                            <span class="rp-toggle-icon"><i class="fa-solid fa-bullseye"></i></span>
+                            <span class="rp-toggle-label">Focus</span>
+                        </span>
+                    </label>
+                    <label class="rp-toggle" data-option="anomali">
+                        <input type="checkbox" id="check-anomali">
+                        <span class="rp-toggle-track">
+                            <span class="rp-toggle-icon"><i class="fa-solid fa-triangle-exclamation"></i></span>
+                            <span class="rp-toggle-label">Anomalies</span>
+                        </span>
+                    </label>
+                    <label class="rp-toggle" data-option="rappel">
+                        <input type="checkbox" id="check-rappel">
+                        <span class="rp-toggle-track">
+                            <span class="rp-toggle-icon"><i class="fa-solid fa-bell"></i></span>
+                            <span class="rp-toggle-label">Rappels</span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- CELL 3 — Generate CTA -->
+            <div class="rp-bento-cell rp-cell-generate">
+                <div class="rp-generate-orb"></div>
+                <div class="rp-cell-label"><i class="fa-solid fa-wand-magic-sparkles"></i> Action</div>
+                <div class="rp-cell-title">Lancer l'IA</div>
+                <div class="rp-cell-sub">Génération sémantique complète</div>
+                <!-- TTC / HT Selection Options -->
+                <div class="rp-toggles" style="margin-bottom: 1rem; width: 100%;">
+                    <label class="rp-toggle" data-option="ttc">
+                        <input type="radio" name="report-tax-mode" id="report-tax-mode-ttc" value="TTC" checked style="position: absolute; opacity: 0; width: 0; height: 0;">
+                        <span class="rp-toggle-track" style="width: 100%;">
+                            <span class="rp-toggle-icon"><i class="fa-solid fa-receipt"></i></span>
+                            <span class="rp-toggle-label">Données en TTC</span>
+                        </span>
+                    </label>
+                    <label class="rp-toggle" data-option="ht">
+                        <input type="radio" name="report-tax-mode" id="report-tax-mode-ht" value="HT" style="position: absolute; opacity: 0; width: 0; height: 0;">
+                        <span class="rp-toggle-track" style="width: 100%;">
+                            <span class="rp-toggle-icon"><i class="fa-solid fa-receipt"></i></span>
+                            <span class="rp-toggle-label">Données en HT</span>
+                        </span>
+                    </label>
+                </div>
+                <button id="generate-vendeur-report-btn" class="rp-generate-btn">
+                    <span class="rp-generate-btn-glow"></span>
+                    <i class="fa-solid fa-brain"></i>
+                    <span>Générer le Rapport</span>
+                </button>
+            </div>
+
+        </div><!-- /rp-bento -->
+
+        <!-- ══ RESULT PANEL ═════════════════════════════════════════════════ -->
+        <div class="rp-result-panel" id="rp-result-panel" style="display:none;">
+
+            <!-- Actions bar (shown when report ready) -->
+            <div id="report-actions-header" class="rp-actions-bar" style="display:none;">
+                <h3 id="report-title-display" class="rp-actions-title">
+                    <i class="fa-solid fa-file-invoice"></i> RAPPORT IA : AGENCE (GLOBAL)
+                </h3>
+                <div class="rp-actions-btns">
+                    <button id="whatsapp-report-btn" class="rp-action-btn rp-action-whatsapp" style="display:none;" title="Envoyer par WhatsApp">
+                        <i class="fa-brands fa-whatsapp"></i> WhatsApp
+                    </button>
+                    <button id="download-report-btn" class="rp-action-btn" style="display:none;">
+                        <i class="fa-solid fa-file-pdf"></i> PDF
+                    </button>
+                    <button id="copy-report-btn" class="rp-action-btn" style="display:none;">
+                        <i class="fa-solid fa-copy"></i> Copier
+                    </button>
+                    <button id="ok-report-btn" class="rp-action-btn rp-action-reset" style="display:none;">
+                        <i class="fa-solid fa-rotate-left"></i> Reset
+                    </button>
+                </div>
+            </div>
+
+
+            <!-- Loading state (VEO canvas) -->
+            <div id="report-loading" class="report-loading-wrapper" style="display:none; align-items:center; justify-content:center; flex-direction:column; width:100%; padding:2rem 0;">
+                <div class="veo-video-player" style="max-width:720px; width:100%;">
+                    <div class="veo-hud-header">
+                        <span class="hud-red-dot neon-pulse"></span>
+                        <span class="hud-text font-mono">VEO 3.0 // ANALYTICAL_VIDEO_STREAM</span>
+                        <span class="hud-timecode font-mono" id="veo-timecode">REC 00:00:00</span>
+                    </div>
+                    <canvas id="veo-canvas" style="aspect-ratio:16/9; width:100%; display:block;"></canvas>
+                    <div class="veo-hud-footer">
+                        <span class="hud-status font-mono">AI_MODEL: GOOGLE_VEO_GEN3</span>
+                        <span class="hud-fps font-mono">60 FPS // STREAMING</span>
+                    </div>
+                </div>
+                <p class="tech-label neon-text-blue" style="margin-top:1.5rem;">ANALYSE DES KPI EN COURS VIA L'API DE RAPPORT...</p>
+                <p class="tech-label" style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase;">Génération du rapport de performance. Analyse sémantique en cours.</p>
+            </div>
+
+            <!-- Content state -->
+            <div id="report-content-wrapper" class="report-markdown-content" style="display:none; padding:0.5rem 1rem;">
+                <!-- Inserted dynamically -->
+            </div>
+
+        </div><!-- /rp-result-panel -->
+
+    </main>
+
 
     <!-- FDV EDIT/ADD MODAL -->
     <div class="modal-backdrop" id="fdv-modal">
@@ -1547,159 +1746,6 @@
         </div>
     </div>
 
-    <!-- AI REPORT MODAL -->
-    <div class="modal-backdrop" id="ai-report-modal">
-        <div class="cyber-modal report-modal">
-            <div class="modal-header">
-                <h3 id="report-modal-title"><i class="fa-solid fa-brain neon-text-blue"></i> RAPPORT D'ANALYSE IA</h3>
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <button class="close-btn" id="fullscreen-report-modal-btn" title="Plein écran" style="font-size: 0.9rem; padding: 0.2rem;"><i class="fa-solid fa-expand"></i></button>
-                    <button class="close-btn" id="close-report-modal-btn" title="Fermer">&times;</button>
-                </div>
-            </div>
-            <div class="modal-body report-body-container">
-                <!-- VEO 3 VIDEO ENGINE PLAYER -->
-                <div id="report-loading" class="report-loading-wrapper">
-                    <div class="veo-video-player">
-                        <div class="veo-hud-header">
-                            <span class="hud-red-dot neon-pulse"></span>
-                            <span class="hud-text font-mono">VEO 3.0 // ANALYTICAL_VIDEO_STREAM</span>
-                            <span class="hud-timecode font-mono" id="veo-timecode">REC 00:00:00</span>
-                        </div>
-                        <canvas id="veo-canvas"></canvas>
-                        <div class="veo-hud-footer">
-                            <span class="hud-status font-mono">AI_MODEL: GOOGLE_VEO_GEN3</span>
-                            <span class="hud-fps font-mono">60 FPS // STREAMING</span>
-                        </div>
-                    </div>
-                    <p class="tech-label neon-text-blue" style="margin-top: 1rem;">ANALYSE DES KPI EN COURS VIA L'API OPENROUTER...</p>
-                    <p class="tech-label" style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase;">Génération du rapport de performance. Analyse sémantique en cours.</p>
-                </div>
-                <div id="report-content-wrapper" class="report-markdown-content" style="display: none;">
-                    <!-- Inserted dynamically -->
-                </div>
-            </div>
-            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.5rem;">
-                <button id="whatsapp-report-btn" class="cyber-btn" style="padding: 0.45rem 1rem; font-size: 0.75rem; display: none; border-color: #25D366; color: #25D366;" title="Envoyer le rapport par WhatsApp">
-                    <i class="fa-brands fa-whatsapp"></i> ENVOYER WHATSAPP
-                </button>
-                <button id="download-report-btn" class="cyber-btn" style="padding: 0.45rem 1rem; font-size: 0.75rem; display: none;">
-                    <i class="fa-solid fa-file-pdf"></i> TÉLÉCHARGER PDF
-                </button>
-                <button id="copy-report-btn" class="cyber-btn" style="padding: 0.45rem 1rem; font-size: 0.75rem; display: none;">
-                    <i class="fa-solid fa-copy"></i> COPIER LE RAPPORT
-                </button>
-                <button id="ok-report-btn" class="cyber-btn" style="padding: 0.45rem 1rem; font-size: 0.75rem; display: none;">
-                    OK
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Vendeur Selection Modal -->
-    <div class="modal-backdrop" id="vendeur-selection-modal">
-        <div class="cyber-modal vendeur-selection-modal">
-            <div class="modal-header">
-                <h3><i class="fa-solid fa-users neon-text-amber"></i> SÉLECTIONNER UN VENDEUR</h3>
-                <button class="close-btn" id="close-vendeur-modal-btn" title="Fermer">&times;</button>
-            </div>
-            <div class="modal-body" style="padding: 1.5rem;">
-                <!-- Vendeur Dropdown -->
-                <div class="vendeur-dropdown-wrapper" style="margin-bottom: 1.5rem;">
-                    <label class="tech-label" style="display: block; margin-bottom: 0.5rem; font-size: 0.75rem; color: var(--text-muted);">
-                        <i class="fa-solid fa-user-tie"></i> CHOISIR UN VENDEUR
-                    </label>
-                    <div class="dropdown-container" id="vendeur-dropdown-container">
-                        <button class="dropdown-toggle" id="vendeur-dropdown-toggle" type="button">
-                            <span class="dropdown-toggle-icon"><i class="fa-solid fa-user-tie"></i></span>
-                            <span class="dropdown-selected-text" id="dropdown-selected-text">Sélectionner un vendeur</span>
-                            <i class="fa-solid fa-chevron-down dropdown-chevron"></i>
-                        </button>
-                        <div class="dropdown-menu" id="vendeur-dropdown-menu">
-                            <div class="dropdown-search-wrapper">
-                                <i class="fa-solid fa-search search-icon"></i>
-                                <input type="text" id="vendeur-dropdown-search" class="dropdown-search-input" placeholder="Rechercher...">
-                            </div>
-                            <div class="dropdown-list vendeur-dropdown-list" id="vendeur-dropdown-list">
-                                <div class="dropdown-loading">
-                                    <i class="fa-solid fa-circle-notch fa-spin"></i>
-                                    <span>Chargement...</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Analysis Options Checkboxes -->
-                <div class="analysis-options-wrapper">
-                    <label class="tech-label" style="display: block; margin-bottom: 0.75rem; font-size: 0.75rem; color: var(--text-muted);">
-                        <i class="fa-solid fa-tasks"></i> OPTIONS D'ANALYSE
-                    </label>
-                    <div class="checkbox-group">
-                        <label class="checkbox-item" data-option="quanti">
-                            <input type="checkbox" id="check-quanti" checked>
-                            <span class="checkbox-custom"></span>
-                            <span class="checkbox-label">
-                                <span class="checkbox-icon-wrap"><i class="fa-solid fa-chart-bar"></i></span>
-                                <span class="checkbox-title">Quantitatif</span>
-                                <small>Analyse quantitative des ventes</small>
-                            </span>
-                        </label>
-                        <label class="checkbox-item" data-option="quali">
-                            <input type="checkbox" id="check-quali" checked>
-                            <span class="checkbox-custom"></span>
-                            <span class="checkbox-label">
-                                <span class="checkbox-icon-wrap"><i class="fa-solid fa-chart-pie"></i></span>
-                                <span class="checkbox-title">Qualitatif</span>
-                                <small>Analyse qualitative (ACM, TSM, LINE)</small>
-                            </span>
-                        </label>
-                        <label class="checkbox-item" data-option="focus">
-                            <input type="checkbox" id="check-focus" checked>
-                            <span class="checkbox-custom"></span>
-                            <span class="checkbox-label">
-                                <span class="checkbox-icon-wrap"><i class="fa-solid fa-bullseye"></i></span>
-                                <span class="checkbox-title">Focus</span>
-                                <small>Focus produits (Tomate Frito, Glace)</small>
-                            </span>
-                        </label>
-                        <label class="checkbox-item" data-option="anomali">
-                            <input type="checkbox" id="check-anomali">
-                            <span class="checkbox-custom"></span>
-                            <span class="checkbox-label">
-                                <span class="checkbox-icon-wrap"><i class="fa-solid fa-triangle-exclamation"></i></span>
-                                <span class="checkbox-title">Anomalies</span>
-                                <small>Détection des anomalies</small>
-                            </span>
-                        </label>
-                        <label class="checkbox-item" data-option="rappel">
-                            <input type="checkbox" id="check-rappel">
-                            <span class="checkbox-custom"></span>
-                            <span class="checkbox-label">
-                                <span class="checkbox-icon-wrap"><i class="fa-solid fa-bell"></i></span>
-                                <span class="checkbox-title">Rappels</span>
-                                <small>Rappels et alertes importants</small>
-                            </span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
-                <div class="selected-vendeur-display" id="selected-vendeur-display" style="font-size: 0.85rem; color: var(--text-muted);">
-                    <i class="fa-solid fa-user" id="selected-vendeur-icon"></i> <span id="selected-vendeur-text">Aucun vendeur sélectionné</span>
-                </div>
-                <div style="display: flex; gap: 0.5rem;">
-                    <button id="cancel-vendeur-btn" class="cyber-btn" style="padding: 0.5rem 1.25rem; font-size: 0.8rem;">
-                        <i class="fa-solid fa-times"></i> ANNULER
-                    </button>
-                    <button id="generate-vendeur-report-btn" class="cyber-btn" style="padding: 0.5rem 1.25rem; font-size: 0.8rem;" disabled>
-                        <i class="fa-solid fa-brain"></i> GÉNÉRER LE RAPPORT
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- ===== FOCUS UPLOAD MODAL ===== -->
     <div class="modal-backdrop" id="focus-upload-modal">
         <div class="cyber-modal" style="max-width: 500px;">
@@ -1733,7 +1779,7 @@
 
 
     <!-- Custom Script JS -->
-    <script src="/static/js/dashboard.js?v=2.4"></script>
+    <script src="/static/js/dashboard.js?v=3.1"></script>
     <script src="/static/js/fdv.js?v=1.0"></script>
     <script src="/static/js/bg-anim.js?v=1.0"></script>
     <script src="/static/js/terrain.js?v=1.0"></script>

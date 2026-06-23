@@ -135,36 +135,28 @@ def get_categorie(categories: str):
 
     # If database has rows, build list dynamically!
     if db_rows:
-        # Chef de zone list
-        cdz_sellers = [r["vendeur"] for r in db_rows if r.get("cdz") == "CHAKIB ELFIL"]
+        # Get all unique CDZ values from database
+        cdz_list = list(set([r["cdz"].strip() for r in db_rows if r.get("cdz")]))
         
-        # Build categories dynamically
-        if categories == "Chakib Equipe":
-            return list(set(["CHAKIB ELFIL"] + cdz_sellers))
-            
-        elif categories == "Pré-vendeur Chakib":
-            pre_chakib = [r["vendeur"] for r in db_rows if r.get("cdz") == "CHAKIB ELFIL" and r.get("type_role") == "PREV"]
-            return list(set(["CHAKIB ELFIL"] + pre_chakib))
-            
-        elif categories == "SOM pré-vendeur Chakib":
-            som_pre_chakib = [r["vendeur"] for r in db_rows if r.get("cdz") == "CHAKIB ELFIL" and r.get("type_role") == "PREV" and "SOM" in r.get("role", "")]
-            return list(set(["CHAKIB ELFIL"] + som_pre_chakib))
-            
-        elif categories == "VMM pré-vendeur Chakib":
-            vmm_pre_chakib = [r["vendeur"] for r in db_rows if r.get("cdz") == "CHAKIB ELFIL" and r.get("type_role") == "PREV" and "VMM" in r.get("role", "")]
-            return list(set(["CHAKIB ELFIL"] + vmm_pre_chakib))
+        # Check if the requested category matches any CDZ team dynamically
+        matched_cdz = None
+        for cdz in cdz_list:
+            if not cdz:
+                continue
+            first_word = cdz.split()[0].lower() # e.g. "chakib" or "boutmezguine"
+            if categories.lower().startswith(first_word):
+                matched_cdz = cdz
+                break
+                
+        if matched_cdz:
+            cdz_sellers = [r["vendeur"] for r in db_rows if r.get("cdz") == matched_cdz]
+            return list(set([matched_cdz] + cdz_sellers))
             
         elif categories == "Pré-vendeur":
             return [r["vendeur"] for r in db_rows if r.get("type_role") == "PREV"]
             
         elif categories == "Conventionnel":
             return [r["vendeur"] for r in db_rows if r.get("type_role") == "CNV"]
-            
-        elif categories == "SOM pré-vendeur":
-            return [r["vendeur"] for r in db_rows if r.get("type_role") == "PREV" and "SOM" in r.get("role", "")]
-            
-        elif categories == "VMM pré-vendeur":
-            return [r["vendeur"] for r in db_rows if r.get("type_role") == "PREV" and "VMM" in r.get("role", "")]
             
         elif categories == "SOM All":
             return [r["vendeur"] for r in db_rows if "SOM" in r.get("role", "")]
@@ -173,7 +165,7 @@ def get_categorie(categories: str):
             return [r["vendeur"] for r in db_rows if "VMM" in r.get("role", "")]
             
         elif categories == "CDZ":
-            return list(set([r["cdz"] for r in db_rows if r.get("cdz")] + ["CHAKIB ELFIL", "BOUTMEZGUINE EL MOSTAFA"]))
+            return cdz_list
     
     # Fallback to hardcoded list if database is empty
     if categories == "Pré-vendeur Chakib":
@@ -202,36 +194,65 @@ def get_categorie(categories: str):
         return cdz
     return pre_vendeur + conventionnel
 
+def calculate_calendar_workdays(date_str=None):
+    import datetime
+    import calendar
+    
+    if date_str:
+        try:
+            dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        except Exception:
+            dt = datetime.datetime.now()
+    else:
+        dt = datetime.datetime.now()
+        
+    year = dt.year
+    month = dt.month
+    day = dt.day
+    
+    _, total_days_in_month = calendar.monthrange(year, month)
+    
+    elapsed_workdays = 0
+    for d in range(1, total_days_in_month + 1):
+        curr_date = datetime.date(year, month, d)
+        is_sunday = (curr_date.weekday() == 6)
+        is_last_day = (d == total_days_in_month)
+        
+        is_workday = (not is_sunday) and (not is_last_day)
+        if is_workday and d < day:
+            elapsed_workdays += 1
+            
+    total_workdays = 24
+    elapsed_workdays = min(24, elapsed_workdays)
+    remaining_workdays = max(0, total_workdays - elapsed_workdays)
+    return {
+        "total": total_workdays,
+        "elapsed": elapsed_workdays,
+        "rest": remaining_workdays
+    }
+
 class ExcelProcessor:
-    def __init__(self, path="SUIVIS FDV ACT SOM_VMM AGADIR.xlsx", focus_path="Focus.xlsx", rest_days=None, exclude_families=None, output_path=None):
+    def __init__(self, path="SUIVIS FDV ACT SOM_VMM AGADIR.xlsx", focus_path="Focus.xlsx", rest_days=None, exclude_families=None, output_path=None, date=None):
         self.__day_work = 24
         self.path = path
         self.focus_path = focus_path
         self.rest_days = rest_days
         self.exclude_families = exclude_families or []
+        if "MISWAK" not in [f.strip().upper() for f in self.exclude_families]:
+            self.exclude_families.append("MISWAK")
         self.ttc_rate = 1.2
         self.output_path = output_path or "excel/finale_jour.xlsx"
+        self.date = date
         
     def get_day_work(self) -> tuple:
         """
-        Extract work days from AGADIR sheet cell C6.
-        Returns a tuple of (elapsed_days, total_work_days).
+        Calculate work days dynamically based on the current date,
+        excluding Sundays and the last day of the month.
         """
-        wb = load_workbook(self.path, data_only=True)
-        sheet_ranges = wb["AGADIR"]
-        day_work = sheet_ranges["C6"].value
-        if not day_work:
-            # fallback
-            return 4, 24
-        
-        day_work = str(day_work).split(" ", 2)
-        a: str = day_work[0].replace("/", "")
-        b: str = day_work[1]
-
-        elapsed_days = int(a)
-        total_days = int(b.strip())
-        
-        print(f"Parsed work days: elapsed={elapsed_days}, total={total_days}")
+        dynamic_days = calculate_calendar_workdays(self.date)
+        total_days_dyn = dynamic_days["total"]
+        elapsed_days_dyn = dynamic_days["elapsed"]
+        rest_days_dyn = dynamic_days["rest"]
         
         # Load or create days.json
         if os.path.exists("days.json"):
@@ -243,14 +264,14 @@ class ExcelProcessor:
         else:
             data = {}
             
-        data["from_file"] = {"t": str(total_days), "d": str(elapsed_days)}
+        data["from_file"] = {"t": str(total_days_dyn), "d": str(elapsed_days_dyn)}
         if "rest_days" not in data or self.rest_days is not None:
-            data["rest_days"] = self.rest_days if self.rest_days is not None else (total_days - elapsed_days)
+            data["rest_days"] = self.rest_days if self.rest_days is not None else rest_days_dyn
             
         with open("days.json", "w") as jsonFile:
             json.dump(data, jsonFile)
 
-        return elapsed_days, total_days
+        return elapsed_days_dyn, total_days_dyn
 
     def fix_sheet(self, jour_rest=None):
         """
@@ -471,7 +492,7 @@ class ExcelProcessor:
                     cell = sheet_ranges_quanti[f"{col}{row}"]
                     try:
                         if cell.value is not None:
-                            cell.value = int(float(cell.value))
+                            cell.value = int(round(float(cell.value)))
                     except Exception:
                         pass
                         
