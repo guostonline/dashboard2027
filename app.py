@@ -966,6 +966,8 @@ def _build_rapport_text(vendeur, data_or_md):
     total = workdays.get("total", 0)
     rest = workdays.get("rest", 0)
     
+    families_performance = summary_data.get("families_performance", [])
+    
     agency_totals = summary_data.get("agency_totals", {})
     real_ca = agency_totals.get("total_real_ca_ttc", 0) or agency_totals.get("total_real_ca_ht", 0)
     prorated_obj_ca = agency_totals.get("total_obj_ca_ttc", 0) or agency_totals.get("total_obj_ca_ht", 0)
