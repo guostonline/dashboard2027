@@ -138,6 +138,17 @@ def rapport():
     light_mode = config.get("light_mode", False)
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="rapport")
 
+@app.route("/stock")
+def stock():
+    config = load_config()
+    theme = config.get("theme", "theme-1")
+    light_mode = config.get("light_mode", False)
+    active_sub_tab = request.args.get("view", "")
+    if active_sub_tab == 'favorit':
+        active_sub_tab = 'favorites'
+    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="stock", active_sub_tab=active_sub_tab)
+
+
 @app.route("/theme1")
 def theme1():
     config = load_config()
@@ -556,7 +567,143 @@ def post_app_config():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # ------------------------------------------------------------------
+# Stock API endpoint
+# ------------------------------------------------------------------
+@app.route("/api/stock", methods=["GET"])
+def get_stock_data():
+    try:
+        search = request.args.get("search", "").strip() or None
+        sites_raw = request.args.get("sites", "")
+        sites = [s.strip() for s in sites_raw.split(",") if s.strip()] if sites_raw else None
+        
+        socs_raw = request.args.get("socs", "")
+        socs = [s.strip() for s in socs_raw.split(",") if s.strip()] if socs_raw else None
+        
+        fournisseurs_raw = request.args.get("fournisseurs", "")
+        fournisseurs = [f.strip() for f in fournisseurs_raw.split(",") if f.strip()] if fournisseurs_raw else None
+        
+        sort_by = request.args.get("sort_by", "Produit").strip()
+        sort_dir = request.args.get("sort_dir", "ASC").strip().upper()
+        
+        date = request.args.get("date", "").strip()
+        if date == "default" or date == "null" or date == "undefined":
+            date = ""
+            
+        # Get data from database
+        result = db_manager.get_stock_data_from_db(
+            date=date or None,
+            search=search,
+            sites=sites,
+            socs=socs,
+            fournisseurs=fournisseurs,
+            sort_by=sort_by,
+            sort_dir=sort_dir
+        )
+        
+        # Get all distinct stock dates
+        all_dates = db_manager.get_stock_dates()
+        
+        # Get filter choices specific to the selected date
+        selected_date = result.get("date")
+        if selected_date:
+            filters = db_manager.get_stock_filters_from_db(selected_date)
+        else:
+            filters = {"sites": [], "socs": [], "fournisseurs": []}
+            
+        return jsonify({
+            "status": "success",
+            "rows": result["rows"],
+            "summary": result["summary"],
+            "filters": filters,
+            "dates": all_dates,
+            "selected_date": selected_date
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/stock/favorites", methods=["GET"])
+def get_stock_favorites_api():
+    try:
+        favs = db_manager.get_stock_favorites()
+        return jsonify({"status": "success", "favorites": favs})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/stock/favorites/toggle", methods=["POST"])
+def toggle_stock_favorites_api():
+    try:
+        payload = request.json or {}
+        produit = payload.get("produit")
+        action = payload.get("action") # "add" or "remove"
+        if not produit:
+            return jsonify({"status": "error", "message": "Code produit requis."}), 400
+        
+        if action == "add":
+            db_manager.add_stock_favorite(produit)
+        elif action == "remove":
+            db_manager.remove_stock_favorite(produit)
+        else:
+            return jsonify({"status": "error", "message": "Action non spécifiée ou incorrecte (doit être 'add' ou 'remove')."}), 400
+            
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/stock/upload", methods=["POST"])
+def upload_stock_file():
+    try:
+        if "file" not in request.files:
+            return jsonify({"status": "error", "message": "Aucun fichier fourni."}), 400
+        file = request.files["file"]
+        date = request.form.get("date")
+        
+        if not date:
+            return jsonify({"status": "error", "message": "Aucune date fournie."}), 400
+            
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            return jsonify({"status": "error", "message": "Le fichier doit être un classeur Excel (.xlsx, .xls)."}), 400
+            
+        # Read Excel using pandas
+        df = pd.read_excel(file)
+        df.columns = [c.strip() for c in df.columns]
+        df = df.fillna("")
+        
+        # Clean text values
+        def clean_val(val):
+            if not isinstance(val, str):
+                return val
+            # Specific corrections for encoding
+            val = val.replace('PLATEAU  TH EN INOX_HPC', 'PLATEAU À THÉ EN INOX_HPC')
+            val = val.replace('PRSENTOIR', 'PRÉSENTOIR')
+            val = val.replace('\ufffd', 'É')
+            return val.strip()
+            
+        for col in df.columns:
+            if df[col].dtype == object:
+                df[col] = df[col].apply(clean_val)
+                
+        rows = df.to_dict(orient="records")
+        
+        # Save to database
+        saved_count = db_manager.save_stock_data(date, rows)
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Fichier stock importé avec succès. {saved_count} articles enregistrés pour le {date}."
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# ------------------------------------------------------------------
 # Client (full list with duplicates) API endpoints
+
 # ------------------------------------------------------------------
 
 def _parse_csv_list(value):

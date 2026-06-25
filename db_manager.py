@@ -251,6 +251,37 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_focus_objectives_type ON focus_objectives(focus_type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_focus_objectives_vendeur ON focus_objectives(vendeur)")
 
+    # 12. Stock data table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS stock (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        act_code TEXT NOT NULL,
+        site TEXT NOT NULL,
+        soc TEXT NOT NULL,
+        fournisseur TEXT NOT NULL,
+        gamme TEXT NOT NULL,
+        famille TEXT NOT NULL,
+        produit TEXT NOT NULL,
+        designation TEXT NOT NULL,
+        statut TEXT NOT NULL,
+        stk_qte INTEGER DEFAULT 0,
+        source TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(date, site, soc, produit)
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_date ON stock(date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_produit ON stock(produit)")
+
+    # 13. Stock favorites table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS stock_favorites (
+        produit TEXT PRIMARY KEY,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     # Lightweight migrations for older DBs (must run BEFORE the
     # indexes that depend on the new columns).
     cursor.execute("PRAGMA table_info(fdv)")
@@ -1788,5 +1819,230 @@ def get_focus_history(agence='AGADIR'):
             'cdz': tomate_cdz
         }
     }
+
+
+# ------------------------------------------------------------------
+# Stock Data Persistence Methods
+# ------------------------------------------------------------------
+
+def save_stock_data(date, rows):
+    """
+    Saves or updates stock rows for a specific date.
+    Only saves rows with ACT CODE = 'AG_AGDR'.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Delete existing entries for this date to support overwrites/re-uploads
+        cursor.execute("DELETE FROM stock WHERE date = ?", (date,))
+        
+        insert_query = """
+        INSERT OR REPLACE INTO stock (
+            date, act_code, site, soc, fournisseur, gamme, famille, produit, designation, statut, stk_qte, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        
+        count = 0
+        for r in rows:
+            act_code = str(r.get("ACT CODE", r.get("act_code", ""))).strip()
+            if act_code != "AG_AGDR":
+                continue
+                
+            qty = r.get("STK QTE", r.get("stk_qte", 0))
+            try:
+                qty = int(qty)
+            except (ValueError, TypeError):
+                qty = 0
+                
+            cursor.execute(insert_query, (
+                date,
+                act_code,
+                str(r.get("Site", r.get("site", ""))).strip(),
+                str(r.get("SOC", r.get("soc", ""))).strip(),
+                str(r.get("Fournisseur", r.get("fournisseur", ""))).strip(),
+                str(r.get("GAMME", r.get("gamme", ""))).strip(),
+                str(r.get("FAMILLE", r.get("famille", ""))).strip(),
+                str(r.get("Produit", r.get("produit", ""))).strip(),
+                str(r.get("DESIGNATION", r.get("designation", ""))).strip(),
+                str(r.get("Statut", r.get("statut", ""))).strip(),
+                qty,
+                str(r.get("Source", r.get("source", ""))).strip()
+            ))
+            count += 1
+            
+        conn.commit()
+        return count
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+def get_stock_dates():
+    """Returns a list of all distinct dates in the stock table, sorted descending."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT DISTINCT date FROM stock ORDER BY date DESC")
+        return [row[0] for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+def get_stock_data_from_db(date=None, search=None, sites=None, socs=None, fournisseurs=None, sort_by="produit", sort_dir="ASC"):
+    """
+    Retrieves filtered and sorted stock rows from the database.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # If no date specified, try to use the most recent date
+        if not date:
+            dates = get_stock_dates()
+            if not dates:
+                return {"rows": [], "summary": {"total_products": 0, "total_quantity": 0, "filtered_products": 0, "filtered_quantity": 0}}
+            date = dates[0]
+            
+        query = "SELECT * FROM stock WHERE date = ?"
+        params = [date]
+        
+        if search:
+            query += " AND (produit LIKE ? OR designation LIKE ?)"
+            params.extend([f"%{search}%", f"%{search}%"])
+            
+        if sites:
+            placeholders = ",".join("?" for _ in sites)
+            query += f" AND site IN ({placeholders})"
+            params.extend(sites)
+            
+        if socs:
+            placeholders = ",".join("?" for _ in socs)
+            query += f" AND soc IN ({placeholders})"
+            params.extend(socs)
+            
+        if fournisseurs:
+            placeholders = ",".join("?" for _ in fournisseurs)
+            query += f" AND fournisseur IN ({placeholders})"
+            params.extend(fournisseurs)
+            
+        # Map sort_by from user interface names to DB column names if necessary
+        col_mapping = {
+            "Produit": "produit",
+            "DESIGNATION": "designation",
+            "Site": "site",
+            "SOC": "soc",
+            "Fournisseur": "fournisseur",
+            "GAMME": "gamme",
+            "FAMILLE": "famille",
+            "STK QTE": "stk_qte",
+            "Statut": "statut",
+            "Source": "source"
+        }
+        db_sort_col = col_mapping.get(sort_by, "produit")
+        
+        # Validate sort_dir
+        if sort_dir not in ("ASC", "DESC"):
+            sort_dir = "ASC"
+            
+        query += f" ORDER BY {db_sort_col} {sort_dir}"
+        
+        cursor.execute(query, params)
+        rows = [dict(row) for row in cursor.fetchall()]
+        
+        # Calculate summary metrics
+        cursor.execute("SELECT COUNT(*), SUM(stk_qte) FROM stock WHERE date = ?", (date,))
+        total_p, total_q = cursor.fetchone()
+        total_p = total_p or 0
+        total_q = total_q or 0
+        
+        # For filtered summary
+        filtered_p = len(rows)
+        filtered_q = sum(r["stk_qte"] for r in rows)
+        
+        # Map DB column names back to original Excel keys for frontend compatibility
+        formatted_rows = []
+        for r in rows:
+            formatted_rows.append({
+                "ACT CODE": r["act_code"],
+                "Site": r["site"],
+                "SOC": r["soc"],
+                "Fournisseur": r["fournisseur"],
+                "GAMME": r["gamme"],
+                "FAMILLE": r["famille"],
+                "Produit": r["produit"],
+                "DESIGNATION": r["designation"],
+                "Statut": r["statut"],
+                "STK QTE": r["stk_qte"],
+                "Source": r["source"],
+                "date": r["date"]
+            })
+            
+        return {
+            "rows": formatted_rows,
+            "date": date,
+            "summary": {
+                "total_products": total_p,
+                "total_quantity": total_q,
+                "filtered_products": filtered_p,
+                "filtered_quantity": filtered_q
+            }
+        }
+    finally:
+        conn.close()
+
+def get_stock_filters_from_db(date):
+    """Returns available unique filter options for a specific stock date."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT DISTINCT site FROM stock WHERE date = ? ORDER BY site", (date,))
+        sites = [r[0] for r in cursor.fetchall()]
+        
+        cursor.execute("SELECT DISTINCT soc FROM stock WHERE date = ? ORDER BY soc", (date,))
+        socs = [r[0] for r in cursor.fetchall()]
+        
+        cursor.execute("SELECT DISTINCT fournisseur FROM stock WHERE date = ? ORDER BY fournisseur", (date,))
+        fournisseurs = [r[0] for r in cursor.fetchall()]
+        
+        return {
+            "sites": sites,
+            "socs": socs,
+            "fournisseurs": fournisseurs
+        }
+    finally:
+        conn.close()
+
+
+def add_stock_favorite(produit):
+    """Adds a product code to favorites database table."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT OR IGNORE INTO stock_favorites (produit) VALUES (?)", (produit,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_stock_favorite(produit):
+    """Removes a product code from favorites database table."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM stock_favorites WHERE produit = ?", (produit,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_stock_favorites():
+    """Gets all favorited product codes from database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT produit FROM stock_favorites")
+        return [r[0] for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
 
 
