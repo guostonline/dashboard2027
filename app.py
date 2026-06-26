@@ -1,6 +1,7 @@
 import os
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 import json
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, redirect
 from data_processor import ExcelProcessor, get_categorie
 import pandas as pd
 import datetime
@@ -112,6 +113,54 @@ def process_and_save_suivi(date, file_content, force_extract_rest_days=False):
 @app.route("/")
 @app.route("/dashboard")
 def index():
+    # If Google callback
+    code = request.args.get('code')
+    if code:
+        try:
+            import requests
+            with open('google.json', 'r') as f:
+                secrets = json.load(f)['web']
+            
+            token_url = secrets['token_uri']
+            payload = {
+                'code': code,
+                'client_id': secrets['client_id'],
+                'client_secret': secrets['client_secret'],
+                'redirect_uri': 'http://127.0.0.1:5000/',
+                'grant_type': 'authorization_code'
+            }
+            res = requests.post(token_url, data=payload)
+            tokens = res.json()
+            
+            if 'error' in tokens:
+                return f"Erreur Google OAuth : {tokens.get('error_description', tokens['error'])}", 400
+                
+            token_data = {
+                'token': tokens.get('access_token'),
+                'refresh_token': tokens.get('refresh_token'),
+                'token_uri': secrets['token_uri'],
+                'client_id': secrets['client_id'],
+                'client_secret': secrets['client_secret'],
+                'scopes': ['https://www.googleapis.com/auth/spreadsheets']
+            }
+            
+            with open('token.json', 'w') as token_file:
+                json.dump(token_data, token_file)
+            
+            # Successful auth redirect back to stock view
+            return """
+            <html>
+                <body>
+                    <script>
+                        alert("Authentification Google Sheets réussie ! Le stock va être synchronisé.");
+                        window.location.href = "/stock";
+                    </script>
+                </body>
+            </html>
+            """
+        except Exception as e:
+            return f"Erreur lors de la configuration Google Sheets : {str(e)}", 500
+
     config = load_config()
     theme = config.get("theme", "theme-1")
     light_mode = config.get("light_mode", False)
@@ -701,6 +750,145 @@ def upload_stock_file():
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+def sync_to_google_sheet(date):
+    import os
+    import google.oauth2.credentials
+    from googleapiclient.discovery import build
+    import sqlite3
+    
+    SPREADSHEET_ID = "17Q3DoTjLdGwAmztk3LWaC2Z69_ZrGYlAsLHXTusrHIk"
+    SHEET_NAME = "STock Speed-X3"
+    
+    if not os.path.exists('token.json'):
+        return False, "Aucun jeton d'autorisation Google trouvé. Veuillez vous authentifier."
+        
+    try:
+        creds = google.oauth2.credentials.Credentials.from_authorized_user_file('token.json', ['https://www.googleapis.com/auth/spreadsheets'])
+        
+        if creds.expired and creds.refresh_token:
+            from google.auth.transport.requests import Request
+            creds.refresh(Request())
+            with open('token.json', 'w') as token_file:
+                token_file.write(creds.to_json())
+                
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Check sheet tab existence
+        spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+        sheets = [s['properties']['title'] for s in spreadsheet.get('sheets', [])]
+        if SHEET_NAME not in sheets:
+            body = {
+                'requests': [
+                    {
+                        'addSheet': {
+                            'properties': {
+                                'title': SHEET_NAME
+                            }
+                        }
+                    }
+                ]
+            }
+            service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=body).execute()
+            
+        # Get all rows for date from database
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT act_code, site, soc, fournisseur, gamme, famille, produit, designation, statut, stk_qte, source FROM stock WHERE date = ? AND act_code = 'AG_AGDR'", (date,))
+        db_rows = cursor.fetchall()
+        conn.close()
+        
+        # Build payload
+        headers = ['ACT CODE', 'Site', 'SOC', 'Fournisseur', 'GAMME', 'FAMILLE', 'Produit', 'DESIGNATION', 'Statut', 'STK QTE', 'Source']
+        values = [headers]
+        for row in db_rows:
+            values.append([
+                row[0], # act_code
+                row[1], # site
+                row[2], # soc
+                row[3], # fournisseur
+                row[4], # gamme
+                row[5], # famille
+                row[6], # produit
+                row[7], # designation
+                row[8], # statut
+                int(row[9] or 0), # stk_qte
+                row[10] # source
+            ])
+            
+        # Clear existing range
+        service.spreadsheets().values().clear(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"'{SHEET_NAME}'!A1:Z20000",
+            body={}
+        ).execute()
+        
+        # Update
+        body = {'values': values}
+        service.spreadsheets().values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"'{SHEET_NAME}'!A1",
+            valueInputOption='RAW',
+            body=body
+        ).execute()
+        
+        return True, f"Stock synchronisé avec succès vers Google Sheet '{SHEET_NAME}' ({len(db_rows)} articles)."
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return False, f"Erreur Google Sheets : {str(e)}"
+
+
+@app.route("/api/google/authorize")
+def google_authorize():
+    import json
+    import urllib.parse
+    with open('google.json', 'r') as f:
+        secrets = json.load(f)['web']
+        
+    params = {
+        'client_id': secrets['client_id'],
+        'redirect_uri': 'http://127.0.0.1:5000/',
+        'response_type': 'code',
+        'scope': 'https://www.googleapis.com/auth/spreadsheets',
+        'access_type': 'offline',
+        'prompt': 'consent'
+    }
+    authorization_url = secrets['auth_uri'] + '?' + urllib.parse.urlencode(params)
+    return redirect(authorization_url)
+
+
+@app.route("/api/google/sync", methods=["POST"])
+def google_sync_stock():
+    try:
+        data = request.get_json() or {}
+        date = data.get("date")
+        
+        if not date:
+            dates = db_manager.get_stock_dates()
+            if not dates:
+                return jsonify({"status": "error", "message": "Aucune date de stock trouvée dans la base de données."}), 400
+            date = dates[0]
+            
+        if not os.path.exists('token.json'):
+            return jsonify({
+                "status": "auth_required", 
+                "auth_url": "/api/google/authorize",
+                "message": "Authentification Google Sheets requise."
+            })
+            
+        success, msg = sync_to_google_sheet(date)
+        if success:
+            return jsonify({"status": "success", "message": msg})
+        else:
+            return jsonify({"status": "error", "message": msg})
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 # ------------------------------------------------------------------
 # Client (full list with duplicates) API endpoints
 
@@ -1234,13 +1422,19 @@ def _build_rapport_text(vendeur, data_or_md):
     vmm_obj = 0
     vmm_pct = "0%"
     has_vmm = False
-    for f in focus_vmm:
-        if f.get("vendeur", "").strip().upper() == vendeur.strip().upper() or f.get("vendeur", "").strip().upper() != "AUTRE":
-            vmm_realised = f.get("realise", 0)
-            vmm_obj = f.get("obj_acm", 0)
-            vmm_pct = f.get("percent", "0%")
-            has_vmm = True
-            break
+    
+    # Find VMM focus entry for current vendeur, fallback to 'AUTRE'
+    vmm_entry = next((f for f in focus_vmm if f.get("vendeur", "").strip().upper() == vendeur.strip().upper()), None)
+    if vmm_entry is None:
+        vmm_entry = next((f for f in focus_vmm if f.get("vendeur", "").strip().upper() == "AUTRE"), None)
+    
+    if vmm_entry:
+        vmm_realised = vmm_entry.get("realise", 0)
+        vmm_obj = vmm_entry.get("obj_acm", 0)
+        vmm_pct_raw = vmm_entry.get("percent", 0)
+        vmm_pct = f"{vmm_pct_raw * 100:.1f}%" if isinstance(vmm_pct_raw, (int, float)) else vmm_pct_raw
+        has_vmm = True
+        
     if has_vmm:
         vmm_achieved = False
         try:
@@ -1256,13 +1450,17 @@ def _build_rapport_text(vendeur, data_or_md):
     som_obj = 0
     som_pct = "0%"
     has_som = False
-    for f in focus_som:
-        if f.get("vendeur", "").strip().upper() == vendeur.strip().upper() or f.get("vendeur", "").strip().upper() != "AUTRE":
-            som_realised = f.get("realise", 0)
-            som_obj = f.get("ttc", 0)
-            som_pct = f.get("percent", "0%")
-            has_som = True
-            break
+    # Find SOM focus entry for current vendeur, fallback to 'AUTRE'
+    som_entry = next((f for f in focus_som if f.get("vendeur", "").strip().upper() == vendeur.strip().upper()), None)
+    if som_entry is None:
+        som_entry = next((f for f in focus_som if f.get("vendeur", "").strip().upper() == "AUTRE"), None)
+    if som_entry:
+        som_realised = som_entry.get("realise", 0)
+        som_obj = som_entry.get("ttc", 0)
+        som_pct_raw = som_entry.get("percent", 0)
+        som_pct = f"{som_pct_raw * 100:.1f}%" if isinstance(som_pct_raw, (int, float)) else som_pct_raw
+        has_som = True
+
     if has_som:
         som_achieved = False
         try:
@@ -1716,6 +1914,14 @@ def focus_page():
         "index.html", theme=theme, light_mode=light_mode, active_tab="focus"
     )
 
+def clean_sector_name(sec):
+    if not sec:
+        return ""
+    sec_upper = sec.upper()
+    for suffix in [" SOM VMM", " VMM CUMUL", " SOM CUMUL", " VMM", " SOM"]:
+        if sec_upper.endswith(suffix):
+            return sec[:-len(suffix)].strip()
+    return sec.strip()
 
 def save_focus_data_all(date_str, reps, cdzs):
     """Save rankings and calculate/populate focus_som_data and focus_vmm_data tables."""
@@ -1757,6 +1963,8 @@ def save_focus_data_all(date_str, reps, cdzs):
         dev = r['deviation'] or 0.0
         percent_val = 1.0 + dev
         
+        secteur_name = obj['secteur'] if (obj and obj.get('secteur')) else clean_sector_name(r['secteur'])
+        
         if ft == 'GLACE':
             ttc_val = obj['ttc'] if obj else 0.0
             glace_ht_val = obj['glace_ht'] if obj else 0.0
@@ -1766,7 +1974,7 @@ def save_focus_data_all(date_str, reps, cdzs):
             
             focus_som_list.append({
                 "vendeur": rep,
-                "secteur": r['secteur'],
+                "secteur": secteur_name,
                 "glace_ht": glace_ht_val,
                 "ttc": ttc_val,
                 "percent": percent_val,
@@ -1785,7 +1993,7 @@ def save_focus_data_all(date_str, reps, cdzs):
             
             focus_vmm_list.append({
                 "vendeur": rep,
-                "secteur": r['secteur'],
+                "secteur": secteur_name,
                 "dn_fin_mai": 0.0,
                 "obj_juin": obj_juin_val,
                 "nb_clients": nb_clients_val,

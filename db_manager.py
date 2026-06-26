@@ -1833,8 +1833,16 @@ def save_stock_data(date, rows):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Delete existing entries for this date to support overwrites/re-uploads
-        cursor.execute("DELETE FROM stock WHERE date = ?", (date,))
+        # Only delete existing entries for sources that we are about to upload/overwrite for this date
+        sources = set()
+        for r in rows:
+            act_code = str(r.get("ACT CODE", r.get("act_code", ""))).strip()
+            if act_code == "AG_AGDR":
+                src = str(r.get("Source", r.get("source", "SPEED"))).strip()
+                if src:
+                    sources.add(src)
+        for src in sources:
+            cursor.execute("DELETE FROM stock WHERE date = ? AND source = ?", (date, src))
         
         insert_query = """
         INSERT OR REPLACE INTO stock (

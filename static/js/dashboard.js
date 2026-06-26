@@ -78,7 +78,8 @@ const checkboxMap = {
     'chakib-families-progress-card': 'toggle-chakib-families',
     'chakib-focus-progress-card': 'toggle-chakib-focus',
     'quanti-table-card': 'toggle-quanti-table',
-    'quali-table-card': 'toggle-quali-table'
+    'quali-table-card': 'toggle-quali-table',
+    'alerts-section': 'toggle-alerts-section'
 };
 let layoutStates = {
     visible: {},
@@ -127,6 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const onTerrainRoute = path === '/terrain';
             const onFocusRoute = path === '/focus';
             const onRapportRoute = path === '/rapport';
+            const onStockRoute = path === '/stock';
             
             if (onDetailsRoute) {
                 activeView = 'details';
@@ -140,6 +142,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 activeView = 'focus';
             } else if (onRapportRoute) {
                 activeView = 'rapport';
+            } else if (onStockRoute) {
+                activeView = 'stock';
             } else {
                 activeView = 'dashboard';
             }
@@ -149,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Skip the main dashboard fetch when the user is on sub routes
             // (the dashboard-container is hidden in that case, but
             // the network call would still fire and trigger a modal error).
-            if (!onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute) {
+            if (!onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute && !onStockRoute) {
                 fetchSuiviDates(() => {
                     fetchDashboardData();
                 });
@@ -253,6 +257,8 @@ function switchView(viewName) {
     const navTerrain = document.getElementById('nav-terrain');
     const navFocus = document.getElementById('nav-focus');
     const navRapport = document.getElementById('nav-rapport');
+    const navStock = document.getElementById('nav-stock');
+    const navStockFavorites = document.getElementById('nav-stock-favorites');
     
     const mainDashboard = document.getElementById('main-dashboard-container');
     const detailsContainer = document.getElementById('details-container');
@@ -261,19 +267,29 @@ function switchView(viewName) {
     const terrainContainer = document.getElementById('terrain-container');
     const focusContainer = document.getElementById('focus-container');
     const rapportContainer = document.getElementById('rapport-container');
+    const stockContainer = document.getElementById('stock-container');
     
     const dateSelect = document.getElementById('date-select');
     const timelapseCtrl = document.getElementById('timelapse-control');
     
     // Remove active class from all nav items
-    [navDashboard, navRealisation, navDetails, navClients, navFdv, navTerrain, navFocus, navRapport].forEach(nav => {
+    [navDashboard, navRealisation, navDetails, navClients, navFdv, navTerrain, navFocus, navRapport, navStock, navStockFavorites].forEach(nav => {
         if (nav) nav.classList.remove('active');
     });
     
     // Hide all view containers
-    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, focusContainer, rapportContainer].forEach(container => {
+    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, focusContainer, rapportContainer, stockContainer].forEach(container => {
         if (container) container.style.display = 'none';
     });
+    
+    // Show/hide Stock favorites sub nav item depending on active view
+    if (navStockFavorites) {
+        if (viewName === 'stock') {
+            navStockFavorites.style.display = 'flex';
+        } else {
+            navStockFavorites.style.display = 'none';
+        }
+    }
     
     // Default: hide date selector and timelapse control for subviews
     if (dateSelect) dateSelect.style.display = 'none';
@@ -302,6 +318,18 @@ function switchView(viewName) {
             rapportContainer.style.display = 'flex';
             // Always reload the vendeur list when switching to rapport
             loadVendeursList();
+        }
+    } else if (viewName === 'stock') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const isFav = urlParams.get('view') === 'favorites' || urlParams.get('view') === 'favorit';
+        if (isFav) {
+            if (navStockFavorites) navStockFavorites.classList.add('active');
+        } else {
+            if (navStock) navStock.classList.add('active');
+        }
+        if (stockContainer) stockContainer.style.display = 'block';
+        if (typeof window.initStockView === 'function') {
+            window.initStockView();
         }
     } else {
         // dashboard or realisation
@@ -4046,19 +4074,20 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
             const whatsappBtn = document.getElementById('whatsapp-report-btn');
             if (whatsappBtn) whatsappBtn.style.display = 'inline-flex';
 
-            showToast("Rapport d'analyse IA généré avec succès !", "success");
+            stopVeoAnimation(true);
         } else {
+            stopVeoAnimation(false);
             closeAiReportModal();
             showToast("Erreur de génération du rapport: " + data.message, "error");
         }
     })
     .catch(err => {
         console.error(err);
+        stopVeoAnimation(false);
         closeAiReportModal();
         showToast("Erreur de connexion lors de l'analyse IA.", "error");
     })
     .finally(() => {
-        stopVeoAnimation();
         const aiIcon = document.getElementById('ai-report-icon');
         const aiLabel = document.getElementById('ai-report-label');
         const aiBtn = document.getElementById('ai-report-btn');
@@ -4200,46 +4229,68 @@ function sendReportPdfViaWhatsapp(phone) {
         ? `Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance de ${selectedVendeur} (KPI Analytics).\n\nCordialement,\n— KPI Analytics`
         : `Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance global de l'agence (KPI Analytics).\n\nCordialement,\n— KPI Analytics`;
 
-    showToast("Génération du PDF...", "info");
+    showPdfOverlay();
     element.classList.add('pdf-print-mode');
-    const opt = {
-        margin:       [15, 15],
-        filename:     filename,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, logging: false },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-    return html2pdf().set(opt).from(element).outputPdf('blob')
-        .then((blob) => {
-            // Trigger a download
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 5000);
+    advancePdfStep(1);
 
-            // Open WhatsApp with the short pointer message
-            const encoded = encodeURIComponent(shortMsg);
-            let waUrl;
-            if (phone && /^\+?\d{6,}$/.test(phone.replace(/[\s-]/g, ''))) {
-                const cleanPhone = phone.replace(/[\s+\-]/g, '');
-                waUrl = `https://wa.me/${cleanPhone}?text=${encoded}`;
-            } else {
-                waUrl = `https://wa.me/?text=${encoded}`;
-            }
-            window.open(waUrl, '_blank', 'noopener,noreferrer');
-            showToast("PDF téléchargé. Attache-le dans WhatsApp.", "success");
-        })
-        .catch((err) => {
-            console.error('PDF generation failed', err);
-            showToast("Erreur lors de la génération du PDF.", "error");
-        })
-        .finally(() => {
-            element.classList.remove('pdf-print-mode');
-        });
+    // Freeze Chart.js canvases as static images so html2canvas captures them
+    setTimeout(() => {
+        advancePdfStep(2);
+        const restoreCharts = freezeChartsForPdf(element);
+
+        const opt = {
+            margin:       [10, 10, 10, 10],
+            filename:     filename,
+            image:        { type: 'jpeg', quality: 0.97 },
+            html2canvas:  {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                logging: false,
+                scrollX: 0,
+                scrollY: -window.scrollY,
+                windowWidth: 794
+            },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+        advancePdfStep(3);
+        return html2pdf().set(opt).from(element).outputPdf('blob')
+            .then((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+                // Open WhatsApp with the short pointer message
+                const encoded = encodeURIComponent(shortMsg);
+                let waUrl;
+                if (phone && /^\+?\d{6,}$/.test(phone.replace(/[\s-]/g, ''))) {
+                    const cleanPhone = phone.replace(/[\s+\-]/g, '');
+                    waUrl = `https://wa.me/${cleanPhone}?text=${encoded}`;
+                } else {
+                    waUrl = `https://wa.me/?text=${encoded}`;
+                }
+                advancePdfStep(4);
+                setTimeout(() => {
+                    hidePdfOverlay(true);
+                    window.open(waUrl, '_blank', 'noopener,noreferrer');
+                }, 400);
+            })
+            .catch((err) => {
+                console.error('PDF generation failed', err);
+                hidePdfOverlay(false);
+                showToast('Erreur lors de la génération du PDF.', 'error');
+            })
+            .finally(() => {
+                restoreCharts();
+                element.classList.remove('pdf-print-mode');
+            });
+    }, 300);
 }
 
 // Small modal that asks for an optional phone number, then opens WhatsApp.
@@ -4464,121 +4515,147 @@ function toggleReportFullscreen() {
 }
 
 // Start Veo canvas animation loop
+// ─── AI REPORT LOADER ────────────────────────────────────────────────────────
+const AI_STATUS_MESSAGES = [
+    'Initialisation de l\'analyse…',
+    'Chargement des données KPI…',
+    'Calcul des écarts de performance…',
+    'Analyse des tendances mensuelles…',
+    'Évaluation des objectifs terrain…',
+    'Comparaison avec le prorata temporel…',
+    'Identification des points critiques…',
+    'Synthèse qualitative en cours…',
+    'Rédaction du rapport par l\'IA…',
+    'Finalisation du document…',
+];
+
+let aiLoaderTimerInterval = null;
+let aiLoaderStatusInterval = null;
+let aiLoaderProgressInterval = null;
+
 function startVeoAnimation() {
-    veoCanvas = document.getElementById('veo-canvas');
-    if (!veoCanvas) return;
-    veoCtx = veoCanvas.getContext('2d');
-    
-    // Set size based on bounding box
-    const rect = veoCanvas.getBoundingClientRect();
-    veoCanvas.width = rect.width;
-    veoCanvas.height = rect.height;
-    
-    // Start REC timecode clock
-    const timecodeEl = document.getElementById('veo-timecode');
-    let seconds = 0;
-    if (veoTimeInterval) clearInterval(veoTimeInterval);
-    veoTimeInterval = setInterval(() => {
-        seconds++;
-        const hrs = String(Math.floor(seconds / 3600)).padStart(2, '0');
-        const mins = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
-        const secs = String(seconds % 60).padStart(2, '0');
-        if (timecodeEl) timecodeEl.innerText = `REC ${hrs}:${mins}:${secs}`;
+    const shell = document.querySelector('.ai-loader-shell');
+    if (!shell) return;
+
+    // Reset state
+    const bar   = document.getElementById('ai-loader-bar');
+    const timer = document.getElementById('ai-loader-timer');
+    const status = document.getElementById('ai-loader-status');
+    if (bar)    bar.style.width = '0%';
+    if (timer)  timer.textContent = '00:00';
+    if (status) status.textContent = AI_STATUS_MESSAGES[0];
+
+    // Timer clock
+    let secs = 0;
+    if (aiLoaderTimerInterval) clearInterval(aiLoaderTimerInterval);
+    aiLoaderTimerInterval = setInterval(() => {
+        secs++;
+        const m = String(Math.floor(secs / 60)).padStart(2,'0');
+        const s = String(secs % 60).padStart(2,'0');
+        if (timer) timer.textContent = `${m}:${s}`;
     }, 1000);
-    
-    // Generate particle nodes representing neural activations
-    const particles = [];
-    const particleCount = 40;
-    for (let i = 0; i < particleCount; i++) {
-        particles.push({
-            x: Math.random() * veoCanvas.width,
-            y: Math.random() * veoCanvas.height,
-            vx: (Math.random() - 0.5) * 1.6,
-            vy: (Math.random() - 0.5) * 1.6,
-            r: Math.random() * 2 + 1,
-            pulse: Math.random() * Math.PI
-        });
-    }
-    
-    function draw() {
-        if (!veoCtx) return;
-        veoCtx.clearRect(0, 0, veoCanvas.width, veoCanvas.height);
-        
-        // Render digital grids
-        veoCtx.strokeStyle = 'rgba(0, 212, 255, 0.04)';
-        veoCtx.lineWidth = 1;
-        const gridSize = 40;
-        for (let x = 0; x < veoCanvas.width; x += gridSize) {
-            veoCtx.beginPath();
-            veoCtx.moveTo(x, 0);
-            veoCtx.lineTo(x, veoCanvas.height);
-            veoCtx.stroke();
-        }
-        for (let y = 0; y < veoCanvas.height; y += gridSize) {
-            veoCtx.beginPath();
-            veoCtx.moveTo(0, y);
-            veoCtx.lineTo(veoCanvas.width, y);
-            veoCtx.stroke();
-        }
-        
-        // Update particles
-        particles.forEach(p => {
-            p.x += p.vx;
-            p.y += p.vy;
-            p.pulse += 0.03;
-            
-            if (p.x < 0 || p.x > veoCanvas.width) p.vx *= -1;
-            if (p.y < 0 || p.y > veoCanvas.height) p.vy *= -1;
-            
-            const alpha = 0.3 + Math.sin(p.pulse) * 0.3;
-            veoCtx.fillStyle = `rgba(0, 212, 255, ${alpha})`;
-            veoCtx.beginPath();
-            veoCtx.arc(p.x, p.y, p.r + Math.sin(p.pulse) * 1, 0, Math.PI * 2);
-            veoCtx.fill();
-        });
-        
-        // Render synaptic node lines
-        veoCtx.lineWidth = 0.5;
-        for (let i = 0; i < particles.length; i++) {
-            for (let j = i + 1; j < particles.length; j++) {
-                const p1 = particles[i];
-                const p2 = particles[j];
-                const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-                if (dist < 80) {
-                    const alpha = (1 - dist / 80) * 0.2;
-                    veoCtx.strokeStyle = `rgba(0, 212, 255, ${alpha})`;
-                    veoCtx.beginPath();
-                    veoCtx.moveTo(p1.x, p1.y);
-                    veoCtx.lineTo(p2.x, p2.y);
-                    veoCtx.stroke();
-                }
-            }
-        }
-        
-        // Scan line laser sweep
-        const scanY = (Date.now() / 15) % veoCanvas.height;
-        veoCtx.strokeStyle = 'rgba(0, 212, 255, 0.12)';
-        veoCtx.lineWidth = 2;
-        veoCtx.beginPath();
-        veoCtx.moveTo(0, scanY);
-        veoCtx.lineTo(veoCanvas.width, scanY);
-        veoCtx.stroke();
-        
-        veoAnimId = requestAnimationFrame(draw);
-    }
-    
-    draw();
+
+    // Rotating status messages
+    let msgIdx = 1;
+    if (aiLoaderStatusInterval) clearInterval(aiLoaderStatusInterval);
+    aiLoaderStatusInterval = setInterval(() => {
+        if (!status) return;
+        status.style.animation = 'none';
+        void status.offsetWidth; // reflow
+        status.style.animation = '';
+        status.textContent = AI_STATUS_MESSAGES[msgIdx % AI_STATUS_MESSAGES.length];
+        msgIdx++;
+    }, 2800);
+
+    // Simulated progress bar (fills to ~90%, the last 10% on success)
+    let prog = 0;
+    if (aiLoaderProgressInterval) clearInterval(aiLoaderProgressInterval);
+    aiLoaderProgressInterval = setInterval(() => {
+        if (!bar) return;
+        const remaining = 90 - prog;
+        prog += Math.random() * Math.min(remaining * 0.25, 8);
+        prog = Math.min(prog, 90);
+        bar.style.width = prog + '%';
+    }, 1200);
 }
 
-function stopVeoAnimation() {
-    if (veoAnimId) cancelAnimationFrame(veoAnimId);
-    if (veoTimeInterval) clearInterval(veoTimeInterval);
-    veoAnimId = null;
-    veoTimeInterval = null;
-    if (veoCtx && veoCanvas) {
-        veoCtx.clearRect(0, 0, veoCanvas.width, veoCanvas.height);
-    }
+function stopVeoAnimation(success = true) {
+    clearInterval(aiLoaderTimerInterval);
+    clearInterval(aiLoaderStatusInterval);
+    clearInterval(aiLoaderProgressInterval);
+    aiLoaderTimerInterval = null;
+    aiLoaderStatusInterval = null;
+    aiLoaderProgressInterval = null;
+
+    const bar    = document.getElementById('ai-loader-bar');
+    const status = document.getElementById('ai-loader-status');
+    if (bar)    bar.style.width = success ? '100%' : '0%';
+    if (status) status.textContent = success ? 'Rapport généré avec succès !' : 'Erreur lors de l\'analyse.';
 }
+
+// ─── PDF OVERLAY ─────────────────────────────────────────────────────────────
+function showPdfOverlay() {
+    const overlay = document.getElementById('pdf-overlay');
+    if (!overlay) return;
+
+    // Reset all steps
+    for (let i = 1; i <= 4; i++) {
+        const s = document.getElementById(`pdf-step-${i}`);
+        if (s) s.className = 'pdf-step';
+    }
+    const ring  = document.getElementById('pdf-ring-fill');
+    const icon  = document.getElementById('pdf-ring-icon');
+    const label = document.getElementById('pdf-overlay-label');
+    if (ring)  ring.style.strokeDashoffset = '263.9';
+    if (icon)  { icon.className = 'fa-solid fa-file-pdf pdf-ring-icon'; }
+    if (label) { label.textContent = 'Préparation…'; label.className = 'pdf-overlay-label font-mono'; }
+
+    overlay.style.display = 'flex';
+    _pdfStep(1);
+}
+
+function _pdfStep(n) {
+    const steps = [
+        { label: 'Mise en forme du contenu', pct: 0.18 },
+        { label: 'Capture des graphiques',   pct: 0.48 },
+        { label: 'Génération PDF A4',         pct: 0.82 },
+        { label: 'Téléchargement du fichier', pct: 1.00 },
+    ];
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById(`pdf-step-${i}`);
+        if (!el) continue;
+        if (i < n)  el.className = 'pdf-step done';
+        else if (i === n) el.className = 'pdf-step active';
+        else el.className = 'pdf-step';
+    }
+    const s = steps[n - 1];
+    const ring  = document.getElementById('pdf-ring-fill');
+    const label = document.getElementById('pdf-overlay-label');
+    if (ring)  ring.style.strokeDashoffset = String(263.9 * (1 - s.pct));
+    if (label) label.textContent = s.label + '…';
+}
+
+function advancePdfStep(n) { _pdfStep(n); }
+
+function hidePdfOverlay(success = true) {
+    const ring  = document.getElementById('pdf-ring-fill');
+    const icon  = document.getElementById('pdf-ring-icon');
+    const label = document.getElementById('pdf-overlay-label');
+    if (ring)  ring.style.strokeDashoffset = '0';
+    if (success) {
+        if (icon)  icon.className = 'fa-solid fa-circle-check pdf-ring-icon done';
+        if (label) { label.textContent = 'PDF Téléchargé !'; label.className = 'pdf-overlay-label font-mono done'; }
+        for (let i = 1; i <= 4; i++) {
+            const s = document.getElementById(`pdf-step-${i}`);
+            if (s) s.className = 'pdf-step done';
+        }
+    }
+    setTimeout(() => {
+        const overlay = document.getElementById('pdf-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }, success ? 1200 : 800);
+}
+
 
 // Convert DOM report element into ink-friendly printable A4 PDF via html2pdf
 function downloadReportAsPdf() {
@@ -4593,29 +4670,50 @@ function downloadReportAsPdf() {
         ? `Rapport_KPI_${selectedVendeur.replace(/\s+/g, '_')}.pdf`
         : 'Rapport_KPI_Agence_Agadir.pdf';
         
-    showToast("Génération du PDF...", "info");
+    showPdfOverlay();
     
     // Apply printing visual mode override
     element.classList.add('pdf-print-mode');
+    advancePdfStep(1);
+
+    // Freeze Chart.js canvases as static images so html2canvas captures them
+    setTimeout(() => {
+        advancePdfStep(2);
+        const restoreCharts = freezeChartsForPdf(element);
     
-    const opt = {
-        margin:       [15, 15],
-        filename:     filename,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, logging: false },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-    
-    html2pdf().set(opt).from(element).save()
-        .then(() => {
-            showToast("PDF téléchargé !", "success");
-            element.classList.remove('pdf-print-mode');
-        })
-        .catch(err => {
-            console.error(err);
-            showToast("Erreur PDF: " + err, "error");
-            element.classList.remove('pdf-print-mode');
-        });
+        const opt = {
+            margin:       [10, 10, 10, 10],
+            filename:     filename,
+            image:        { type: 'jpeg', quality: 0.97 },
+            html2canvas:  {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                logging: false,
+                scrollX: 0,
+                scrollY: -window.scrollY,
+                windowWidth: 794
+            },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+
+        advancePdfStep(3);
+        html2pdf().set(opt).from(element).save()
+            .then(() => {
+                advancePdfStep(4);
+                setTimeout(() => hidePdfOverlay(true), 400);
+            })
+            .catch(err => {
+                console.error(err);
+                hidePdfOverlay(false);
+                showToast('Erreur PDF: ' + err, 'error');
+            })
+            .finally(() => {
+                restoreCharts();
+                element.classList.remove('pdf-print-mode');
+            });
+    }, 300);
 }
 
 // Helper to render beautiful HTML table and queue a chart if applicable
@@ -4773,12 +4871,14 @@ function renderTableHtml(rows) {
     }
     // 4. If it's a rank/performer list table (multiple sellers' CA), render a bar chart comparing performance
     else if (isRankTable && dataRows.length > 1) {
+        // 32 px per seller row + 80 px for legend/axes
+        const rankChartH = Math.max(400, dataRows.length * 32 + 80);
         html += `
-        <div class="report-chart-card">
+        <div class="report-chart-card rank-chart-card">
             <div class="report-chart-header">
                 <span class="tech-label"><i class="fa-solid fa-trophy neon-text-amber"></i> CLASSEMENT DES PERFORMANCES</span>
             </div>
-            <div class="report-chart-body" style="height: 480px;">
+            <div class="report-chart-body" style="height: ${rankChartH}px;">
                 <canvas id="${chartCanvasId}"></canvas>
             </div>
         </div>
@@ -5018,6 +5118,7 @@ function renderReportCharts() {
                     ]
                 },
                 options: {
+                    animation: { duration: 0 },
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
@@ -5068,6 +5169,7 @@ function renderReportCharts() {
                     ]
                 },
                 options: {
+                    animation: { duration: 0 },
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
@@ -5144,6 +5246,7 @@ function renderReportCharts() {
                     ]
                 },
                 options: {
+                    animation: { duration: 0 },
                     indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
@@ -5190,6 +5293,7 @@ function renderReportCharts() {
                     ]
                 },
                 options: {
+                    animation: { duration: 0 },
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
@@ -5211,6 +5315,39 @@ function renderReportCharts() {
             });
         }
     });
+}
+
+// Converts all Chart.js canvas elements inside `element` to static <img> tags
+// so that html2canvas can capture them correctly in the PDF.
+// Returns a cleanup function that restores the original canvases.
+function freezeChartsForPdf(element) {
+    const canvases = Array.from(element.querySelectorAll('canvas'));
+    const swaps = [];
+    canvases.forEach(canvas => {
+        try {
+            // Snapshot the canvas at its current rendered state
+            const dataUrl = canvas.toDataURL('image/png');
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            // Use fluid sizing so the image scales to fit the PDF column width
+            // (A4 printable area is ~794px at 96dpi; fixed px would overflow)
+            img.style.width      = '100%';
+            img.style.height     = 'auto';
+            img.style.display    = 'block';
+            img.style.maxWidth   = '100%';
+            canvas.parentNode.insertBefore(img, canvas);
+            canvas.style.display = 'none';
+            swaps.push({ canvas, img });
+        } catch(e) {
+            // cross-origin canvas – skip
+        }
+    });
+    return function restoreCharts() {
+        swaps.forEach(({ canvas, img }) => {
+            canvas.style.display = '';
+            img.remove();
+        });
+    };
 }
 
 // System Alerts engine (KPI dashboard design guidelines)
@@ -7989,7 +8126,8 @@ function initLayoutManager() {
         'chakib-families-progress-card',
         'chakib-focus-progress-card',
         'quanti-table-card',
-        'quali-table-card'
+        'quali-table-card',
+        'alerts-section'
     ];
 
     cards.forEach(cardId => {
@@ -8089,6 +8227,16 @@ function initLayoutManager() {
         }
     });
 
+    // Support secondary config checkbox for alerts-section
+    const configAlertsCheckbox = document.getElementById('toggle-alerts-section-config');
+    if (configAlertsCheckbox) {
+        const newConfigCb = configAlertsCheckbox.cloneNode(true);
+        configAlertsCheckbox.parentNode.replaceChild(newConfigCb, configAlertsCheckbox);
+        newConfigCb.addEventListener('change', (e) => {
+            setCardVisibility('alerts-section', e.target.checked);
+        });
+    }
+
     // 5. Setup Dragover on containers
     [layoutLeft, layoutRight].forEach(container => {
         container.addEventListener('dragover', (e) => {
@@ -8172,6 +8320,14 @@ function applyCardVisibility(cardId) {
         const checkbox = document.getElementById(checkboxId);
         if (checkbox) {
             checkbox.checked = isVisibleInManager;
+        }
+    }
+
+    // Also sync the secondary config checkbox for alerts-section if present
+    if (cardId === 'alerts-section') {
+        const configCheckbox = document.getElementById('toggle-alerts-section-config');
+        if (configCheckbox) {
+            configCheckbox.checked = isVisibleInManager;
         }
     }
 }

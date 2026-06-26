@@ -89,6 +89,7 @@
         els.uploadDateInput = $('stock-upload-date');
         els.dropzone = $('stock-dropzone');
         els.uploadFileInput = $('stock-modal-file-input');
+        els.syncGoogleSheet = $('stk-sync-google-sheet');
 
         // Sub tabs
         els.btnAll = $('stk-btn-all');
@@ -1099,6 +1100,13 @@
                         
                         state.date = date;
                         loadStockData();
+
+                        // Auto-trigger Google Sheet sync after upload
+                        setTimeout(() => {
+                            if (els.syncGoogleSheet) {
+                                els.syncGoogleSheet.click();
+                            }
+                        }, 500);
                     } else {
                         toast(res.message || "Erreur d'importation.", "error");
                     }
@@ -1108,6 +1116,45 @@
                 } finally {
                     els.uploadModalSubmit.disabled = false;
                     els.uploadModalSubmit.innerHTML = '<i class="fa-solid fa-check"></i> CONFIRMER';
+                }
+            };
+        }
+
+        // Google Sheet sync button click
+        if (els.syncGoogleSheet) {
+            els.syncGoogleSheet.onclick = async () => {
+                els.syncGoogleSheet.disabled = true;
+                const originalHtml = els.syncGoogleSheet.innerHTML;
+                els.syncGoogleSheet.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> EN SYNC...';
+                
+                try {
+                    const response = await fetch('/api/google/sync', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ date: state.date })
+                    });
+                    const res = await response.json();
+                    
+                    if (res.status === 'success') {
+                        alert(res.message || "Synchronisé avec succès.");
+                        toast(res.message || "Synchronisation réussie.", "success");
+                    } else if (res.status === 'auth_required') {
+                        if (confirm("Authentification Google requise pour synchroniser. Voulez-vous associer votre compte Google ?")) {
+                            window.location.href = res.auth_url;
+                        }
+                    } else {
+                        alert("Erreur: " + (res.message || "Échec de la synchronisation."));
+                        toast(res.message || "Erreur de synchronisation.", "error");
+                    }
+                } catch (e) {
+                    console.error("Sync error:", e);
+                    alert("Erreur de communication avec le serveur.");
+                    toast("Erreur de communication avec le serveur.", "error");
+                } finally {
+                    els.syncGoogleSheet.disabled = false;
+                    els.syncGoogleSheet.innerHTML = originalHtml;
                 }
             };
         }

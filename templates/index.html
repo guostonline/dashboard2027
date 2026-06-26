@@ -105,6 +105,10 @@
                             <input type="checkbox" id="toggle-quali-table" checked style="accent-color: var(--neon-blue);">
                             <span>Tableau Quali</span>
                         </label>
+                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                            <input type="checkbox" id="toggle-alerts-section" checked style="accent-color: var(--neon-blue);">
+                            <span>Alertes Système</span>
+                        </label>
                     </div>
                 </div>
 
@@ -1609,6 +1613,10 @@
                                 <i class="fa-solid fa-cloud-arrow-up"></i>
                                 <span>IMPORTER STOCK</span>
                             </button>
+                            <button id="stk-sync-google-sheet" class="cyber-btn" type="button" style="border-color: var(--neon-green); font-size: 0.8rem; height: 36px; padding: 0 1rem;">
+                                <i class="fa-solid fa-file-excel" style="color: var(--neon-green);"></i>
+                                <span>SYNC GOOGLE</span>
+                            </button>
                             <button id="stk-back" class="cyber-btn" type="button" style="font-size: 0.8rem; height: 36px; padding: 0 1rem;">
                                 <i class="fa-solid fa-gauge"></i>
                                 <span>RETOUR</span>
@@ -1870,6 +1878,14 @@
                                 <input type="number" id="input-rest-days" min="1" max="31" class="cyber-input" required>
                                 <span class="input-help">Utilisé pour recalculer le Reste à Faire (RAF) quotidien.</span>
                             </div>
+                            <div class="form-group" style="margin-top: 1rem;">
+                                <label class="tech-label">OPTIONS D'AFFICHAGE</label>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-main); cursor: pointer; user-select: none; margin-top: 0.4rem;">
+                                    <input type="checkbox" id="toggle-alerts-section-config" checked style="accent-color: var(--neon-blue); width: 15px; height: 15px;">
+                                    <span>Afficher les Alertes Système</span>
+                                </label>
+                                <span class="input-help">Affiche ou masque la section des alertes système en bas du tableau de bord.</span>
+                             </div>
                             <div class="form-group" style="margin-top: 1rem;">
                                 <label class="tech-label">THÈME VISUEL</label>
                                 <div class="theme-grid-selector" id="theme-grid-selector">
@@ -2205,11 +2221,11 @@
 
 
     <!-- Custom Script JS -->
-    <script src="/static/js/dashboard.js?v=3.1"></script>
+    <script src="/static/js/dashboard.js?v=3.4"></script>
     <script src="/static/js/fdv.js?v=1.0"></script>
     <script src="/static/js/bg-anim.js?v=1.0"></script>
     <script src="/static/js/terrain.js?v=1.0"></script>
     <script src="/static/js/focus.js?v=1.0"></script>
-    <script src="/static/js/stock.js?v=1.0"></script>
+    <script src="/static/js/stock.js?v=1.1"></script>
 </body>
 </html>

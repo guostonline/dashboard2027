@@ -2,41 +2,41 @@
 > **Rapport de performance généré localement** (Impossible de contacter l'API OpenRouter, les données chiffrées ci-dessous restent 100% exactes et à jour).
 
 **RAPPORT DE PERFORMANCE INDIVIDUEL - VENDEUR : D48 IBACH MOHAMED**
-**Période : En cours (19 jours écoulés sur 24 jours)**
+**Période : En cours (18 jours écoulés sur 24 jours)**
 
 **1. INTRODUCTION ET CHIFFRE D'AFFAIRES INDIVIDUEL**
 Pour la période active, le vendeur D48 IBACH MOHAMED a réalisé les performances de chiffre d'affaires suivantes :
-*   **Chiffre d'Affaires Réel (TTC) :** 31,116 MAD
-*   **Objectif Mensuel Complet (TTC) :** 53,684 MAD (= 42,500 × 24/19 jours)
-*   **Taux d'Atteinte :** 73.2%
-*   **Reste à Faire Total (RAF) :** 22,568 MAD → soit **3,761 MAD / jour** sur les 6 jours restants.
+*   **Chiffre d'Affaires Réel (TTC) :** 179,382 MAD
+*   **Objectif Mensuel Complet (TTC) :** 215,333 MAD (= 161,500 × 24/18 jours)
+*   **Taux d'Atteinte :** 111.1%
+*   **Reste à Faire Total (RAF) :** 35,951 MAD → soit **5,992 MAD / jour** sur les 6 jours restants.
 
 **1.5. POSITIONNEMENT DU VENDEUR (Comparaison agence)**
-*   **Classement :** D48 IBACH MOHAMED est **#16 sur 18 vendeurs** actifs de l'agence.
-*   **Taux d'écart objectif :** **-26.8%** | **Moyenne agence :** **-8.2%** | **Écart vs moyenne :** **-18.6%**
-*   **Meilleur performer :** F78 GHOUSMI MOURAD (+86.3%) | **Plus en retard :** T45 FAICAL GOUIZID (-100.0%)
-*   **Verdict :** D48 IBACH MOHAMED se positionne **en retard** par rapport à la moyenne de l'agence et doit accélérer.
+*   **Classement :** D48 IBACH MOHAMED est **#8 sur 19 vendeurs** actifs de l'agence.
+*   **Taux d'écart objectif :** **+11.1%** | **Moyenne agence :** **+4.9%** | **Écart vs moyenne :** **+6.2%**
+*   **Meilleur performer :** F78 GHOUSMI MOURAD (+88.0%) | **Plus en retard :** T45 FAICAL GOUIZID (-67.7%)
+*   **Verdict :** D48 IBACH MOHAMED se positionne **en avance** sur la moyenne de l'agence.
 
 **2. ANALYSE DE LA PERFORMANCE PAR FAMILLE DE PRODUIT (QUANTITATIF)**
 Voici le tableau des réalisations quantitatives par famille de produits, avec le Reste à Faire (RAF) à combler :
 
 | Famille | Réalisé (DH) | Parcial (DH) | Taux | Réal 2025 (DH) | Obj Mois (DH) | Reste à Faire (RAF) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **LEVURE** | 4,348 | 11,250 | -61.4% | 295,294 | 14,210 | 1,644 |
-| **MOUSSES** | 1,561 | 3,000 | -48.0% | 65,755 | 3,790 | 372 |
-| **BOUILLON** | 1,283 | 4,000 | -67.9% | 435,868 | 5,053 | 629 |
-| **CONDIMENTS** | 8,136 | 10,000 | -18.6% | 355,376 | 12,631 | 749 |
-| **CONFITURE** | 2,890 | 3,000 | -3.7% | 89,591 | 3,790 | 150 |
-| **CONSERVES** | 1,601 | 2,500 | -36.0% | 80,690 | 3,158 | 259 |
+| **LEVURE** | 28,864 | 42,750 | -32.5% | 317,562 | 54,000 | 4,189 |
+| **MOUSSES** | 9,788 | 11,400 | -14.1% | 73,330 | 14,400 | 768 |
+| **BOUILLON** | 6,025 | 15,200 | -60.4% | 439,704 | 19,200 | 2,196 |
+| **CONDIMENTS** | 43,849 | 38,000 | +15.4% | 390,569 | 48,000 | 692 |
+| **CONFITURE** | 18,043 | 11,400 | +58.3% | 105,172 | 14,400 | -607 |
+| **CONSERVES** | 7,928 | 9,500 | -16.5% | 87,018 | 12,000 | 679 |
 | **MISWAK** | 0 | 0 | -100.0% | 0 | 0 | 0 |
-| **C.A (TTC)** | 31,116 | 42,500 | -26.8% | 1,919,525 | 53,684 | 3,761 |
+| **C.A (TTC)** | 179,382 | 161,500 | +11.1% | 2,064,023 | 204,000 | 4,103 |
 
 **3. INDICATEURS QUALITATIFS (SUIVI CLIENTS)**
 Voici les performances de couverture et de commande du vendeur :
 
 | Clients Programmés | Clients Facturés | ACM | TSM | LINE | RAF TSM | RAF ACM |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| 500 | 86 | 17.3% | 8.9% | 112.7% | 75 | 68 |
+| 501 | 411 | 82.1% | 55.2% | 118.2% | 37 | 14 |
 
 **4. ANALYSE DES PRODUITS FOCUS**
 *   **Focus Tomate Frito (VMM) :**
@@ -46,7 +46,7 @@ Voici les performances de couverture et de commande du vendeur :
     *   Secteur TAROUDANT SOM VMM : Réalisé 532 MAD (Objectif Glace TTC 8,204 MAD) - Taux : -93.5%
 
 **5. PLAN D'ACTION ET RECOMMANDATIONS (Sous 6 jours restants)**
-*   **🎯 Objectif quotidien :** Réaliser en moyenne **3,761 MAD / jour** pour atteindre l'objectif (RAF total : 22,568 MAD).
+*   **🎯 Objectif quotidien :** Réaliser en moyenne **5,992 MAD / jour** pour atteindre l'objectif (RAF total : 35,951 MAD).
 1.  **Visites clients (ACM) :** Augmenter la couverture terrain en planifiant rigoureusement les tournées pour visiter l'ensemble des clients programmés.
 2.  **Transformation (TSM) :** Améliorer la conversion lors des visites par une argumentation commerciale ciblée et en s'assurant de la disponibilité des produits.
 3.  **Relance des focus :** Mettre l'accent sur les familles de produits en retard, en particulier la Tomate Frito et la Glace, en proposant des offres adaptées aux clients du secteur.
@@ -56,24 +56,25 @@ Voici les performances de couverture et de commande du vendeur :
 
 | Vendeur | Réalisé (DH) | Objectif (DH) | Taux de réalisation (%) |
 | :--- | :---: | :---: | :---: |
-| F78 GHOUSMI MOURAD | 65,198 | 35,000 | +86.3% |
-| I03 EL OUAHMI ACHRAF | 44,164 | 30,000 | +47.2% |
-| D86 ACHAOUI AZIZ | 44,960 | 37,500 | +19.9% |
-| Y59 EL GHANMI MOHAMED | 44,562 | 37,500 | +18.8% |
-| 485 NAMOUSS ABDESSAMAD | 39,523 | 35,000 | +12.9% |
-| O42 BENOUALLAD MY ZAKARIA | 49,139 | 45,000 | +9.2% |
-| J23 ACHTOUK LAHOUCINE | 39,937 | 37,500 | +6.5% |
-| K91 BAIZ MOHAMED | 32,258 | 31,250 | +3.2% |
-| O30 BOUDHOUR MBAREK | 65,368 | 70,000 | -6.6% |
-| Y60 ATOUAOU AIMAD | 40,428 | 45,000 | -10.2% |
-| K60 ELHAOUZI RACHID | 57,402 | 65,000 | -11.7% |
-| JJ2 EL ASERY YOUSSEF | 32,329 | 37,500 | -13.8% |
-| D45 OUARSSASSA YASSINE | 30,466 | 37,500 | -18.8% |
-| T89 AKNOUN MOHAMED | 29,185 | 36,250 | -19.5% |
-| E14 BOUMDIANE MOHAMED | 25,823 | 32,500 | -20.5% |
-| **D48 IBACH MOHAMED (Sélectionné)** | 31,116 | 42,500 | -26.8% |
-| J78 LASRI EL HOUCINE | 0 | 35,000 | -100.0% |
-| T45 FAICAL GOUIZID | 0 | 41,750 | -100.0% |
+| F78 GHOUSMI MOURAD | 250,048 | 133,000 | +88.0% |
+| I03 EL OUAHMI ACHRAF | 153,082 | 114,000 | +34.3% |
+| O42 BENOUALLAD MY ZAKARIA | 199,644 | 171,000 | +16.8% |
+| K91 BAIZ MOHAMED | 137,856 | 118,750 | +16.1% |
+| JJ2 EL ASERY YOUSSEF | 165,252 | 142,500 | +16.0% |
+| K60 ELHAOUZI RACHID | 285,178 | 247,000 | +15.5% |
+| D45 OUARSSASSA YASSINE | 160,013 | 142,500 | +12.3% |
+| **D48 IBACH MOHAMED (Sélectionné)** | 179,382 | 161,500 | +11.1% |
+| T89 AKNOUN MOHAMED | 152,660 | 137,750 | +10.8% |
+| E14 BOUMDIANE MOHAMED | 134,491 | 123,500 | +8.9% |
+| Y60 ATOUAOU AIMAD | 186,064 | 171,000 | +8.8% |
+| Y59 EL GHANMI MOHAMED | 154,543 | 142,500 | +8.5% |
+| D86 ACHAOUI AZIZ | 154,438 | 142,500 | +8.4% |
+| O30 BOUDHOUR MBAREK | 279,157 | 266,000 | +4.9% |
+| 485 NAMOUSS ABDESSAMAD | 139,558 | 133,000 | +4.9% |
+| J23 ACHTOUK LAHOUCINE | 131,700 | 142,500 | -7.6% |
+| J78 LASRI EL HOUCINE | 67,913 | 133,000 | -48.9% |
+| T96 EL HADI BOUBAKER | 56,082 | 116,850 | -52.0% |
+| T45 FAICAL GOUIZID | 51,204 | 158,650 | -67.7% |
 
 
 ### Historique des Ventes Quotidiennes (Non cumulées)
