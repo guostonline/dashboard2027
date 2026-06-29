@@ -141,7 +141,9 @@ def get_latest_excel_from_gmail():
             return None, "Token Google introuvable. Authentifiez-vous d'abord.", None, None, None, None
             
         token_scopes = getattr(creds, "scopes", [])
-        if "https://www.googleapis.com/auth/gmail.modify" not in token_scopes:
+        has_modify = "https://www.googleapis.com/auth/gmail.modify" in token_scopes
+        has_readonly = "https://www.googleapis.com/auth/gmail.readonly" in token_scopes
+        if not (has_modify or has_readonly):
             return None, "Permissions Gmail manquantes. Veuillez supprimer 'token.json' et vous re-authentifier sur le dashboard principal.", None, None, None, None
             
         gmail_service = build("gmail", "v1", credentials=creds)
@@ -385,9 +387,12 @@ with tab_local:
 with tab_gmail:
     creds_checked = _load_creds()
     has_gmail_permission = False
+    has_gmail_modify = False
     if creds_checked:
         token_scopes = getattr(creds_checked, "scopes", [])
-        has_gmail_permission = "https://www.googleapis.com/auth/gmail.modify" in token_scopes
+        has_gmail_modify = "https://www.googleapis.com/auth/gmail.modify" in token_scopes
+        has_gmail_readonly = "https://www.googleapis.com/auth/gmail.readonly" in token_scopes
+        has_gmail_permission = has_gmail_modify or has_gmail_readonly
         
     if not has_gmail_permission:
         st.warning(
@@ -396,7 +401,7 @@ with tab_gmail:
             "1. Supprimez le fichier `token.json` du dossier principal de votre projet.\n"
             "2. Allez sur le dashboard Flask (http://127.0.0.1:5000/) → onglet **Stock** → cliquez sur **SYNC GOOGLE** pour vous ré-authentifier.\n\n"
             "**Si vous êtes sur Streamlit Cloud (Production) :**\n"
-            "1. Ré-authentifiez-vous en local comme décrit ci-dessus.\n"
+            "1. Ré-authentifiez-vous en local comme décrit ci-dessus pour obtenir les droits.\n"
             "2. Ouvrez le nouveau fichier `token.json` généré en local et copiez tout son contenu.\n"
             "3. Allez sur la page de votre application sur le tableau de bord Streamlit Cloud → cliquez sur **Settings** → **Secrets** et collez-le de cette façon :\n"
             "```toml\n"
@@ -479,13 +484,15 @@ with tab_gmail:
                                     st.success("✅ " + msg)
                                     st.balloons()
                                     
-                                    # Delete email containing the excel file
-                                    if st.session_state.gmail_msg_id:
+                                    # Delete email containing the excel file only if we have modify scope
+                                    if st.session_state.gmail_msg_id and has_gmail_modify:
                                         del_ok, del_msg = delete_gmail_message(st.session_state.gmail_msg_id)
                                         if del_ok:
                                             st.info("✉️ L'email contenant le fichier Excel a été supprimé de votre boîte de réception (déplacé vers la corbeille).")
                                         else:
                                             st.warning(f"⚠️ Impossible de supprimer l'email : {del_msg}")
+                                    elif st.session_state.gmail_msg_id and not has_gmail_modify:
+                                        st.warning("⚠️ L'e-mail n'a pas été supprimé de votre boîte de réception car les permissions d'écriture/suppression Gmail (modify) sont absentes du jeton.")
                                             
                                     # Send Telegram notification directly to user id 6095445790
                                     send_telegram_notification(
