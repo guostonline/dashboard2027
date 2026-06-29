@@ -84,23 +84,46 @@ def _load_creds():
     import json
     import google.oauth2.credentials
     from google.auth.transport.requests import Request
-    if not TOKEN_PATH.exists():
+    
+    token_data = None
+    
+    # 1. Try loading from local file
+    if TOKEN_PATH.exists():
+        try:
+            with open(TOKEN_PATH, "r") as f:
+                token_data = json.load(f)
+        except Exception:
+            pass
+            
+    # 2. Try loading from Streamlit Secrets (for cloud deployment)
+    if not token_data:
+        try:
+            if "google_token" in st.secrets:
+                secret_val = st.secrets["google_token"]
+                if isinstance(secret_val, str):
+                    token_data = json.loads(secret_val)
+                else:
+                    token_data = dict(secret_val)
+        except Exception:
+            pass
+            
+    if not token_data:
         return None
+        
     try:
-        with open(TOKEN_PATH, "r") as f:
-            token_data = json.load(f)
         # Load credentials using the scopes present in the token to avoid ValueError
         token_scopes = token_data.get("scopes", SCOPES)
-        creds = google.oauth2.credentials.Credentials.from_authorized_user_file(
-            str(TOKEN_PATH), token_scopes
+        creds = google.oauth2.credentials.Credentials.from_authorized_user_info(
+            token_data, token_scopes
         )
         if creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            # Maintain the scopes list in refreshed token
-            refreshed_data = json.loads(creds.to_json())
-            if "scopes" not in refreshed_data:
-                refreshed_data["scopes"] = token_scopes
-            TOKEN_PATH.write_text(json.dumps(refreshed_data))
+            # Maintain the scopes list in refreshed token and save to file if local
+            if TOKEN_PATH.exists():
+                refreshed_data = json.loads(creds.to_json())
+                if "scopes" not in refreshed_data:
+                    refreshed_data["scopes"] = token_scopes
+                TOKEN_PATH.write_text(json.dumps(refreshed_data))
         return creds
     except Exception:
         return None
@@ -368,9 +391,24 @@ with tab_gmail:
         
     if not has_gmail_permission:
         st.warning(
-            "⚠️ L'accès Gmail n'est pas encore autorisé. Veuillez d'abord :\n\n"
-            "1. Supprimer le fichier `token.json` du dossier principal du projet.\n"
-            "2. Aller sur le dashboard Flask (`http://127.0.0.1:5000/`) → onglet **Stock** → cliquez sur **SYNC GOOGLE** pour vous ré-authentifier avec les nouveaux droits."
+            "⚠️ **L'accès Gmail n'est pas encore autorisé.**\n\n"
+            "**Si vous exécutez l'application en local :**\n"
+            "1. Supprimez le fichier `token.json` du dossier principal de votre projet.\n"
+            "2. Allez sur le dashboard Flask (http://127.0.0.1:5000/) → onglet **Stock** → cliquez sur **SYNC GOOGLE** pour vous ré-authentifier.\n\n"
+            "**Si vous êtes sur Streamlit Cloud (Production) :**\n"
+            "1. Ré-authentifiez-vous en local comme décrit ci-dessus.\n"
+            "2. Ouvrez le nouveau fichier `token.json` généré en local et copiez tout son contenu.\n"
+            "3. Allez sur la page de votre application sur le tableau de bord Streamlit Cloud → cliquez sur **Settings** → **Secrets** et collez-le de cette façon :\n"
+            "```toml\n"
+            "google_token = '''\n"
+            "{\n"
+            "  \"token\": \"ya29...\",\n"
+            "  \"refresh_token\": \"1//0...\",\n"
+            "  \"scopes\": [\"https://www.googleapis.com/auth/spreadsheets\", \"https://www.googleapis.com/auth/gmail.modify\"],\n"
+            "  ...\n"
+            "}\n"
+            "'''\n"
+            "```"
         )
     else:
         st.markdown(
