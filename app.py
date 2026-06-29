@@ -30,7 +30,7 @@ def load_config():
         "rest_days": 20,
         "exclude_families": [],
         "theme": "theme-1",
-        "light_mode": False,
+        "light_mode": True,
         "excluded_dates": []
     }
     if os.path.exists(CONFIG_PATH):
@@ -141,7 +141,7 @@ def index():
                 'token_uri': secrets['token_uri'],
                 'client_id': secrets['client_id'],
                 'client_secret': secrets['client_secret'],
-                'scopes': ['https://www.googleapis.com/auth/spreadsheets']
+                'scopes': ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/gmail.modify']
             }
             
             with open('token.json', 'w') as token_file:
@@ -751,6 +751,65 @@ def upload_stock_file():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+def send_telegram_notification(text, chat_id=None):
+    """Sends a message via Telegram bot."""
+    import requests
+    import os
+    import json
+    token = "8932059052:AAEbwgRvpDlofG49OxY-9TWVdwT7MfaWdJk"
+    
+    # Try to load chat_id from environment or cache file if not provided
+    if not chat_id:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except Exception:
+            pass
+            
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+        cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "telegram_chat_cache.json")
+        
+        if not chat_id and os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r") as f:
+                    chat_id = json.load(f).get("chat_id")
+            except Exception:
+                pass
+            
+    # Fetch from getUpdates if not cached
+    if not chat_id:
+        try:
+            res = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=5).json()
+            results = res.get("result", [])
+            if font_scopes := results:  # checking if results is not empty
+                for r in reversed(results):
+                    cid = r.get("message", {}).get("chat", {}).get("id") or r.get("my_chat_member", {}).get("chat", {}).get("id")
+                    if cid:
+                        chat_id = cid
+                        try:
+                            with open(cache_path, "w") as f:
+                                json.dump({"chat_id": chat_id}, f)
+                        except Exception:
+                            pass
+                        break
+        except Exception:
+            pass
+            
+    if chat_id:
+        try:
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            payload = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "Markdown"
+            }
+            requests.post(url, json=payload, timeout=5)
+            return True
+        except Exception:
+            pass
+    return False
+
+
 def sync_to_google_sheet(date):
     import os
     import google.oauth2.credentials
@@ -832,7 +891,10 @@ def sync_to_google_sheet(date):
             body=body
         ).execute()
         
-        return True, f"Stock synchronisé avec succès vers Google Sheet '{SHEET_NAME}' ({len(db_rows)} articles)."
+        msg = f"Stock synchronisé avec succès vers Google Sheet '{SHEET_NAME}' ({len(db_rows)} articles)."
+        send_telegram_notification(f"📦 *Stock Sync Successful*\n\n{msg}")
+        
+        return True, msg
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -850,7 +912,7 @@ def google_authorize():
         'client_id': secrets['client_id'],
         'redirect_uri': 'http://127.0.0.1:5000/',
         'response_type': 'code',
-        'scope': 'https://www.googleapis.com/auth/spreadsheets',
+        'scope': 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/gmail.modify',
         'access_type': 'offline',
         'prompt': 'consent'
     }
@@ -887,6 +949,202 @@ def google_sync_stock():
         import traceback
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/google/gmail-webhook", methods=["POST"])
+def google_gmail_webhook():
+    import io
+    import base64
+    import os
+    import json
+    from googleapiclient.discovery import build
+    
+    # 1. Resolve spreadsheet config
+    SPREADSHEET_ID = "17Q3DoTjLdGwAmztk3LWaC2Z69_ZrGYlAsLHXTusrHIk"
+    SHEET_NAME = "STock Speed-X3"
+    SCOPES = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/gmail.modify"
+    ]
+    
+    # Helper to load credentials
+    def _load_app_creds():
+        if not os.path.exists('token.json'):
+            return None
+        try:
+            with open('token.json', 'r') as f:
+                token_data = json.load(f)
+            token_scopes = token_data.get("scopes", SCOPES)
+            import google.oauth2.credentials
+            creds = google.oauth2.credentials.Credentials.from_authorized_user_file('token.json', token_scopes)
+            if creds.expired and creds.refresh_token:
+                from google.auth.transport.requests import Request
+                creds.refresh(Request())
+                refreshed_data = json.loads(creds.to_json())
+                if "scopes" not in refreshed_data:
+                    refreshed_data["scopes"] = token_scopes
+                with open('token.json', 'w') as token_file:
+                    json.dump(refreshed_data, token_file)
+            return creds
+        except Exception:
+            return None
+
+    try:
+        # Check if file is uploaded in the request (multipart/form-data)
+        file_stream = None
+        filename = "Fichier uploadé via webhook"
+        
+        if 'file' in request.files:
+            file_stream = request.files['file'].stream
+            filename = request.files['file'].filename
+        elif request.data and not request.is_json:
+            # Maybe raw bytes sent in body
+            file_stream = io.BytesIO(request.data)
+            filename = "Raw bytes payload"
+            
+        # If no file was sent, retrieve it from Gmail using the query
+        if not file_stream:
+            creds = _load_app_creds()
+            if not creds:
+                return jsonify({"status": "error", "message": "Token Google introuvable. Veuillez vous authentifier."}), 400
+                
+            token_scopes = getattr(creds, "scopes", [])
+            if "https://www.googleapis.com/auth/gmail.modify" not in token_scopes:
+                return jsonify({"status": "error", "message": "Permissions Gmail manquantes. Re-authentifiez-vous d'abord."}), 400
+                
+            gmail_service = build("gmail", "v1", credentials=creds)
+            query = 'has:attachment (filename:xlsx OR filename:xls) "STock Speed-X3"'
+            results = gmail_service.users().messages().list(userId="me", q=query, maxResults=5).execute()
+            messages = results.get("messages", [])
+            
+            if not messages:
+                return jsonify({"status": "error", "message": "Aucun e-mail correspondant trouvé dans Gmail."}), 404
+                
+            webhook_msg_id = None
+            for msg_summary in messages:
+                msg_id = msg_summary["id"]
+                webhook_msg_id = msg_id
+                message = gmail_service.users().messages().get(userId="me", id=msg_id).execute()
+                
+                payload = message.get("payload", {})
+                parts = [payload]
+                attachments = []
+                while parts:
+                    part = parts.pop()
+                    if part.get("parts"):
+                        parts.extend(part["parts"])
+                    fn = part.get("filename", "")
+                    if fn and (fn.lower().endswith(".xlsx") or fn.lower().endswith(".xls")):
+                        att_id = part["body"].get("attachmentId")
+                        if att_id:
+                            attachments.append((fn, att_id))
+                            
+                if attachments:
+                    filename, att_id = attachments[0]
+                    attachment = gmail_service.users().messages().attachments().get(
+                        userId="me", messageId=msg_id, id=att_id
+                    ).execute()
+                    file_data = base64.urlsafe_b64decode(attachment["data"].encode("UTF-8"))
+                    file_stream = io.BytesIO(file_data)
+                    break
+                    
+            if not file_stream:
+                return jsonify({"status": "error", "message": "Aucune pièce jointe valide trouvée dans les derniers messages Gmail."}), 404
+                
+        # 2. Parse and filter the Excel file using Pandas
+        try:
+            df = pd.read_excel(file_stream)
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Erreur de lecture du fichier Excel : {e}"}), 400
+            
+        df.columns = [c.strip() for c in df.columns]
+        df = df.fillna("")
+        
+        act_col = next((c for c in df.columns if c.upper() == "ACT CODE"), None)
+        if act_col:
+            df = df[df[act_col].astype(str).str.strip() == "AG_AGDR"].reset_index(drop=True)
+            
+        if df.empty:
+            return jsonify({"status": "warning", "message": "Aucune ligne avec ACT CODE = AG_AGDR trouvée."}), 200
+            
+        # 3. Push to Google Sheets
+        creds = _load_app_creds()
+        if not creds:
+            return jsonify({"status": "error", "message": "Token Google introuvable."}), 400
+            
+        sheets_service = build("sheets", "v4", credentials=creds)
+        
+        # Ensure sheet tab exists
+        meta = sheets_service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+        existing = [s["properties"]["title"] for s in meta.get("sheets", [])]
+        if SHEET_NAME not in existing:
+            sheets_service.spreadsheets().batchUpdate(
+                spreadsheetId=SPREADSHEET_ID,
+                body={"requests": [{"addSheet": {"properties": {"title": SHEET_NAME}}}]},
+            ).execute()
+            
+        headers = ["ACT CODE", "Site", "SOC", "Fournisseur", "GAMME",
+                   "FAMILLE", "Produit", "DESIGNATION", "Statut", "STK QTE", "Source"]
+                   
+        col_map = {}
+        for h in headers:
+            for c in df.columns:
+                if c.strip().upper() == h.upper():
+                    col_map[h] = c
+                    break
+                    
+        def safe_int(v):
+            try: return int(v)
+            except: return 0
+            
+        rows = [headers]
+        for _, row in df.iterrows():
+            rows.append([
+                str(row.get(col_map.get("ACT CODE",  ""), "")).strip(),
+                str(row.get(col_map.get("Site",       ""), "")).strip(),
+                str(row.get(col_map.get("SOC",        ""), "")).strip(),
+                str(row.get(col_map.get("Fournisseur",""), "")).strip(),
+                str(row.get(col_map.get("GAMME",      ""), "")).strip(),
+                str(row.get(col_map.get("FAMILLE",    ""), "")).strip(),
+                str(row.get(col_map.get("Produit",    ""), "")).strip(),
+                str(row.get(col_map.get("DESIGNATION",""), "")).strip(),
+                str(row.get(col_map.get("Statut",     ""), "")).strip(),
+                safe_int(row.get(col_map.get("STK QTE", ""), 0)),
+                str(row.get(col_map.get("Source",     ""), "")).strip(),
+            ])
+            
+        sheets_service.spreadsheets().values().clear(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"'{SHEET_NAME}'!A1:Z20000",
+            body={},
+        ).execute()
+        
+        sheets_service.spreadsheets().values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"'{SHEET_NAME}'!A1",
+            valueInputOption="RAW",
+            body={"values": rows},
+        ).execute()
+        
+        # Trash processed Gmail message
+        if not 'file' in request.files and webhook_msg_id:
+            try:
+                gmail_service.users().messages().trash(userId="me", id=webhook_msg_id).execute()
+            except Exception as tr_err:
+                print(f"Error trashing message {webhook_msg_id}: {tr_err}")
+                
+        msg = f"Webhook traité avec succès. {len(rows) - 1} articles synchronisés depuis '{filename}' vers '{SHEET_NAME}'."
+        send_telegram_notification(f"✉️ *Gmail / Webhook Stock Sync Successful*\n\n{msg}")
+        
+        return jsonify({
+            "status": "success",
+            "message": msg
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": f"Erreur interne : {e}"}), 500
 
 
 # ------------------------------------------------------------------

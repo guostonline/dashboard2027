@@ -338,7 +338,7 @@ class ExcelProcessor:
                 try:
                     if tsm_val is not None and client_number is not None:
                         tsm_val = float(str(tsm_val).replace('%', '').strip())
-                        if tsm_val > 1:
+                        if tsm_val > 10:
                             tsm_val /= 100.0
                         client_number = float(client_number)
                         sheet_ranges_quali[f"H{row}"].value = int((client_number - (client_number * tsm_val)) / jour_rest)
@@ -354,7 +354,7 @@ class ExcelProcessor:
                 try:
                     if acm_val is not None and client_number is not None:
                         acm_val = float(str(acm_val).replace('%', '').strip())
-                        if acm_val > 1:
+                        if acm_val > 10:
                             acm_val /= 100.0
                         client_number = float(client_number)
                         sheet_ranges_quali[f"I{row}"].value = int((client_number - (client_number * acm_val)) / jour_rest)
@@ -757,11 +757,20 @@ class ExcelProcessor:
                     clt_prog = int(clt_prog) if pd.notna(clt_prog) else 0
                     
                     def to_pct(v):
+                        """Normalize a percentage value to a 0..1 fraction.
+
+                        Heuristic: values strictly greater than 10 are treated as
+                        already-expressed percentages (e.g. 109 -> 1.09). Values
+                        in the 0..10 range are treated as already-normalized
+                        fractions (e.g. 1.09 -> 1.09, meaning 109%). Without
+                        this, values like 1.09 would be wrongly divided by 100
+                        and read back as 1.09% instead of 109%.
+                        """
                         if pd.isna(v):
                             return None
                         try:
                             v_float = float(v)
-                            if v_float > 1:
+                            if v_float > 10:
                                 v_float /= 100.0
                             return v_float
                         except Exception:

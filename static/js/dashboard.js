@@ -798,6 +798,10 @@ function setupEventListeners() {
     if (downloadReportBtn) {
         downloadReportBtn.addEventListener('click', downloadReportAsPdf);
     }
+    const downloadReportImageBtn = document.getElementById('download-report-image-btn');
+    if (downloadReportImageBtn) {
+        downloadReportImageBtn.addEventListener('click', downloadReportAsImage);
+    }
     const whatsappReportBtn = document.getElementById('whatsapp-report-btn');
     if (whatsappReportBtn) {
         whatsappReportBtn.addEventListener('click', openWhatsappShareDialog);
@@ -1369,6 +1373,8 @@ function toggleTheme(toLight) {
     if (dashboardData) {
         updateDashboard();
     }
+    // Re-render report charts to match theme change
+    renderReportCharts(false);
 }
 
 
@@ -4070,6 +4076,8 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
 
             if (copyBtn) copyBtn.style.display = 'inline-block';
             if (downloadBtn) downloadBtn.style.display = 'inline-block';
+            const downloadImageBtn = document.getElementById('download-report-image-btn');
+            if (downloadImageBtn) downloadImageBtn.style.display = 'inline-block';
             if (okBtn) okBtn.style.display = 'inline-block';
             const whatsappBtn = document.getElementById('whatsapp-report-btn');
             if (whatsappBtn) whatsappBtn.style.display = 'inline-flex';
@@ -4239,7 +4247,7 @@ function sendReportPdfViaWhatsapp(phone) {
         const restoreCharts = freezeChartsForPdf(element);
 
         const opt = {
-            margin:       [10, 10, 10, 10],
+            margin:       [8, 10, 10, 10],
             filename:     filename,
             image:        { type: 'jpeg', quality: 0.97 },
             html2canvas:  {
@@ -4249,10 +4257,12 @@ function sendReportPdfViaWhatsapp(phone) {
                 logging: false,
                 scrollX: 0,
                 scrollY: -window.scrollY,
-                windowWidth: 794
+                windowWidth: 794,
+                width: 794,
+                backgroundColor: '#ffffff'
             },
             jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+            pagebreak:    { mode: ['css', 'legacy'] }
         };
         advancePdfStep(3);
         return html2pdf().set(opt).from(element).outputPdf('blob')
@@ -4290,7 +4300,7 @@ function sendReportPdfViaWhatsapp(phone) {
                 restoreCharts();
                 element.classList.remove('pdf-print-mode');
             });
-    }, 300);
+    }, 800);
 }
 
 // Small modal that asks for an optional phone number, then opens WhatsApp.
@@ -4658,31 +4668,73 @@ function hidePdfOverlay(success = true) {
 
 
 // Convert DOM report element into ink-friendly printable A4 PDF via html2pdf
+// Locks the wrapper width via inline styles on the element AND its ancestors,
+// so the captured canvas matches the printable width regardless of CSS selector
+// issues (the wrapper has both .report-markdown-content and .pdf-print-mode
+// classes — descendant selectors don't match the wrapper itself).
+// Returns a restore function that reverts the inline styles.
+function lockWrapperForCapture(element, widthPx) {
+    const width = widthPx || 1100;
+    const saved = [];
+    let node = element;
+    const stopTags = new Set(['MAIN', 'BODY', 'HTML']);
+    while (node && !stopTags.has(node.tagName)) {
+        saved.push({
+            node,
+            maxWidth:   node.style.maxWidth,
+            width:      node.style.width,
+            margin:     node.style.margin,
+            padding:    node.style.padding,
+            boxSizing:  node.style.boxSizing,
+            overflow:   node.style.overflow,
+            transform:  node.style.transform
+        });
+        node.style.maxWidth  = width + 'px';
+        node.style.width     = '100%';
+        node.style.margin    = '0 auto';
+        node.style.boxSizing = 'border-box';
+        // Don't clip — any overflow gets captured by html2canvas.
+        node.style.overflow  = 'visible';
+        // Reset any inherited translate that would shift capture origin.
+        node.style.transform = 'none';
+        node = node.parentElement;
+    }
+    return function unlock() {
+        saved.forEach(s => {
+            s.node.style.maxWidth  = s.maxWidth  || '';
+            s.node.style.width     = s.width     || '';
+            s.node.style.margin    = s.margin    || '';
+            s.node.style.padding   = s.padding   || '';
+            s.node.style.boxSizing = s.boxSizing || '';
+            s.node.style.overflow  = s.overflow  || '';
+            s.node.style.transform = s.transform || '';
+        });
+    };
+}
+
 function downloadReportAsPdf() {
     const element = document.getElementById('report-content-wrapper');
     if (!element || element.style.display === 'none') {
         showToast("Aucun rapport disponible.", "error");
         return;
     }
-    
+
     const selectedVendeur = currentSelection.type === 'vendeur' ? currentSelection.name : null;
-    const filename = selectedVendeur 
+    const filename = selectedVendeur
         ? `Rapport_KPI_${selectedVendeur.replace(/\s+/g, '_')}.pdf`
         : 'Rapport_KPI_Agence_Agadir.pdf';
-        
+
     showPdfOverlay();
-    
-    // Apply printing visual mode override
     element.classList.add('pdf-print-mode');
     advancePdfStep(1);
 
-    // Freeze Chart.js canvases as static images so html2canvas captures them
     setTimeout(() => {
         advancePdfStep(2);
         const restoreCharts = freezeChartsForPdf(element);
-    
+        const unlock        = lockWrapperForCapture(element, 794);
+
         const opt = {
-            margin:       [10, 10, 10, 10],
+            margin:       [8, 10, 10, 10],
             filename:     filename,
             image:        { type: 'jpeg', quality: 0.97 },
             html2canvas:  {
@@ -4692,10 +4744,12 @@ function downloadReportAsPdf() {
                 logging: false,
                 scrollX: 0,
                 scrollY: -window.scrollY,
-                windowWidth: 794
+                windowWidth: 794,
+                width: 794,
+                backgroundColor: '#ffffff'
             },
             jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+            pagebreak:    { mode: ['css', 'legacy'] }
         };
 
         advancePdfStep(3);
@@ -4711,9 +4765,89 @@ function downloadReportAsPdf() {
             })
             .finally(() => {
                 restoreCharts();
+                unlock();
                 element.classList.remove('pdf-print-mode');
             });
-    }, 300);
+    }, 800);
+}
+
+// Export the rapport as a single tall PNG image — same capture pipeline as PDF,
+// but skips the jsPDF stage and downloads the raw canvas. Useful for sharing
+// in messengers that don't accept PDFs (WhatsApp, Telegram, etc.).
+function downloadReportAsImage() {
+    const element = document.getElementById('report-content-wrapper');
+    if (!element || element.style.display === 'none') {
+        showToast("Aucun rapport disponible.", "error");
+        return;
+    }
+
+    const selectedVendeur = currentSelection.type === 'vendeur' ? currentSelection.name : null;
+    const vendorSlug = selectedVendeur ? selectedVendeur.replace(/\s+/g, '_') : 'Agence_Agadir';
+    const filename = `Rapport_KPI_${vendorSlug}.png`;
+
+    showPdfOverlay();
+    element.classList.add('pdf-print-mode');
+    advancePdfStep(1);
+
+    setTimeout(() => {
+        advancePdfStep(2);
+        const restoreCharts = freezeChartsForPdf(element);
+        const unlock        = lockWrapperForCapture(element, 794);
+
+        const opt = {
+            margin:       [0, 0],
+            filename:     filename,
+            image:        { type: 'png', quality: 1.0 },
+            html2canvas:  {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                logging: false,
+                scrollX: 0,
+                scrollY: -window.scrollY,
+                windowWidth: 794,
+                width: 794,
+                backgroundColor: '#ffffff'
+            },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:    { mode: ['css', 'legacy'] }
+        };
+
+        advancePdfStep(3);
+        html2pdf().set(opt).from(element).toContainer().toCanvas().get('canvas').then((canvas) => {
+            canvas.toBlob((blob) => {
+                if (!blob) {
+                    advancePdfStep(4);
+                    hidePdfOverlay(false);
+                    showToast("Erreur lors de la génération de l'image.", "error");
+                    return;
+                }
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+                advancePdfStep(4);
+                setTimeout(() => hidePdfOverlay(true), 400);
+
+                const sizeMb = (blob.size / (1024 * 1024)).toFixed(2);
+                showToast(`Image téléchargée ! (${sizeMb} Mo)`, "success");
+            }, 'image/png');
+        }).catch((err) => {
+            console.error('Image export failed', err);
+            advancePdfStep(4);
+            hidePdfOverlay(false);
+            showToast("Erreur image: " + err, "error");
+        }).finally(() => {
+            restoreCharts();
+            unlock();
+            element.classList.remove('pdf-print-mode');
+        });
+    }, 800);
 }
 
 // Helper to render beautiful HTML table and queue a chart if applicable
@@ -4871,8 +5005,8 @@ function renderTableHtml(rows) {
     }
     // 4. If it's a rank/performer list table (multiple sellers' CA), render a bar chart comparing performance
     else if (isRankTable && dataRows.length > 1) {
-        // 32 px per seller row + 80 px for legend/axes
-        const rankChartH = Math.max(400, dataRows.length * 32 + 80);
+        // 18 px per seller row + 60 px for legend/axes, capped at 300px for PDF friendliness
+        const rankChartH = Math.min(300, Math.max(250, dataRows.length * 18 + 60));
         html += `
         <div class="report-chart-card rank-chart-card">
             <div class="report-chart-header">
@@ -4987,12 +5121,15 @@ function renderTableHtml(rows) {
 }
 
 // Simple Markdown to HTML converter supporting tables
+// Simple Markdown to HTML converter supporting tables, multiline blockquotes and multiline alerts
 function parseMarkdown(md) {
     if (!md) return "";
     let lines = md.split('\n');
     let processedLines = [];
     let inTable = false;
     let tableRows = [];
+    let inBlockquote = false;
+    let blockquoteLines = [];
     
     function flushTable() {
         if (tableRows.length > 0) {
@@ -5000,6 +5137,36 @@ function parseMarkdown(md) {
             tableRows = [];
         }
         inTable = false;
+    }
+    
+    function flushBlockquote() {
+        if (blockquoteLines.length > 0) {
+            // Check if it's an alert block
+            let firstLine = blockquoteLines[0].trim();
+            let alertMatch = firstLine.match(/^\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION)\](.*)$/i);
+            if (alertMatch) {
+                let type = alertMatch[1].toUpperCase();
+                let lowerType = type.toLowerCase();
+                let firstLineRest = alertMatch[2].trim();
+                let contentLines = [];
+                if (firstLineRest) {
+                    contentLines.push(firstLineRest);
+                }
+                for (let i = 1; i < blockquoteLines.length; i++) {
+                    contentLines.push(blockquoteLines[i]);
+                }
+                let contentHtml = contentLines.join('<br>');
+                // Parse inline formatting inside alert content
+                contentHtml = contentHtml.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                processedLines.push(`<div class="report-alert alert-${lowerType}"><strong>${type}</strong><br>${contentHtml}</div>`);
+            } else {
+                let contentHtml = blockquoteLines.join('<br>');
+                contentHtml = contentHtml.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                processedLines.push(`<blockquote>${contentHtml}</blockquote>`);
+            }
+            blockquoteLines = [];
+        }
+        inBlockquote = false;
     }
     
     for (let i = 0; i < lines.length; i++) {
@@ -5013,6 +5180,7 @@ function parseMarkdown(md) {
             
         // Check if line is a table row (starts and ends with |)
         if (escapedLine.startsWith('|') && escapedLine.endsWith('|')) {
+            if (inBlockquote) flushBlockquote();
             inTable = true;
             let cells = escapedLine.split('|').map(c => c.trim());
             // Remove empty elements from ends
@@ -5023,33 +5191,27 @@ function parseMarkdown(md) {
             if (!isDivider) {
                 tableRows.push(cells);
             }
+        } else if (line.startsWith('>') || escapedLine.startsWith('&gt;')) {
+            if (inTable) flushTable();
+            inBlockquote = true;
+            let cleanLine = line.startsWith('>') ? line.substring(1) : line.substring(4);
+            blockquoteLines.push(cleanLine.trim());
         } else {
-            if (inTable) {
-                flushTable();
-            }
-            processedLines.push(line); // push original line for further markdown replacements
+            if (inTable) flushTable();
+            if (inBlockquote) flushBlockquote();
+            processedLines.push(line);
         }
     }
-    if (inTable) {
-        flushTable();
-    }
+    if (inTable) flushTable();
+    if (inBlockquote) flushBlockquote();
     
     let html = processedLines.join('\n');
     
-    // Match alerts: > [!NOTE] text, etc.
-    html = html.replace(/^&gt;\s*\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION)\](.*)$/gm, (match, type, content) => {
-        const lowerType = type.toLowerCase();
-        return `<div class="report-alert alert-${lowerType}"><strong>${type}</strong><br>${content}</div>`;
-    });
-    
-    // Match basic blockquotes
-    html = html.replace(/^&gt;\s*(.*)$/gm, '<blockquote>$1</blockquote>');
-
     // Headers
     html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
     html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
     html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-
+    
     // Bold text
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     
@@ -5075,22 +5237,39 @@ function parseMarkdown(md) {
     return html;
 }
 
-function renderReportCharts() {
+function renderReportCharts(forcePrintColors = false) {
     if (!window.reportChartsToRender || window.reportChartsToRender.length === 0) return;
     
     const styles = getComputedStyle(document.body);
-    const neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
-    const neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
-    const neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
-    const neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
     
-    const isLight = document.body.classList.contains('light-mode');
+    // Default to clean, professional high-contrast colors for print/PDF mode
+    let neonBlue = '#0284c7';
+    let neonAmber = '#f97316';
+    let neonGreen = '#16a34a';
+    let neonPink = '#db2777';
+    
+    const isLight = forcePrintColors || document.body.classList.contains('light-mode');
     const textColor = isLight ? '#1e293b' : '#e2e8f0';
-    const gridColor = isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+    const gridColor = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.05)';
+    
+    // If not forcing print colors, load dynamically from CSS variables
+    if (!forcePrintColors) {
+        neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
+        neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
+        neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
+        neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
+    }
     
     window.reportChartsToRender.forEach(chartConfig => {
         const canvas = document.getElementById(chartConfig.id);
         if (!canvas) return;
+        
+        // Destroy existing chart on this canvas to prevent canvas reuse error
+        const existingChart = Chart.getChart(canvas);
+        if (existingChart) {
+            existingChart.destroy();
+        }
+        
         const ctx = canvas.getContext('2d');
         
         if (chartConfig.type === 'quanti') {
@@ -5110,7 +5289,7 @@ function renderReportCharts() {
                         {
                             label: 'Objectif (DH)',
                             data: objVals,
-                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            backgroundColor: isLight ? 'rgba(249, 115, 22, 0.03)' : 'rgba(255, 255, 255, 0.05)',
                             borderColor: neonAmber,
                             borderWidth: 1.5,
                             borderDash: [3, 3]
@@ -5238,7 +5417,7 @@ function renderReportCharts() {
                         {
                             label: 'Objectif (DH)',
                             data: objVals,
-                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            backgroundColor: isLight ? 'rgba(2, 132, 199, 0.03)' : 'rgba(255, 255, 255, 0.05)',
                             borderColor: neonBlue,
                             borderWidth: 1.5,
                             borderDash: [3, 3]
@@ -5321,6 +5500,9 @@ function renderReportCharts() {
 // so that html2canvas can capture them correctly in the PDF.
 // Returns a cleanup function that restores the original canvases.
 function freezeChartsForPdf(element) {
+    // Force charts to render in high-contrast light-themed print colors
+    renderReportCharts(true);
+    
     const canvases = Array.from(element.querySelectorAll('canvas'));
     const swaps = [];
     canvases.forEach(canvas => {
@@ -5347,6 +5529,8 @@ function freezeChartsForPdf(element) {
             canvas.style.display = '';
             img.remove();
         });
+        // Restore charts back to normal theme colors for screen view
+        renderReportCharts(false);
     };
 }
 

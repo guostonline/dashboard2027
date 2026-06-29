@@ -4,7 +4,7 @@ import urllib.request
 from dotenv import load_dotenv
 from data_processor import ExcelProcessor, get_categorie
 
-load_dotenv()
+load_dotenv(override=True)
 
 def build_daily_sales_table(vendeur=None, category=None):
     try:
@@ -893,20 +893,11 @@ Données KPI de la force de vente :
     # Fallback to local template if OpenRouter failed or key not found
     if not content:
         if vendeur:
-            content = f"""> [!NOTE]
-> **Rapport de performance généré localement** (Impossible de contacter l'API OpenRouter, les données chiffrées ci-dessous restent 100% exactes et à jour).
-
-""" + generate_fallback_report_vendeur(vendeur, summary_data)
+            content = generate_fallback_report_vendeur(vendeur, summary_data)
         elif category and category != "All":
-            content = f"""> [!NOTE]
-> **Rapport de performance généré localement** (Impossible de contacter l'API OpenRouter, les données chiffrées ci-dessous restent 100% exactes et à jour).
-
-""" + generate_fallback_report_category(category, summary_data)
+            content = generate_fallback_report_category(category, summary_data)
         else:
-            content = f"""> [!NOTE]
-> **Rapport de performance généré localement** (Impossible de contacter l'API OpenRouter, les données chiffrées ci-dessous restent 100% exactes et à jour).
-
-""" + generate_fallback_report_global(summary_data)
+            content = generate_fallback_report_global(summary_data)
 
     # Append vendor comparison table if a specific seller report is generated
     if vendeur:

@@ -17,7 +17,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=2.6">
+    <link rel="stylesheet" href="/static/css/style.css?v=2.8">
 </head>
 <body class="cyber-grid {% if theme %}{{ theme }}{% endif %} {% if light_mode %}light-mode{% endif %}">
     <!-- ===== Animated background layers ===== -->
@@ -1425,6 +1425,9 @@
                     <button id="download-report-btn" class="rp-action-btn" style="display:none;">
                         <i class="fa-solid fa-file-pdf"></i> PDF
                     </button>
+                    <button id="download-report-image-btn" class="rp-action-btn" style="display:none;" title="Exporter en image longue (PNG)">
+                        <i class="fa-solid fa-image"></i> Image
+                    </button>
                     <button id="copy-report-btn" class="rp-action-btn" style="display:none;">
                         <i class="fa-solid fa-copy"></i> Copier
                     </button>
@@ -2221,7 +2224,7 @@
 
 
     <!-- Custom Script JS -->
-    <script src="/static/js/dashboard.js?v=3.4"></script>
+    <script src="/static/js/dashboard.js?v=3.8"></script>
     <script src="/static/js/fdv.js?v=1.0"></script>
     <script src="/static/js/bg-anim.js?v=1.0"></script>
     <script src="/static/js/terrain.js?v=1.0"></script>

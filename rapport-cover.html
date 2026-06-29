@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KPI Analytics — Bulletin de Performance · Agence Agadir</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,300..900,0..100,0..1&family=Manrope:wght@300..800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+  /* ─────────────────────────────────────────────────────
+     FOUNDATION
+     ───────────────────────────────────────────────────── */
+  :root {
+    --paper:        #F2EBDD;   /* warm cream */
+    --paper-deep:   #E8DECB;   /* edge of page */
+    --ink:          #181410;   /* warm black */
+    --ink-soft:     #3A322B;
+    --ink-mute:     #6E6356;
+    --rule:         #1B1612;
+    --terracotta:   #B8341B;   /* deep red-clay, Moroccan */
+    --terracotta-2: #8A1F0E;
+    --forest:       #2C4A3E;
+    --gold:         #B68A3E;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Manrope', sans-serif;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    /* warm paper grain via inline SVG noise */
+    background-image:
+      radial-gradient(ellipse 80% 60% at 20% 0%, rgba(184,52,27,0.04), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 90% 100%, rgba(44,74,62,0.05), transparent 60%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 0.1  0 0 0 0 0.07  0 0 0 0 0.06  0 0 0 0.08 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+
+  /* ─────────────────────────────────────────────────────
+     PAGE LAYOUT  (one editorial spread, A4 portrait-ish)
+     ───────────────────────────────────────────────────── */
+  .page {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 56px 64px 80px;
+    background: var(--paper);
+    border-left:  1px solid var(--paper-deep);
+    border-right: 1px solid var(--paper-deep);
+    box-shadow:
+      0 0 0 1px var(--paper-deep),
+      0 30px 60px -20px rgba(20,14,8,0.25),
+      0 80px 120px -40px rgba(20,14,8,0.18);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* corner watermark — subtle big initial in the background */
+  .page::before {
+    content: 'A';
+    position: absolute;
+    top: -60px;
+    right: -40px;
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 144, "wght" 300, "SOFT" 50;
+    font-size: 480px;
+    line-height: 1;
+    color: var(--terracotta);
+    opacity: 0.05;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ─────────────────────────────────────────────────────
+     MASTHEAD
+     ───────────────────────────────────────────────────── */
+  .masthead {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 24px;
+    padding-bottom: 18px;
+    border-bottom: 2px solid var(--rule);
+    position: relative;
+    z-index: 2;
+    animation: reveal 0.9s 0.0s cubic-bezier(.2,.7,.2,1) both;
+  }
+
+  .masthead .left,
+  .masthead .right {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .masthead .left  { text-align: left; }
+  .masthead .right { text-align: right; }
+
+  .masthead .center {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 36, "wght" 600, "SOFT" 100;
+    font-size: 22px;
+    letter-spacing: 0.04em;
+    color: var(--ink);
+    text-align: center;
+  }
+
+  .masthead .center em {
+    font-style: italic;
+    color: var(--terracotta);
+    font-variation-settings: "opsz" 36, "wght" 500, "SOFT" 100, "WONK" 1;
+  }
+
+  /* ─────────────────────────────────────────────────────
+     HERO  — the headline number
+     ───────────────────────────────────────────────────── */
+  .hero {
+    margin-top: 60px;
+    position: relative;
+    z-index: 2;
+    animation: reveal 1.1s 0.15s cubic-bezier(.2,.7,.2,1) both;
+  }
+
+  .hero .kicker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--terracotta);
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .hero .kicker::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--terracotta);
+    opacity: 0.5;
+  }
+
+  .hero h1 {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 144, "wght" 350, "SOFT" 50, "WONK" 1;
+    font-size: clamp(56px, 9vw, 108px);
+    line-height: 0.92;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    margin-bottom: 20px;
+  }
+
+  .hero h1 .accent {
+    font-style: italic;
+    color: var(--terracotta);
+    font-variation-settings: "opsz" 144, "wght" 300, "SOFT" 100, "WONK" 1;
+  }
+
+  .hero .deck {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 36, "wght" 350;
+    font-size: 19px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    max-width: 620px;
+  }
+
+  .hero .deck::first-letter {
+    /* editorial drop cap */
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 144, "wght" 600, "WONK" 1;
+    font-size: 64px;
+    line-height: 0.85;
+    float: left;
+    color: var(--terracotta);
+    padding: 6px 10px 0 0;
+  }
+
+  /* ─────────────────────────────────────────────────────
+     NUMBER STAGE — the big featured metric
+     ───────────────────────────────────────────────────── */
+  .stage {
+    margin-top: 70px;
+    padding: 44px 40px;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+    z-index: 2;
+    animation: reveal 1.1s 0.3s cubic-bezier(.2,.7,.2,1) both;
+  }
+
+  .stage .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    margin-bottom: 12px;
+  }
+
+  .stage .figure {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 40px;
+    align-items: end;
+  }
+
+  .stage .big {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 144, "wght" 350, "SOFT" 50;
+    font-size: clamp(96px, 14vw, 168px);
+    line-height: 0.85;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+  }
+  .stage .big sup {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 500;
+    font-size: 0.32em;
+    vertical-align: top;
+    color: var(--terracotta);
+    margin-left: 0.1em;
+    letter-spacing: 0;
+  }
+  .stage .big .delta {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-variation-settings: "opsz" 144, "wght" 300, "SOFT" 100, "WONK" 1;
+    color: var(--terracotta);
+  }
+
+  .stage .caption {
+    border-left: 2px solid var(--terracotta);
+    padding-left: 18px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+  .stage .caption strong {
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  /* ─────────────────────────────────────────────────────
+     SECTION DIVIDER
+     ───────────────────────────────────────────────────── */
+  .divider {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 18px;
+    margin: 64px 0 28px;
+    position: relative;
+    z-index: 2;
+  }
+  .divider .num {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 36, "wght" 400;
+    font-style: italic;
+    font-size: 14px;
+    color: var(--terracotta);
+    letter-spacing: 0.04em;
+  }
+  .divider .title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .divider .rule {
+    height: 1px;
+    background: var(--rule);
+  }
+
+  /* ─────────────────────────────────────────────────────
+     INDICATORS GRID  — 4 KPI cards, editorial style
+     ───────────────────────────────────────────────────── */
+  .indicators {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+    z-index: 2;
+    animation: reveal 1.0s 0.45s cubic-bezier(.2,.7,.2,1) both;
+  }
+
+  .kpi {
+    padding: 26px 20px 22px;
+    border-right: 1px solid var(--rule);
+    position: relative;
+  }
+  .kpi:last-child { border-right: none; }
+
+  .kpi .code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    margin-bottom: 14px;
+  }
+
+  .kpi .value {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 144, "wght" 400;
+    font-size: 38px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  .kpi .value .unit {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 500;
+    font-size: 0.42em;
+    color: var(--terracotta);
+    margin-left: 0.15em;
+    letter-spacing: 0;
+  }
+
+  .kpi .delta {
+    margin-top: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .kpi .delta.up   { color: var(--forest); }
+  .kpi .delta.down { color: var(--terracotta); }
+  .kpi .delta.neutral { color: var(--ink-mute); }
+  .kpi .delta::before {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 13px;
+  }
+  .kpi .delta.up::before    { content: '↑'; }
+  .kpi .delta.down::before  { content: '↓'; }
+  .kpi .delta.neutral::before { content: '→'; }
+
+  .kpi .label {
+    margin-top: 10px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--ink-soft);
+    letter-spacing: 0.01em;
+  }
+
+  /* ─────────────────────────────────────────────────────
+     PERFORMANCE LEDGER — editorial table
+     ───────────────────────────────────────────────────── */
+  .ledger {
+    position: relative;
+    z-index: 2;
+    animation: reveal 1.0s 0.6s cubic-bezier(.2,.7,.2,1) both;
+  }
+
+  .ledger-row {
+    display: grid;
+    grid-template-columns: 50px 1.4fr 1fr 1fr 1fr;
+    align-items: baseline;
+    gap: 18px;
+    padding: 16px 0;
+    border-bottom: 1px solid rgba(27,22,18,0.15);
+    transition: background-color 0.3s ease, padding 0.3s ease;
+  }
+  .ledger-row:hover {
+    background: rgba(184,52,27,0.04);
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .ledger-row:last-child { border-bottom: none; }
+
+  .ledger-row .rank {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 36, "wght" 400;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--ink-mute);
+    text-align: right;
+  }
+  .ledger-row .name {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 36, "wght" 500;
+    font-size: 16px;
+    color: var(--ink);
+  }
+  .ledger-row .name small {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-mute);
+    margin-left: 8px;
+    letter-spacing: 0.05em;
+  }
+  .ledger-row .metric {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    text-align: right;
+  }
+  .ledger-row .metric .suffix {
+    color: var(--ink-mute);
+    font-size: 10px;
+    margin-left: 3px;
+  }
+  .ledger-row .trend {
+    display: flex;
+    align-items: end;
+    justify-content: flex-end;
+    height: 28px;
+    gap: 2px;
+  }
+  .ledger-row .trend span {
+    display: block;
+    width: 4px;
+    background: var(--ink-soft);
+    opacity: 0.5;
+  }
+  .ledger-row .trend span.live {
+    background: var(--terracotta);
+    opacity: 1;
+  }
+
+  .ledger-head {
+    display: grid;
+    grid-template-columns: 50px 1.4fr 1fr 1fr 1fr;
+    gap: 18px;
+    padding: 0 0 8px;
+    border-bottom: 2px solid var(--rule);
+    margin-bottom: 4px;
+  }
+  .ledger-head span {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    text-align: right;
+  }
+  .ledger-head span:first-child { text-align: right; }
+  .ledger-head span:nth-child(2) { text-align: left; }
+
+  /* ─────────────────────────────────────────────────────
+     COLOPHON (footer)
+     ───────────────────────────────────────────────────── */
+  .colophon {
+    margin-top: 80px;
+    padding-top: 28px;
+    border-top: 2px solid var(--rule);
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 32px;
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--ink-mute);
+    letter-spacing: 0.04em;
+    position: relative;
+    z-index: 2;
+    animation: reveal 0.9s 0.85s cubic-bezier(.2,.7,.2,1) both;
+  }
+  .colophon h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin-bottom: 8px;
+    font-weight: 700;
+  }
+  .colophon p { font-family: 'Manrope', sans-serif; }
+
+  .colophon .ornament {
+    grid-column: 1 / -1;
+    text-align: center;
+    margin-top: 20px;
+    color: var(--terracotta);
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 14px;
+    letter-spacing: 0.4em;
+  }
+
+  /* ─────────────────────────────────────────────────────
+     MOTION
+     ───────────────────────────────────────────────────── */
+  @keyframes reveal {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* prefers-reduced-motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────
+     RESPONSIVE
+     ───────────────────────────────────────────────────── */
+  @media (max-width: 720px) {
+    .page { padding: 36px 28px 60px; }
+    .stage .figure { grid-template-columns: 1fr; gap: 20px; }
+    .indicators { grid-template-columns: repeat(2, 1fr); }
+    .kpi { border-bottom: 1px solid var(--rule); }
+    .kpi:nth-child(2n) { border-right: none; }
+    .kpi:nth-last-child(-n+2) { border-bottom: none; }
+    .ledger-row, .ledger-head { grid-template-columns: 36px 1.2fr 1fr 1fr; }
+    .ledger-row .trend, .ledger-head span:nth-child(5) { display: none; }
+    .colophon { grid-template-columns: 1fr; }
+  }
+
+  /* ─────────────────────────────────────────────────────
+     PRINT
+     ───────────────────────────────────────────────────── */
+  @media print {
+    body { background: var(--paper); }
+    .page {
+      box-shadow: none;
+      border: none;
+      max-width: none;
+      padding: 24mm 18mm;
+    }
+    .page::before { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<main class="page" role="document">
+
+  <!-- ──── MASTHEAD ──── -->
+  <header class="masthead">
+    <div class="left">№ 026 &nbsp;·&nbsp; Vol. VII</div>
+    <div class="center">KPI <em>Analytics</em></div>
+    <div class="right">26 juin 2026 &nbsp;·&nbsp; Agadir</div>
+  </header>
+
+  <!-- ──── HERO ──── -->
+  <section class="hero">
+    <div class="kicker">Bulletin de performance &nbsp;·&nbsp; Édition quotidienne</div>
+    <h1>Cent sept<br>pour cent<br>d'<span class="accent">intention.</span></h1>
+    <p class="deck">
+      Au vingt-sixième jour de juin, l'agence d'Agadir transforme l'effort en résultat. Sept
+      vendeurs dépassent l'objectif, trois sont dans l'allure, et le terrain, comme un
+      orchestre qui s'accorde, trouve son tempo. Voici l'état des lieux.
+    </p>
+  </section>
+
+  <!-- ──── NUMBER STAGE ──── -->
+  <section class="stage" aria-label="Indicateur principal">
+    <div class="label">Taux de réalisation · Cumul agence</div>
+    <div class="figure">
+      <div class="big">107<sup>%</sup><span class="delta">.</span></div>
+      <div class="caption">
+        <strong>7,4 points</strong> au-dessus de l'objectif mensuel à six jours de la
+        clôture. La progression quotidienne moyenne s'établit à <strong>+0,6 pt</strong>,
+        soit le meilleur rythme observé cette campagne.
+      </div>
+    </div>
+  </section>
+
+  <!-- ──── SECTION 01 ──── -->
+  <div class="divider">
+    <span class="num">№ 01</span>
+    <span class="title">Indicateurs clés</span>
+    <span class="rule"></span>
+  </div>
+
+  <section class="indicators">
+    <article class="kpi">
+      <div class="code">A — C.A.</div>
+      <div class="value">2.43<span class="unit">M&nbsp;DH</span></div>
+      <div class="delta up">+ 12,4 % vs J-7</div>
+      <div class="label">Chiffre d'affaires réalisé depuis le 1ᵉʳ juin</div>
+    </article>
+    <article class="kpi">
+      <div class="code">B — TSM</div>
+      <div class="value">61,1<span class="unit">%</span></div>
+      <div class="delta up">+ 4,8 pts</div>
+      <div class="label">Taux de suivi moyen, tous vendeurs confondus</div>
+    </article>
+    <article class="kpi">
+      <div class="code">C — ACM</div>
+      <div class="value">71,8<span class="unit">%</span></div>
+      <div class="delta neutral">= stable</div>
+      <div class="label">Taux de couverture client — programme de visite</div>
+    </article>
+    <article class="kpi">
+      <div class="code">D — RAF</div>
+      <div class="value">28 503<span class="unit">DH</span></div>
+      <div class="delta down">− 9,2 % vs hier</div>
+      <div class="label">Reste à faire global avant clôture mensuelle</div>
+    </article>
+  </section>
+
+  <!-- ──── SECTION 02 ──── -->
+  <div class="divider">
+    <span class="num">№ 02</span>
+    <span class="title">Tableau d'honneur — Top 6 vendeurs</span>
+    <span class="rule"></span>
+  </div>
+
+  <section class="ledger">
+    <div class="ledger-head">
+      <span>Rang</span>
+      <span>Vendeur</span>
+      <span>C.A.</span>
+      <span>TSM</span>
+      <span>14 derniers jours</span>
+    </div>
+
+    <div class="ledger-row">
+      <div class="rank">01</div>
+      <div class="name">O30 Boudhour<small>MBAREK</small></div>
+      <div class="metric">504<span class="suffix">k DH</span></div>
+      <div class="metric">59,6<span class="suffix">%</span></div>
+      <div class="trend"><span style="height:30%"></span><span style="height:35%"></span><span style="height:42%"></span><span style="height:48%"></span><span style="height:55%"></span><span style="height:62%"></span><span style="height:70%"></span><span style="height:78%"></span><span style="height:85%"></span><span style="height:90%"></span><span style="height:95%"></span><span style="height:100%"></span><span style="height:96%"></span><span class="live" style="height:100%"></span></div>
+    </div>
+
+    <div class="ledger-row">
+      <div class="rank">02</div>
+      <div class="name">K60 Elhaouzi<small>RACHID</small></div>
+      <div class="metric">409<span class="suffix">k DH</span></div>
+      <div class="metric">45,2<span class="suffix">%</span></div>
+      <div class="trend"><span style="height:60%"></span><span style="height:65%"></span><span style="height:72%"></span><span style="height:80%"></span><span style="height:88%"></span><span style="height:92%"></span><span style="height:95%"></span><span style="height:98%"></span><span style="height:100%"></span><span style="height:96%"></span><span style="height:98%"></span><span style="height:100%"></span><span style="height:102%"></span><span class="live" style="height:104%"></span></div>
+    </div>
+
+    <div class="ledger-row">
+      <div class="rank">03</div>
+      <div class="name">F78 Ghousmi<small>MOURAD</small></div>
+      <div class="metric">9<span class="suffix">clients</span></div>
+      <div class="metric">108,5<span class="suffix">%</span></div>
+      <div class="trend"><span style="height:25%"></span><span style="height:32%"></span><span style="height:40%"></span><span style="height:50%"></span><span style="height:60%"></span><span style="height:72%"></span><span style="height:84%"></span><span style="height:92%"></span><span style="height:99%"></span><span style="height:103%"></span><span style="height:106%"></span><span style="height:108%"></span><span style="height:110%"></span><span class="live" style="height:112%"></span></div>
+    </div>
+
+    <div class="ledger-row">
+      <div class="rank">04</div>
+      <div class="name">T89 Aknoun<small>MOHAMED</small></div>
+      <div class="metric">512<span class="suffix">k DH</span></div>
+      <div class="metric">42,0<span class="suffix">%</span></div>
+      <div class="trend"><span style="height:45%"></span><span style="height:50%"></span><span style="height:55%"></span><span style="height:62%"></span><span style="height:68%"></span><span style="height:74%"></span><span style="height:80%"></span><span style="height:86%"></span><span style="height:92%"></span><span style="height:96%"></span><span style="height:99%"></span><span style="height:101%"></span><span style="height:103%"></span><span class="live" style="height:105%"></span></div>
+    </div>
+
+    <div class="ledger-row">
+      <div class="rank">05</div>
+      <div class="name">I03 El Ouahmi<small>ACHRAF</small></div>
+      <div class="metric">541<span class="suffix">k DH</span></div>
+      <div class="metric">63,9<span class="suffix">%</span></div>
+      <div class="trend"><span style="height:50%"></span><span style="height:55%"></span><span style="height:62%"></span><span style="height:68%"></span><span style="height:74%"></span><span style="height:78%"></span><span style="height:82%"></span><span style="height:86%"></span><span style="height:90%"></span><span style="height:93%"></span><span style="height:96%"></span><span style="height:98%"></span><span style="height:99%"></span><span class="live" style="height:100%"></span></div>
+    </div>
+
+    <div class="ledger-row">
+      <div class="rank">06</div>
+      <div class="name">D48 Ibach<small>MOHAMED</small></div>
+      <div class="metric">421<span class="suffix">k DH</span></div>
+      <div class="metric">63,9<span class="suffix">%</span></div>
+      <div class="trend"><span style="height:55%"></span><span style="height:60%"></span><span style="height:66%"></span><span style="height:72%"></span><span style="height:76%"></span><span style="height:80%"></span><span style="height:84%"></span><span style="height:88%"></span><span style="height:91%"></span><span style="height:94%"></span><span style="height:96%"></span><span style="height:98%"></span><span style="height:99%"></span><span class="live" style="height:100%"></span></div>
+    </div>
+  </section>
+
+  <!-- ──── COLOPHON ──── -->
+  <footer class="colophon">
+    <div>
+      <h4>Édition</h4>
+      <p>KPI Analytics · Agence<br>Agadir, Maroc<br>26 juin 2026, 18:42</p>
+    </div>
+    <div>
+      <h4>Méthode</h4>
+      <p>Cumul depuis le 1ᵉʳ juin 2026.<br>Prorata temporel calculé<br>sur 24 jours ouvrés.</p>
+    </div>
+    <div>
+      <h4>Sources</h4>
+      <p>Données qualitatives &amp;<br>quantitatives terrain —<br>intégrité vérifiée à 99,7 %.</p>
+    </div>
+    <div class="ornament">— ❦ —</div>
+  </footer>
+
+</main>
+
+</body>
+</html>

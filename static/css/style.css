@@ -1560,59 +1560,59 @@ body.light-mode .toast {
 
 .report-markdown-content {
     font-family: var(--font-sans);
-    line-height: 1.7;
+    line-height: 1.5;
     color: var(--text-main);
 }
 
 .report-markdown-content h1 {
-    font-size: 1.5rem;
+    font-size: 1.3rem;
     background: linear-gradient(135deg, var(--neon-blue) 0%, var(--neon-purple) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    margin: 2rem 0 1.25rem 0;
+    margin: 1.2rem 0 0.7rem 0;
     font-family: var(--font-mono);
     font-weight: 800;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     border-bottom: 2px solid rgba(0, 212, 255, 0.15);
-    padding-bottom: 0.5rem;
+    padding-bottom: 0.35rem;
     text-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
 }
 
 .report-markdown-content h2 {
-    font-size: 1.25rem;
+    font-size: 1.1rem;
     color: var(--text-main);
-    margin: 1.85rem 0 1rem 0;
+    margin: 1rem 0 0.5rem 0;
     border-left: 4px solid var(--neon-blue);
-    padding-left: 0.85rem;
+    padding-left: 0.75rem;
     font-family: var(--font-mono);
     font-weight: 700;
     letter-spacing: 0.02em;
 }
 
 .report-markdown-content h3 {
-    font-size: 1.08rem;
+    font-size: 0.98rem;
     color: var(--neon-amber);
-    margin: 1.5rem 0 0.75rem 0;
+    margin: 0.85rem 0 0.4rem 0;
     font-family: var(--font-mono);
     font-weight: 600;
 }
 
 .report-markdown-content p {
-    margin-bottom: 1.15rem;
-    font-size: 0.92rem;
+    margin-bottom: 0.6rem;
+    font-size: 0.88rem;
     color: rgba(255, 255, 255, 0.85);
 }
 
 .report-markdown-content ul {
-    margin-bottom: 1.25rem;
+    margin-bottom: 0.65rem;
     padding-left: 1.5rem;
     list-style: none;
 }
 
 .report-markdown-content li {
-    font-size: 0.92rem;
-    margin-bottom: 0.5rem;
+    font-size: 0.88rem;
+    margin-bottom: 0.25rem;
     position: relative;
     color: rgba(255, 255, 255, 0.85);
 }
@@ -1629,29 +1629,29 @@ body.light-mode .toast {
 .report-markdown-content blockquote {
     border-left: 4px solid var(--neon-purple);
     background: rgba(139, 92, 246, 0.04);
-    padding: 1rem 1.5rem;
+    padding: 0.6rem 1rem;
     border-radius: 0 8px 8px 0;
     color: var(--text-main);
     font-style: normal;
-    margin: 1.5rem 0;
+    margin: 0.75rem 0;
     box-shadow: inset 0 0 15px rgba(139, 92, 246, 0.05);
 }
 
 .report-divider {
     border: none;
     border-top: 1px dashed rgba(255, 255, 255, 0.1);
-    margin: 2rem 0;
+    margin: 1rem 0;
 }
 
 .report-alert {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 1.2rem 1.5rem;
-    margin: 1.5rem 0;
+    gap: 0.35rem;
+    padding: 0.75rem 1rem;
+    margin: 0.75rem 0;
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.06);
-    font-size: 0.88rem;
+    font-size: 0.85rem;
     backdrop-filter: blur(8px);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
@@ -1938,10 +1938,97 @@ body.light-mode .alert-green {
 }
 
 /* PDF PRINT STYLES */
-.pdf-print-mode {
+/* The wrapper element has BOTH classes (report-markdown-content + pdf-print-mode),
+   so selectors like ".pdf-print-mode .report-markdown-content" do NOT match it
+   (descendant combinator needs a real descendant). Use combined selector for self. */
+.pdf-print-mode,
+.report-markdown-content.pdf-print-mode {
     background: #ffffff !important;
     color: #121212 !important;
-    padding: 30px !important;
+    padding: 10px 12px !important;
+    font-size: 0.72rem !important;
+    line-height: 1.35 !important;
+    width: 100% !important;
+    max-width: 794px !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+}
+
+/* Reset grandparent constraints (.rp-page has max-width: 1400px) so the
+   wrapper itself dictates width during PDF capture. */
+.pdf-print-mode .rp-page,
+.pdf-print-mode .rp-result-panel,
+.report-markdown-content.pdf-print-mode .rp-page,
+.report-markdown-content.pdf-print-mode .rp-result-panel {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    box-sizing: border-box !important;
+}
+
+/* Compact typography for the printed A4 page */
+.pdf-print-mode .report-markdown-content,
+.report-markdown-content.pdf-print-mode { line-height: 1.4 !important; }
+.pdf-print-mode .report-markdown-content h1,
+.report-markdown-content.pdf-print-mode h1 {
+    font-size: 1.05rem !important;
+    margin: 0.8rem 0 0.4rem 0 !important;
+    padding-bottom: 0.2rem !important;
+}
+.pdf-print-mode .report-markdown-content h2,
+.report-markdown-content.pdf-print-mode h2 {
+    font-size: 0.9rem !important;
+    margin: 0.7rem 0 0.35rem 0 !important;
+    padding-left: 0.5rem !important;
+}
+.pdf-print-mode .report-markdown-content h3,
+.report-markdown-content.pdf-print-mode h3 {
+    font-size: 0.82rem !important;
+    margin: 0.6rem 0 0.3rem 0 !important;
+}
+.pdf-print-mode .report-markdown-content p,
+.pdf-print-mode .report-markdown-content li,
+.pdf-print-mode .report-markdown-content blockquote,
+.report-markdown-content.pdf-print-mode p,
+.report-markdown-content.pdf-print-mode li,
+.report-markdown-content.pdf-print-mode blockquote {
+    font-size: 0.7rem !important;
+    margin-bottom: 0.35rem !important;
+    line-height: 1.35 !important;
+}
+.pdf-print-mode .report-markdown-content ul,
+.report-markdown-content.pdf-print-mode ul {
+    margin-bottom: 0.4rem !important;
+    padding-left: 1rem !important;
+}
+.pdf-print-mode .report-markdown-content li,
+.report-markdown-content.pdf-print-mode li {
+    margin-bottom: 0.2rem !important;
+}
+.pdf-print-mode .report-markdown-content li::before,
+.report-markdown-content.pdf-print-mode li::before {
+    font-size: 0.55rem !important;
+    top: 0 !important;
+}
+.pdf-print-mode .report-markdown-content blockquote,
+.report-markdown-content.pdf-print-mode blockquote {
+    padding: 0.4rem 0.7rem !important;
+    margin: 0.5rem 0 !important;
+}
+.pdf-print-mode .report-alert {
+    padding: 0.45rem 0.7rem !important;
+    margin: 0.5rem 0 !important;
+    font-size: 0.7rem !important;
+}
+.pdf-print-mode .report-alert strong {
+    font-size: 0.6rem !important;
+    padding: 0.08rem 0.3rem !important;
+}
+.pdf-print-mode .report-divider {
+    margin: 0.6rem 0 !important;
 }
 
 .pdf-print-mode h1,
@@ -1986,31 +2073,68 @@ body.light-mode .alert-green {
     background: #f8fafc !important;
     border-color: #cbd5e1 !important;
     box-shadow: none !important;
+    margin: 0.8rem 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
 }
 .pdf-print-mode .report-chart-header {
     background: #f1f5f9 !important;
     border-color: #e2e8f0 !important;
     color: #1e293b !important;
+    padding: 0.35rem 0.75rem !important;
 }
 .pdf-print-mode .report-chart-header .tech-label {
     color: #1e293b !important;
+    font-size: 0.64rem !important;
 }
+.pdf-print-mode .report-chart-body {
+    padding: 0.4rem !important;
+    height: auto !important;
+    max-height: 200px !important;
+    min-height: 0 !important;
+}
+.pdf-print-mode .rank-chart-card .report-chart-body {
+    max-height: 280px !important;
+    height: 280px !important;
+}
+.pdf-print-mode .report-chart-body canvas,
 .pdf-print-mode .report-chart-body img {
     border-radius: 4px;
+    max-width: 100% !important;
+    max-height: 195px !important;
+    width: auto !important;
+    height: auto !important;
+    display: block !important;
+    margin: 0 auto !important;
+    object-fit: contain !important;
+}
+.pdf-print-mode .rank-chart-card .report-chart-body canvas,
+.pdf-print-mode .rank-chart-card .report-chart-body img {
+    max-height: 270px !important;
 }
 
 /* Metric cards */
+.pdf-print-mode .report-metrics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+    gap: 0.75rem !important;
+    margin: 0.8rem 0 !important;
+}
 .pdf-print-mode .report-metrics-grid .report-metric-card {
     background: #f8fafc !important;
     border-color: #cbd5e1 !important;
     box-shadow: none !important;
+    padding: 0.45rem 0.6rem !important;
+    gap: 0.2rem !important;
 }
 .pdf-print-mode .report-metric-card .metric-label {
     color: #64748b !important;
+    font-size: 0.6rem !important;
 }
 .pdf-print-mode .report-metric-card .metric-value {
     color: #1e293b !important;
     text-shadow: none !important;
+    font-size: 0.95rem !important;
 }
 
 /* Tables */
@@ -2018,15 +2142,33 @@ body.light-mode .alert-green {
     background: #ffffff !important;
     border-color: #e2e8f0 !important;
     box-shadow: none !important;
+    margin: 0.8rem 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+}
+.pdf-print-mode .cyber-table {
+    font-size: 0.64rem !important;
+    width: 100% !important;
+    table-layout: auto !important;
+}
+.pdf-print-mode .cyber-table th,
+.pdf-print-mode .cyber-table td {
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
 }
 .pdf-print-mode .cyber-table th {
     background: #f1f5f9 !important;
     color: #0369a1 !important;
     border-color: #e2e8f0 !important;
+    font-size: 0.64rem !important;
+    padding: 0.3rem 0.45rem !important;
 }
 .pdf-print-mode .cyber-table td {
     color: #334155 !important;
     border-color: #e2e8f0 !important;
+    font-size: 0.66rem !important;
+    padding: 0.3rem 0.45rem !important;
 }
 .pdf-print-mode .cyber-table tbody tr:hover {
     background: transparent !important;
@@ -2049,24 +2191,8 @@ body.light-mode .alert-green {
     opacity: 1 !important;
 }
 
-/* Page-break helpers – avoid splitting small cards */
-.pdf-print-mode .report-metrics-grid,
-.pdf-print-mode .report-table-wrapper {
-    page-break-inside: avoid;
-    break-inside: avoid;
-}
-
-/* Small chart cards (quanti, quali, dailySales) stay together */
-.pdf-print-mode .report-chart-card:not(.rank-chart-card) {
-    page-break-inside: avoid;
-    break-inside: avoid;
-}
-
-/* Ranking chart: large – always starts on a new page, allowed to break across pages */
-.pdf-print-mode .rank-chart-card {
-    page-break-before: always;
-    break-before: page;
-}
+/* Page-break helpers — removed avoid rules to prevent whitespace gaps.
+   html2pdf will naturally flow content across pages. */
 
 /* Dynamic family filter switches */
 .exclude-families-grid {
