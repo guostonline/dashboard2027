@@ -435,8 +435,8 @@ def build_prompt_sections(options, is_vendeur=False):
     return "\n".join(sections)
 
 
-def generate_report(vendeur=None, category=None, date=None, options=None, return_data=False, tax_mode="TTC"):
-    print(f"Loading data (vendeur={vendeur}, category={category}, date={date}, options={options}, tax_mode={tax_mode})...")
+def generate_report(vendeur=None, category=None, date=None, options=None, return_data=False, tax_mode="TTC", report_type="complet"):
+    print(f"Loading data (vendeur={vendeur}, category={category}, date={date}, options={options}, tax_mode={tax_mode}, report_type={report_type})...")
 
     # Default options: include all if not specified
     if options is None:
@@ -463,6 +463,14 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
         p.fix_sheet()
         data = p.get_data()
     # Filter data to only include valid human vendeurs from the database (Chakib & Boutmezguine teams)
+    try:
+        import datetime
+        from db_manager import get_dynamic_workdays
+        report_date_str = date if (date and date != "default") else datetime.date.today().strftime("%Y-%m-%d")
+        data["workdays"] = get_dynamic_workdays(report_date_str)
+    except Exception as e:
+        print("Error setting dynamic workdays in generate_report:", e)
+        
     try:
         import db_manager
         fdv_list = db_manager.get_fdv_list()
@@ -709,11 +717,11 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
             for r in quali
         ],
         "focus_vmm_summary": [
-            {"vendeur": f["vendeur"], "secteur": f["secteur"], "obj_acm": f["obj_acm"], "realise": f["realise"], "percent": f"{f['percent']*100:.1f}%"}
+            {"vendeur": f["vendeur"], "secteur": f["secteur"], "obj_acm": f["obj_acm"], "realise": f["realise"], "percent": f"{f['percent']*100:.1f}%", "rest": f.get("rest", 0.0), "rest_jour": f.get("rest_jour", 0.0), "jour_rest": f.get("jour_rest", 20)}
             for f in focus_vmm
         ],
         "focus_som_summary": [
-            {"vendeur": f["vendeur"], "secteur": f["secteur"], "ttc": f["ttc"], "realise": f["realise"], "percent": f"{f['percent']*100:.1f}%"}
+            {"vendeur": f["vendeur"], "secteur": f["secteur"], "ttc": f["ttc"], "realise": f["realise"], "percent": f"{f['percent']*100:.1f}%", "rest": f.get("rest", 0.0), "rest_jour": f.get("rest_jour", 0.0), "jour_rest": f.get("jour_rest", 20)}
             for f in focus_som
         ]
     }
@@ -839,13 +847,13 @@ IMPORTANT : Utilise uniquement les taux d'atteinte et pourcentages d'écart pré
 Données KPI de la force de vente :
 {json.dumps(summary_data, indent=2, ensure_ascii=False)}
 """
-    
-    # Call OpenRouter API
-    print("Calling OpenRouter API...")
+
+    # Call OpenRouter API / Skip if Mini mode
     api_key = os.getenv("OPENROUTER_API_KEY")
     content = None
-    
-    if api_key:
+    if report_type == "mini":
+        content = "### Mini Rapport (Aperçu Image WhatsApp)\nCe format est optimisé pour être partagé directement sous forme d'image sur WhatsApp."
+    elif api_key:
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -889,7 +897,7 @@ Données KPI de la force de vente :
             print(f"Error calling OpenRouter: {e}. Falling back to local template generator.")
     else:
         print("OPENROUTER_API_KEY not found. Falling back to local template generator.")
-
+ 
     # Fallback to local template if OpenRouter failed or key not found
     if not content:
         if vendeur:
@@ -898,9 +906,9 @@ Données KPI de la force de vente :
             content = generate_fallback_report_category(category, summary_data)
         else:
             content = generate_fallback_report_global(summary_data)
-
+ 
     # Append vendor comparison table if a specific seller report is generated
-    if vendeur:
+    if vendeur and report_type != "mini":
         positioning = summary_data.get("positioning", {})
         full_ranking = positioning.get("full_ranking", [])
         if full_ranking:
@@ -914,7 +922,7 @@ Données KPI de la force de vente :
                 pct_sign = "+" if v["pct"] >= 0 else ""
                 comparison_table += f"| {name_str} | {v['real']:,.0f} | {v['obj']:,.0f} | {pct_sign}{v['pct']:.1f}% |\n"
             content += comparison_table
-
+ 
         # Append daily sales table/chart
         daily_table = build_daily_sales_table(vendeur=vendeur, category=category)
         if daily_table:

@@ -197,6 +197,131 @@ def stock():
         active_sub_tab = 'favorites'
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="stock", active_sub_tab=active_sub_tab)
 
+@app.route("/anomalis")
+def anomalis_page():
+    config = load_config()
+    theme = config.get("theme", "theme-1")
+    light_mode = config.get("light_mode", False)
+    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="anomalis")
+
+@app.route("/api/anomalies", methods=["GET"])
+def api_anomalies_list():
+    try:
+        anomalies = db_manager.get_all_anomalies()
+        return jsonify({"status": "success", "anomalies": anomalies})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/anomalies", methods=["POST"])
+def api_anomalies_create():
+    try:
+        data = request.get_json() or {}
+        date = data.get("date")
+        vendeur = data.get("vendeur")
+        type_anomali = data.get("type_anomali")
+        commentaire = data.get("commentaire")
+        tag = data.get("tag")
+        
+        if not date or not vendeur or not type_anomali:
+            return jsonify({"status": "error", "message": "Champs obligatoires manquants."}), 400
+            
+        success = db_manager.save_anomaly(date, vendeur, type_anomali, commentaire, tag)
+        if success:
+            return jsonify({"status": "success", "message": "Anomalie enregistrée avec succès."})
+        else:
+            return jsonify({"status": "error", "message": "Erreur lors de l'enregistrement."}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/anomalies/<int:anomaly_id>", methods=["DELETE"])
+def api_anomalies_delete(anomaly_id):
+    try:
+        success = db_manager.delete_anomaly(anomaly_id)
+        if success:
+            return jsonify({"status": "success", "message": "Anomalie supprimée avec succès."})
+        else:
+            return jsonify({"status": "error", "message": "Erreur lors de la suppression."}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+@app.route("/tasks")
+def tasks_page():
+    config = load_config()
+    theme = config.get("theme", "theme-1")
+    light_mode = config.get("light_mode", False)
+    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="tasks")
+
+@app.route("/api/tasks", methods=["GET"])
+def api_tasks_list():
+    try:
+        tasks = db_manager.get_all_tasks()
+        return jsonify({"status": "success", "tasks": tasks})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/tasks", methods=["POST"])
+def api_tasks_create():
+    try:
+        data = request.get_json() or {}
+        title = data.get("title")
+        assignee_type = data.get("assignee_type")
+        assignee = data.get("assignee")
+        date = data.get("date")
+        priority = data.get("priority")
+        subtasks = data.get("subtasks", [])
+        
+        if not title or not assignee_type or not assignee or not date or not priority:
+            return jsonify({"status": "error", "message": "Champs obligatoires manquants."}), 400
+            
+        success = db_manager.save_task(title, assignee_type, assignee, date, priority, status='Start', creator='me', subtasks=subtasks)
+        if success:
+            return jsonify({"status": "success", "message": "Tâche enregistrée avec succès."})
+        else:
+            return jsonify({"status": "error", "message": "Erreur lors de l'enregistrement de la tâche."}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/tasks/<int:task_id>", methods=["DELETE"])
+def api_tasks_delete(task_id):
+    try:
+        success = db_manager.delete_task(task_id)
+        if success:
+            return jsonify({"status": "success", "message": "Tâche supprimée avec succès."})
+        else:
+            return jsonify({"status": "error", "message": "Erreur lors de la suppression."}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/tasks/<int:task_id>/status", methods=["PATCH"])
+def api_tasks_update_status(task_id):
+    try:
+        data = request.get_json() or {}
+        status = data.get("status")
+        if not status:
+            return jsonify({"status": "error", "message": "Statut manquant."}), 400
+            
+        success = db_manager.update_task_status(task_id, status)
+        if success:
+            return jsonify({"status": "success", "message": "Statut mis à jour."})
+        else:
+            return jsonify({"status": "error", "message": "Erreur lors de la mise à jour."}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/subtasks/<int:subtask_id>/toggle", methods=["PATCH"])
+def api_subtasks_toggle(subtask_id):
+    try:
+        data = request.get_json() or {}
+        completed = data.get("completed", False)
+        
+        success = db_manager.toggle_subtask_completed(subtask_id, completed)
+        if success:
+            return jsonify({"status": "success", "message": "Sous-tâche mise à jour."})
+        else:
+            return jsonify({"status": "error", "message": "Erreur de mise à jour."}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 
 @app.route("/theme1")
 def theme1():
@@ -346,6 +471,7 @@ def run_ai_analysis():
         date = request.args.get("date")
         options_str = request.args.get("options")
         tax_mode = request.args.get("tax_mode", "TTC")
+        report_type = request.args.get("report_type", "complet")
         
         # Parse options if provided
         options = None
@@ -359,9 +485,10 @@ def run_ai_analysis():
                 "rappel": "rappel" in selected_options
             }
 
-        report_content = generate_report(vendeur=vendeur, category=category, date=date, options=options, tax_mode=tax_mode)
+        report_content, summary_data = generate_report(vendeur=vendeur, category=category, date=date, options=options, tax_mode=tax_mode, report_type=report_type, return_data=True)
+        focus_names = db_manager.get_focus_names()
         if report_content:
-            return jsonify({"status": "success", "report": report_content})
+            return jsonify({"status": "success", "report": report_content, "summary_data": summary_data, "focus_names": focus_names})
         else:
             return jsonify({"status": "error", "message": "Erreur lors de la génération du rapport via OpenRouter."}), 500
     except Exception as e:
@@ -1876,6 +2003,23 @@ def api_fdv_whatsapp_link():
 
 GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/17Q3DoTjLdGwAmztk3LWaC2Z69_ZrGYlAsLHXTusrHIk/export?format=csv"
 
+def format_google_sheet_url(url):
+    if not url:
+        return None
+    url = url.strip()
+    if "/export?format=csv" in url:
+        return url
+    import re
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url)
+    if match:
+        spreadsheet_id = match.group(1)
+        gid_match = re.search(r"gid=(\d+)", url)
+        if gid_match:
+            gid = gid_match.group(1)
+            return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid={gid}"
+        return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv"
+    return url
+
 def get_suivi_terrain_data():
     import urllib.request
     import csv
@@ -1896,8 +2040,12 @@ def get_suivi_terrain_data():
             print("Error reading terrain cache:", e)
             
     try:
+        config = load_config()
+        custom_url = config.get("google_sheet_url")
+        csv_url = format_google_sheet_url(custom_url) if custom_url else GOOGLE_SHEET_CSV_URL
+        
         req = urllib.request.Request(
-            GOOGLE_SHEET_CSV_URL, 
+            csv_url, 
             headers={'User-Agent': 'Mozilla/5.0'}
         )
         with urllib.request.urlopen(req, timeout=10) as response:
@@ -1916,9 +2064,9 @@ def get_suivi_terrain_data():
                 # Normalize key names
                 if "timestamp" in k_clean.lower():
                     key = "timestamp"
-                elif "tomate" in k_clean.lower():
+                elif "tomate" in k_clean.lower() or "pescada" in k_clean.lower():
                     key = "tomate_frito"
-                elif "glass" in k_clean.lower() or "glace" in k_clean.lower():
+                elif "glass" in k_clean.lower() or "glace" in k_clean.lower() or "bechamel" in k_clean.lower():
                     key = "glass_ca"
                 elif "activit" in k_clean.lower() or "activ" in k_clean.lower():
                     key = "activite"
@@ -1976,7 +2124,33 @@ def terrain_page():
 @app.route("/api/terrain")
 def api_terrain_data():
     records = get_suivi_terrain_data()
-    return jsonify({"status": "success", "data": records})
+    focus_names = db_manager.get_focus_names()
+    config = load_config()
+    google_sheet_url = config.get("google_sheet_url", "")
+    return jsonify({
+        "status": "success", 
+        "data": records, 
+        "focus_names": focus_names,
+        "google_sheet_url": google_sheet_url
+    })
+
+@app.route("/api/terrain/update_sheet", methods=["POST"])
+def api_terrain_update_sheet():
+    data = request.json or {}
+    url = data.get("google_sheet_url", "").strip()
+    config = load_config()
+    config["google_sheet_url"] = url
+    save_config(config)
+    
+    cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "terrain_cache.json")
+    if os.path.exists(cache_path):
+        try:
+            os.remove(cache_path)
+        except Exception as e:
+            print("Failed to remove cache on sheet update:", e)
+            
+    records = get_suivi_terrain_data()
+    return jsonify({"status": "success", "data": records, "google_sheet_url": url})
 
 @app.route("/api/terrain/refresh", methods=["POST"])
 def api_terrain_refresh():
@@ -2014,148 +2188,297 @@ def send_file_or_404(filename):
 # ------------------------------------------------------------------
 
 def import_focus_objectives_file(filepath="Focus.xlsx"):
-    """Parse Focus.xlsx and return list of objectives dicts"""
+    """Parse Focus.xlsx or focus_obj.xlsx and return (list of objectives, focus_names dict)"""
     try:
         xl = pd.ExcelFile(filepath)
         objectives = []
+        som_name = "GLACE"
+        vmm_name = "TOMATE FRITO"
         
-        # Focus VMM (Tomate Frito)
-        if "Focus VMM" in xl.sheet_names:
-            df = xl.parse("Focus VMM")
-            for _, row in df.iterrows():
-                vendeur = str(row.get("Vendeur") or "").strip()
-                if not vendeur or vendeur.lower() == "nan":
-                    continue
-                objectives.append({
-                    "focus_type": "TOMATE_FRITO",
-                    "vendeur": vendeur,
-                    "secteur": str(row.get("TOMATE FRITO") or "").strip(),
-                    "number_client": int(row.get("Number Client") or 0) if pd.notna(row.get("Number Client")) else 0,
-                    "obj_acm": float(row.get("OBJ ACM") or 0.0) if pd.notna(row.get("OBJ ACM")) else 0.0,
-                    "obj_juin": float(row.get("OBJ JUIN") or 0.0) if pd.notna(row.get("OBJ JUIN")) else 0.0,
-                })
+        # Match sheets containing 'SOM' or 'VMM' as substrings case-insensitively
+        sheet_som = next((s for s in xl.sheet_names if "SOM" in s.upper()), None)
+        # Exclude legacy Focus sheets from match if newer ones are present
+        sheet_vmm = next((s for s in xl.sheet_names if "VMM" in s.upper()), None)
+        
+        if sheet_som or sheet_vmm:
+            # Focus SOM (Glace)
+            if sheet_som:
+                name_part = sheet_som.upper().replace("FOCUS", "").replace("SOM", "").strip()
+                if name_part:
+                    som_name = name_part
+                df = xl.parse(sheet_som)
+                # Normalize column names: strip spaces and ignore case
+                df.columns = [str(c).strip() for c in df.columns]
+                # Match Representative column by containing 'repr' or 'vend'
+                vendeur_col = next((c for c in df.columns if 'repr' in c.lower() or 'vend' in c.lower() or 'représentant' in c.lower()), None)
+                secteur_col = next((c for c in df.columns if 'sect' in c.lower()), None)
+                obj_col = next((c for c in df.columns if 'obj' in c.lower() or 'glac' in c.lower()), None)
+                ttc_col = next((c for c in df.columns if 'ttc' in c.lower()), None)
                 
-        # Focus SOM (Glace)
-        if "Focus SOM" in xl.sheet_names:
-            df = xl.parse("Focus SOM")
-            for _, row in df.iterrows():
-                vendeur = str(row.get("Vendeur") or "").strip()
-                if not vendeur or vendeur.lower() == "nan":
-                    continue
-                objectives.append({
-                    "focus_type": "GLACE",
-                    "vendeur": vendeur,
-                    "secteur": str(row.get("Secteur") or "").strip(),
-                    "glace_ht": float(row.get("GLACE HT") or 0.0) if pd.notna(row.get("GLACE HT")) else 0.0,
-                    "ttc": float(row.get("TTC") or 0.0) if pd.notna(row.get("TTC")) else 0.0,
-                })
+                for _, row in df.iterrows():
+                    vendeur = str(row.get(vendeur_col) if vendeur_col else "").strip() if vendeur_col else ""
+                    if not vendeur or vendeur.lower() == "nan" or vendeur.lower() == "total" or vendeur.lower() == "somme":
+                        continue
+                    secteur = str(row.get(secteur_col) if secteur_col else "").strip()
+                    glace_ht = float(row.get(obj_col) or 0.0) if obj_col and pd.notna(row.get(obj_col)) else 0.0
+                    ttc = float(row.get(ttc_col) or 0.0) if ttc_col and pd.notna(row.get(ttc_col)) else 0.0
+                    
+                    objectives.append({
+                        "focus_type": "GLACE",
+                        "vendeur": vendeur,
+                        "secteur": secteur,
+                        "glace_ht": glace_ht,
+                        "ttc": ttc,
+                        "number_client": 0,
+                        "obj_acm": 0.0,
+                        "obj_juin": 0.0
+                    })
+            
+            # Focus VMM (Tomate Frito)
+            if sheet_vmm:
+                name_part = sheet_vmm.upper().replace("FOCUS", "").replace("VMM", "").strip()
+                if name_part:
+                    vmm_name = name_part
+                df = xl.parse(sheet_vmm)
+                df.columns = [str(c).strip() for c in df.columns]
+                vendeur_col = next((c for c in df.columns if 'repr' in c.lower() or 'vend' in c.lower() or 'représentant' in c.lower()), None)
+                secteur_col = next((c for c in df.columns if 'sect' in c.lower()), None)
+                obj_col = next((c for c in df.columns if 'obj' in c.lower() or 'tom' in c.lower()), None)
+                ttc_col = next((c for c in df.columns if 'ttc' in c.lower()), None)
                 
-        return objectives
+                for _, row in df.iterrows():
+                    vendeur = str(row.get(vendeur_col) if vendeur_col else "").strip() if vendeur_col else ""
+                    if not vendeur or vendeur.lower() == "nan" or vendeur.lower() == "total" or vendeur.lower() == "somme":
+                        continue
+                    secteur = str(row.get(secteur_col) if secteur_col else "").strip()
+                    obj_juin = float(row.get(obj_col) or 0.0) if obj_col and pd.notna(row.get(obj_col)) else 0.0
+                    ttc = float(row.get(ttc_col) or 0.0) if ttc_col and pd.notna(row.get(ttc_col)) else 0.0
+                    
+                    objectives.append({
+                        "focus_type": "TOMATE_FRITO",
+                        "vendeur": vendeur,
+                        "secteur": secteur,
+                        "obj_juin": obj_juin,
+                        "obj_acm": obj_juin, # Synchronize both objective columns for compatibility
+                        "ttc": ttc,
+                        "number_client": 0,
+                        "glace_ht": 0.0
+                    })
+                    
+        else:
+            # 2. Check for legacy sheets: 'Focus VMM' and 'Focus SOM' (e.g. Focus.xlsx)
+            # Focus VMM (Tomate Frito)
+            if "Focus VMM" in xl.sheet_names:
+                df = xl.parse("Focus VMM")
+                for _, row in df.iterrows():
+                    vendeur = str(row.get("Vendeur") or "").strip()
+                    if not vendeur or vendeur.lower() == "nan":
+                        continue
+                    objectives.append({
+                        "focus_type": "TOMATE_FRITO",
+                        "vendeur": vendeur,
+                        "secteur": str(row.get("TOMATE FRITO") or "").strip(),
+                        "number_client": int(row.get("Number Client") or 0) if pd.notna(row.get("Number Client")) else 0,
+                        "obj_acm": float(row.get("OBJ ACM") or 0.0) if pd.notna(row.get("OBJ ACM")) else 0.0,
+                        "obj_juin": float(row.get("OBJ JUIN") or 0.0) if pd.notna(row.get("OBJ JUIN")) else 0.0,
+                    })
+                    
+            # Focus SOM (Glace)
+            if "Focus SOM" in xl.sheet_names:
+                df = xl.parse("Focus SOM")
+                for _, row in df.iterrows():
+                    vendeur = str(row.get("Vendeur") or "").strip()
+                    if not vendeur or vendeur.lower() == "nan":
+                        continue
+                    objectives.append({
+                        "focus_type": "GLACE",
+                        "vendeur": vendeur,
+                        "secteur": str(row.get("Secteur") or "").strip(),
+                        "glace_ht": float(row.get("GLACE HT") or 0.0) if pd.notna(row.get("GLACE HT")) else 0.0,
+                        "ttc": float(row.get("TTC") or 0.0) if pd.notna(row.get("TTC")) else 0.0,
+                    })
+                    
+        return objectives, {"SOM": som_name, "VMM": vmm_name}
     except Exception as e:
         print(f"Error parsing objectives file: {e}")
+        import traceback
+        traceback.print_exc()
+        return [], {"SOM": "GLACE", "VMM": "TOMATE FRITO"}
+
+
+def parse_generic_sheet(xl, sheet_name, is_cdz=False):
+    """
+    Tries to find the correct header row for a sheet and parse it.
+    is_cdz=False -> expects columns representing Représentant, Agence, Secteur, Classement, CDZ, %
+    is_cdz=True -> expects columns representing CDZ, Agence, Classement, %
+    """
+    if not sheet_name or sheet_name not in xl.sheet_names:
         return []
+    
+    best_df = None
+    best_header = 0
+    
+    # Scan headers from 0 to 15
+    for h in range(16):
+        try:
+            df = xl.parse(sheet_name, header=h)
+            cols = [str(c).strip() for c in df.columns]
+            cols_upper = [c.upper() for c in cols]
+            
+            has_agence = "AGENCE" in cols_upper
+            has_rank = "CLASSEMENT" in cols_upper
+            
+            if is_cdz:
+                has_cdz = any("CDZ" in c for c in cols_upper)
+                if has_agence and has_rank and has_cdz:
+                    best_df = df
+                    best_header = h
+                    break
+            else:
+                has_rep = any("REPR" in c or "VEND" in c or "REP" in c for c in cols_upper)
+                if has_agence and has_rank and has_rep:
+                    best_df = df
+                    best_header = h
+                    break
+        except Exception:
+            continue
+            
+    if best_df is None:
+        try:
+            h = 8 if is_cdz else 7
+            best_df = xl.parse(sheet_name, header=h)
+        except Exception:
+            return []
+            
+    best_df.columns = [str(c).strip() for c in best_df.columns]
+    
+    # Map columns to standard names
+    col_mapping = {}
+    for col in best_df.columns:
+        cu = col.upper()
+        if "AGENCE" in cu:
+            col_mapping["agence"] = col
+        elif "CLASSEMENT" in cu:
+            col_mapping["rank"] = col
+        elif "CDZ" in cu:
+            col_mapping["cdz"] = col
+        elif not is_cdz and ("REPR" in cu or "VEND" in cu or "REP" in cu):
+            col_mapping["representative"] = col
+        elif not is_cdz and "SECT" in cu:
+            col_mapping["secteur"] = col
+        elif "%" in cu:
+            col_mapping["percent"] = col
+            
+    parsed_rows = []
+    for _, row in best_df.iterrows():
+        agence = str(row.get(col_mapping.get("agence")) or "").strip()
+        if agence.upper() != "AGADIR":
+            continue
+            
+        rank_val = row.get(col_mapping.get("rank"))
+        try:
+            rank = int(float(rank_val)) if pd.notna(rank_val) and str(rank_val).strip() != "" else 0
+        except Exception:
+            rank = 0
+        
+        pct_col = col_mapping.get("percent")
+        try:
+            deviation = float(row.get(pct_col)) if pct_col and pd.notna(row.get(pct_col)) else 0.0
+        except Exception:
+            deviation = 0.0
+        
+        if is_cdz:
+            cdz = str(row.get(col_mapping.get("cdz")) or "").strip()
+            if not cdz or cdz.lower() == "nan" or "cdz" in cdz.lower():
+                continue
+            parsed_rows.append({
+                "rank": rank,
+                "cdz": cdz,
+                "agence": agence,
+                "deviation": deviation
+            })
+        else:
+            rep = str(row.get(col_mapping.get("representative")) or "").strip()
+            if not rep or rep.lower() == "nan" or "repr" in rep.lower() or "vendeur" in rep.lower():
+                continue
+            secteur = str(row.get(col_mapping.get("secteur")) or "").strip()
+            cdz = str(row.get(col_mapping.get("cdz")) or "").strip()
+            parsed_rows.append({
+                "rank": rank,
+                "agence": agence,
+                "secteur": secteur,
+                "representative": rep,
+                "deviation": deviation,
+                "cdz": cdz
+            })
+            
+    return parsed_rows
 
 
-def import_focus_rankings_file(filepath="focus2.xlsx", date_str=None):
-    """Parse focus2.xlsx and return (upload_date, representative_rankings, cdz_rankings)"""
+def import_focus_rankings_file(filepath="focus2.xlsx", date_str=None,
+                               som_vendeurs_sheet=None, som_cdz_sheet=None,
+                               vmm_vendeurs_sheet=None, vmm_cdz_sheet=None):
+    """Parse rankings and return (upload_date, representative_rankings, cdz_rankings) with dynamic sheet mapping"""
     try:
         with pd.ExcelFile(filepath) as xl:
+            # Auto-detect sheets if not explicitly provided
+            if not som_vendeurs_sheet:
+                som_vendeurs_sheet = next((s for s in xl.sheet_names if "DET" in s.upper() and ("SOM" in s.upper() or "GLACE" in s.upper())), None)
+            if not som_cdz_sheet:
+                som_cdz_sheet = next((s for s in xl.sheet_names if "CDZ" in s.upper() and ("SOM" in s.upper() or "GLACE" in s.upper())), None)
+            if not vmm_vendeurs_sheet:
+                vmm_vendeurs_sheet = next((s for s in xl.sheet_names if "DET" in s.upper() and ("VMM" in s.upper() or "TOMATE" in s.upper())), None)
+            if not vmm_cdz_sheet:
+                vmm_cdz_sheet = next((s for s in xl.sheet_names if "CDZ" in s.upper() and ("VMM" in s.upper() or "TOMATE" in s.upper())), None)
+                
+            # If still not found, fall back to exact defaults
+            if not som_vendeurs_sheet and "CLASSEMENT DET GLACE" in xl.sheet_names:
+                som_vendeurs_sheet = "CLASSEMENT DET GLACE"
+            if not som_cdz_sheet and "CLASSEMENT CDZ GLACE" in xl.sheet_names:
+                som_cdz_sheet = "CLASSEMENT CDZ GLACE"
+            if not vmm_vendeurs_sheet and "CLASSEMENT DET TOMATE FRITO" in xl.sheet_names:
+                vmm_vendeurs_sheet = "CLASSEMENT DET TOMATE FRITO"
+            if not vmm_cdz_sheet and "CLASSEMENT CDZ TOMATE FRITO" in xl.sheet_names:
+                vmm_cdz_sheet = "CLASSEMENT CDZ TOMATE FRITO"
+
             reps = []
             cdzs = []
-            
-            # 1. Parse Representative rankings for Glace
-            if "CLASSEMENT DET GLACE" in xl.sheet_names:
-                df = xl.parse("CLASSEMENT DET GLACE", header=7)
-                df.columns = [c.strip() for c in df.columns]
-                for _, row in df.iterrows():
-                    rep = str(row.get("Repr\u00e9sentant") or "").strip()
-                    if not rep or rep.lower() == "nan" or "repr" in rep.lower():
-                        continue
-                    agence = str(row.get("Agence") or "").strip()
-                    if agence.upper() != "AGADIR":
-                        continue
-                    pct_col = [c for c in df.columns if '%' in c]
-                    deviation = float(row.get(pct_col[0])) if pct_col and pd.notna(row.get(pct_col[0])) else 0.0
-                    reps.append({
-                        "focus_type": "GLACE",
-                        "rank": int(row.get("CLASSEMENT") or 0) if pd.notna(row.get("CLASSEMENT")) else 0,
-                        "agence": agence,
-                        "secteur": str(row.get("Secteur") or "").strip(),
-                        "representative": rep,
-                        "deviation": deviation,
-                        "cdz": str(row.get("CDZ") or "").strip()
-                    })
-                    
-            # 2. Parse CDZ rankings for Glace
-            if "CLASSEMENT CDZ GLACE" in xl.sheet_names:
-                df = xl.parse("CLASSEMENT CDZ GLACE", header=8)
-                df.columns = [c.strip() for c in df.columns]
-                for _, row in df.iterrows():
-                    cdz = str(row.get("CDZ") or "").strip()
-                    if not cdz or cdz.lower() == "nan" or "cdz" in cdz.lower():
-                        continue
-                    agence = str(row.get("Agence") or "").strip()
-                    if agence.upper() != "AGADIR":
-                        continue
-                    pct_col = [c for c in df.columns if '%' in c]
-                    deviation = float(row.get(pct_col[0])) if pct_col and pd.notna(row.get(pct_col[0])) else 0.0
-                    cdzs.append({
-                        "focus_type": "GLACE",
-                        "rank": int(row.get("CLASSEMENT") or 0) if pd.notna(row.get("CLASSEMENT")) else 0,
-                        "cdz": cdz,
-                        "agence": agence,
-                        "deviation": deviation
-                    })
-                    
-            # 3. Parse Representative rankings for Tomate Frito
-            if "CLASSEMENT DET TOMATE FRITO" in xl.sheet_names:
-                df = xl.parse("CLASSEMENT DET TOMATE FRITO", header=7)
-                df.columns = [c.strip() for c in df.columns]
-                for _, row in df.iterrows():
-                    rep = str(row.get("Repr\u00e9sentant") or "").strip()
-                    if not rep or rep.lower() == "nan" or "repr" in rep.lower():
-                        continue
-                    agence = str(row.get("Agence") or "").strip()
-                    if agence.upper() != "AGADIR":
-                        continue
-                    pct_col = [c for c in df.columns if '%' in c]
-                    deviation = float(row.get(pct_col[0])) if pct_col and pd.notna(row.get(pct_col[0])) else 0.0
-                    reps.append({
-                        "focus_type": "TOMATE_FRITO",
-                        "rank": int(row.get("CLASSEMENT") or 0) if pd.notna(row.get("CLASSEMENT")) else 0,
-                        "agence": agence,
-                        "secteur": str(row.get("Secteur") or "").strip(),
-                        "representative": rep,
-                        "deviation": deviation,
-                        "cdz": str(row.get("CDZ") or "").strip()
-                    })
-                    
-            # 4. Parse CDZ rankings for Tomate Frito
-            if "CLASSEMENT CDZ TOMATE FRITO" in xl.sheet_names:
-                df = xl.parse("CLASSEMENT CDZ TOMATE FRITO", header=4)
-                df.columns = [c.strip() for c in df.columns]
-                for _, row in df.iterrows():
-                    cdz = str(row.get("CDZ") or "").strip()
-                    if not cdz or cdz.lower() == "nan" or "cdz" in cdz.lower():
-                        continue
-                    agence = str(row.get("Agence") or "").strip()
-                    if agence.upper() != "AGADIR":
-                        continue
-                    pct_col = [c for c in df.columns if '%' in c]
-                    deviation = float(row.get(pct_col[0])) if pct_col and pd.notna(row.get(pct_col[0])) else 0.0
-                    cdzs.append({
-                        "focus_type": "TOMATE_FRITO",
-                        "rank": int(row.get("CLASSEMENT") or 0) if pd.notna(row.get("CLASSEMENT")) else 0,
-                        "cdz": cdz,
-                        "agence": agence,
-                        "deviation": deviation
-                    })
-                    
+
+            # 1. Parse SOM Vendeurs (Glace / SOM)
+            if som_vendeurs_sheet and som_vendeurs_sheet != "none":
+                som_reps = parse_generic_sheet(xl, som_vendeurs_sheet, is_cdz=False)
+                for r in som_reps:
+                    r["focus_type"] = "GLACE"
+                reps.extend(som_reps)
+
+            # 2. Parse SOM CDZ (Glace / SOM)
+            if som_cdz_sheet and som_cdz_sheet != "none":
+                som_cdzs = parse_generic_sheet(xl, som_cdz_sheet, is_cdz=True)
+                for r in som_cdzs:
+                    r["focus_type"] = "GLACE"
+                cdzs.extend(som_cdzs)
+
+            # 3. Parse VMM Vendeurs (Tomate / VMM)
+            if vmm_vendeurs_sheet and vmm_vendeurs_sheet != "none":
+                vmm_reps = parse_generic_sheet(xl, vmm_vendeurs_sheet, is_cdz=False)
+                for r in vmm_reps:
+                    r["focus_type"] = "TOMATE_FRITO"
+                reps.extend(vmm_reps)
+
+            # 4. Parse VMM CDZ (Tomate / VMM)
+            if vmm_cdz_sheet and vmm_cdz_sheet != "none":
+                vmm_cdzs = parse_generic_sheet(xl, vmm_cdz_sheet, is_cdz=True)
+                for r in vmm_cdzs:
+                    r["focus_type"] = "TOMATE_FRITO"
+                cdzs.extend(vmm_cdzs)
+
             if not date_str:
                 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
             return date_str, reps, cdzs
     except Exception as e:
         print(f"Error parsing rankings file: {e}")
+        import traceback
+        traceback.print_exc()
         return None, [], []
 
 
@@ -2269,6 +2592,88 @@ def save_focus_data_all(date_str, reps, cdzs):
         db_manager.save_focus_vmm_data(date_str, focus_vmm_list)
 
 
+@app.route("/api/focus/inspect", methods=["POST"])
+def inspect_focus_rankings():
+    try:
+        if "file" not in request.files:
+            return jsonify({"status": "error", "message": "Aucun fichier fourni dans la requête."}), 400
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"status": "error", "message": "Nom de fichier vide."}), 400
+            
+        temp_path = "excel/temp_inspect_rankings.xlsx"
+        os.makedirs("excel", exist_ok=True)
+        file.save(temp_path)
+        
+        try:
+            xl = pd.ExcelFile(temp_path)
+            sheets = xl.sheet_names
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+                    
+        focus_names = db_manager.get_focus_names()
+        return jsonify({
+            "status": "success",
+            "sheets": sheets,
+            "focus_names": focus_names
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+@app.route("/api/focus/objectives", methods=["GET"])
+def get_focus_objectives_api():
+    try:
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc FROM focus_objectives")
+        objectives = [dict(o) for o in cursor.fetchall()]
+        conn.close()
+        return jsonify({"status": "success", "objectives": objectives})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/focus/objectives/save", methods=["POST"])
+def save_focus_objectives_api():
+    try:
+        data = request.json or {}
+        objectives = data.get("objectives", [])
+        
+        # Save to database
+        db_manager.save_focus_objectives(objectives)
+        
+        # Recalculate ranking calculations for all dates that have rankings
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT upload_date FROM focus_rankings")
+        dates = [row[0] for row in cursor.fetchall()]
+        
+        for date_str in dates:
+            cursor.execute("SELECT focus_type, rank, agence, secteur, representative, deviation, cdz FROM focus_rankings WHERE upload_date = ?", (date_str,))
+            reps = [dict(r) for r in cursor.fetchall()]
+            
+            cursor.execute("SELECT focus_type, rank, cdz, agence, deviation FROM focus_cdz_rankings WHERE upload_date = ?", (date_str,))
+            cdzs = [dict(c) for c in cursor.fetchall()]
+            
+            save_focus_data_all(date_str, reps, cdzs)
+            
+        conn.close()
+        
+        return jsonify({"status": "success", "message": "Objectifs enregistrés et données recalculées avec succès."})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
 @app.route("/api/focus/upload", methods=["POST"])
 def upload_focus_rankings():
     try:
@@ -2283,7 +2688,19 @@ def upload_focus_rankings():
         file.save(temp_path)
         
         date_param = request.form.get("date", "").strip() or None
-        date_str, reps, cdzs = import_focus_rankings_file(temp_path, date_str=date_param)
+        som_vendeurs = request.form.get("som_vendeurs_sheet", "").strip() or None
+        som_cdz = request.form.get("som_cdz_sheet", "").strip() or None
+        vmm_vendeurs = request.form.get("vmm_vendeurs_sheet", "").strip() or None
+        vmm_cdz = request.form.get("vmm_cdz_sheet", "").strip() or None
+        
+        date_str, reps, cdzs = import_focus_rankings_file(
+            temp_path, 
+            date_str=date_param,
+            som_vendeurs_sheet=som_vendeurs,
+            som_cdz_sheet=som_cdz,
+            vmm_vendeurs_sheet=vmm_vendeurs,
+            vmm_cdz_sheet=vmm_cdz
+        )
         
         if os.path.exists(temp_path):
             try:
@@ -2309,6 +2726,93 @@ def upload_focus_rankings():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/focus/parse_sheet_names", methods=["POST"])
+def parse_focus_sheet_names():
+    try:
+        if "file" not in request.files:
+            return jsonify({"status": "error", "message": "Aucun fichier fourni dans la requête."}), 400
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"status": "error", "message": "Nom de fichier vide."}), 400
+            
+        temp_path = "excel/temp_parse_names.xlsx"
+        os.makedirs("excel", exist_ok=True)
+        file.save(temp_path)
+        
+        som_name = "GLACE"
+        vmm_name = "TOMATE FRITO"
+        
+        try:
+            xl = pd.ExcelFile(temp_path)
+            sheet_som = next((s for s in xl.sheet_names if "SOM" in s.upper()), None)
+            sheet_vmm = next((s for s in xl.sheet_names if "VMM" in s.upper()), None)
+            
+            if sheet_som:
+                name_part = sheet_som.upper().replace("FOCUS", "").replace("SOM", "").strip()
+                if name_part:
+                    som_name = name_part
+            if sheet_vmm:
+                name_part = sheet_vmm.upper().replace("FOCUS", "").replace("VMM", "").strip()
+                if name_part:
+                    vmm_name = name_part
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception as e:
+                    pass
+                    
+        return jsonify({
+            "status": "success",
+            "som_name": som_name,
+            "vmm_name": vmm_name
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/focus/upload_objectives", methods=["POST"])
+def upload_focus_objectives():
+    try:
+        if "file" not in request.files:
+            return jsonify({"status": "error", "message": "Aucun fichier fourni dans la requête."}), 400
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"status": "error", "message": "Nom de fichier vide."}), 400
+            
+        temp_path = "excel/temp_focus_obj_upload.xlsx"
+        os.makedirs("excel", exist_ok=True)
+        file.save(temp_path)
+        
+        objectives, focus_names = import_focus_objectives_file(temp_path)
+        
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as e:
+                print(f"Warning: could not remove temp file {temp_path}: {e}")
+            
+        if not objectives:
+            return jsonify({"status": "error", "message": "Aucune donnée d'objectif valide n'a pu être extraite."}), 400
+            
+        db_manager.save_focus_objectives(objectives)
+        
+        som_name = request.form.get("som_name", "").strip() or focus_names.get("SOM")
+        vmm_name = request.form.get("vmm_name", "").strip() or focus_names.get("VMM")
+        db_manager.save_focus_names(som_name, vmm_name)
+        
+        return jsonify({
+            "status": "success", 
+            "message": f"Objectifs Focus importés avec succès ({len(objectives)} lignes)."
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/focus/data", methods=["GET"])
 def get_focus_data_api():
     try:
@@ -2318,10 +2822,31 @@ def get_focus_data_api():
         if not upload_date:
             upload_date = db_manager.get_latest_focus_upload_date()
             
+        # Always fetch objectives
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc FROM focus_objectives")
+        objectives = [dict(o) for o in cursor.fetchall()]
+        conn.close()
+
         if not upload_date:
-            return jsonify({"status": "success", "data": None, "message": "Aucune donnée de classement focus disponible."})
+            workdays_info = db_manager.get_workdays_info(20)
+            focus_names = db_manager.get_focus_names()
+            return jsonify({
+                "status": "success",
+                "upload_date": None,
+                "agence": agence,
+                "data": {
+                    "glace": {"reps": [], "cdz": []},
+                    "tomate": {"reps": [], "cdz": []},
+                    "objectives": objectives
+                },
+                "workdays": workdays_info,
+                "focus_names": focus_names
+            })
             
         data = db_manager.get_focus_data(upload_date, agence)
+        data["objectives"] = objectives
         
         # Fetch workdays info for this date
         conn = db_manager.get_db_connection()
@@ -2332,13 +2857,15 @@ def get_focus_data_api():
         conn.close()
         
         workdays_info = db_manager.get_workdays_info(rest_days)
+        focus_names = db_manager.get_focus_names()
         
         return jsonify({
             "status": "success",
             "upload_date": upload_date,
             "agence": agence,
             "data": data,
-            "workdays": workdays_info
+            "workdays": workdays_info,
+            "focus_names": focus_names
         })
     except Exception as e:
         import traceback
@@ -2368,7 +2895,8 @@ def get_focus_trend_api():
             "agence": agence,
             "data": history,
             "settings": settings_data,
-            "total_days": total_days
+            "total_days": total_days,
+            "focus_names": db_manager.get_focus_names()
         })
     except Exception as e:
         import traceback

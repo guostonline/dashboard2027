@@ -1,6 +1,46 @@
 import sqlite3
 import os
 
+import datetime
+import calendar
+
+def get_dynamic_workdays(date_str):
+    today = datetime.date.today()
+    try:
+        report_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+    except Exception:
+        report_date = today
+        
+    year = report_date.year
+    month = report_date.month
+    
+    _, total_days_in_month = calendar.monthrange(year, month)
+    
+    total_workdays = 0
+    for d in range(1, total_days_in_month + 1):
+        curr_date = datetime.date(year, month, d)
+        if curr_date.weekday() != 6:
+            total_workdays += 1
+            
+    if today.year > year or (today.year == year and today.month > month):
+        elapsed_workdays = total_workdays
+    elif today.year < year or (today.year == year and today.month < month):
+        elapsed_workdays = 0
+    else:
+        elapsed_workdays = 0
+        for d in range(1, today.day):
+            curr_date = datetime.date(year, month, d)
+            if curr_date.weekday() != 6:
+                elapsed_workdays += 1
+                
+    remaining_workdays = max(0, total_workdays - elapsed_workdays)
+    
+    return {
+        "total": total_workdays,
+        "elapsed": elapsed_workdays,
+        "rest": remaining_workdays
+    }
+
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.db")
 
 def get_db_connection():
@@ -251,6 +291,14 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_focus_objectives_type ON focus_objectives(focus_type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_focus_objectives_vendeur ON focus_objectives(vendeur)")
 
+    # 11b. Focus Names table (stores dynamic focus names like BECHAMEL, PESCADA ALGERIENNE)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS focus_names (
+        focus_type TEXT PRIMARY KEY,
+        focus_name TEXT NOT NULL
+    )
+    """)
+
     # 12. Stock data table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS stock (
@@ -320,6 +368,53 @@ def init_db():
                 obj_mois = ROUND(obj_mois * 1.2),
                 raf = ROUND(raf * 1.2)
         """)
+
+    # 14. Anomalies table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS anomalies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        vendeur TEXT NOT NULL,
+        type_anomali TEXT NOT NULL,
+        commentaire TEXT,
+        tag TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    try:
+        cursor.execute("ALTER TABLE anomalies ADD COLUMN commentaire TEXT")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE anomalies ADD COLUMN tag TEXT")
+    except Exception:
+        pass
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_anomalies_date ON anomalies(date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_anomalies_vendeur ON anomalies(vendeur)")
+
+    # 15. Tasks and Subtasks tables
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        creator TEXT DEFAULT 'me',
+        assignee_type TEXT NOT NULL,
+        assignee TEXT NOT NULL,
+        date TEXT NOT NULL,
+        priority TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Start',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS subtasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        completed INTEGER DEFAULT 0,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+    )
+    """)
 
     conn.commit()
     conn.close()
@@ -481,19 +576,16 @@ def save_focus_vmm_data(date, data_list):
     conn.close()
 
 def get_focus_vmm_data(date, exclude_families=None):
-    """Get focus VMM data from column-based table"""
+    """Get focus VMM data from rankings and objectives tables instead of legacy sheet table"""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    query = """
-    SELECT vendeur, secteur, dn_fin_mai, obj_juin, nb_clients, obj_acm, percent, realise, rest, jour_rest, rest_jour
-    FROM focus_vmm_data
-    WHERE date = ?
-    """
-    params = [date]
+    dyn_days = get_dynamic_workdays(date)
+    jour_rest = dyn_days["rest"]
 
+    # Get unique vendeurs to exclude based on exclude_families
+    vendeurs_exclude = set()
     if exclude_families and exclude_families:
-        # Get unique vendeurs for these families from quantitative data
         family_vendeurs_query = """
         SELECT DISTINCT vendeur FROM quantitative_data
         WHERE date = ? AND famille IN ({})
@@ -501,20 +593,104 @@ def get_focus_vmm_data(date, exclude_families=None):
         family_vendeurs_params = [date] + exclude_families
         family_vendeurs_cursor = conn.cursor()
         family_vendeurs_cursor.execute(family_vendeurs_query, family_vendeurs_params)
-        family_vendeurs = [row["vendeur"] for row in family_vendeurs_cursor.fetchall()]
+        for row in family_vendeurs_cursor.fetchall():
+            if row["vendeur"]:
+                vendeurs_exclude.add(row["vendeur"].strip().upper())
 
-        if family_vendeurs:
-            placeholders = ",".join(["?" for _ in family_vendeurs])
-            query += f" AND vendeur NOT IN ({placeholders})"
-            params.extend(family_vendeurs)
+    # Find latest date in focus_rankings that is <= date, fallback to latest
+    cursor.execute("SELECT DISTINCT upload_date FROM focus_rankings ORDER BY upload_date DESC")
+    dates = [row[0] for row in cursor.fetchall()]
+    if not dates:
+        conn.close()
+        return []
 
-    query += " ORDER BY vendeur, secteur"
+    target_date = dates[0]
+    for d in dates:
+        if d <= date:
+            target_date = d
+            break
 
-    cursor.execute(query, params)
-    rows = cursor.fetchall()
+    # Now query the rankings for this target_date
+    cursor.execute("""
+        SELECT representative as vendeur, secteur, deviation as percent
+        FROM focus_rankings
+        WHERE upload_date = ? AND focus_type = 'TOMATE_FRITO'
+    """, (target_date,))
+    rankings = [dict(r) for r in cursor.fetchall()]
+
+    # Query objectives
+    cursor.execute("""
+        SELECT vendeur, secteur, obj_acm, number_client as nb_clients, obj_juin
+        FROM focus_objectives
+        WHERE focus_type = 'TOMATE_FRITO'
+    """)
+    objectives = [dict(o) for o in cursor.fetchall()]
     conn.close()
 
-    return [dict(row) for row in rows]
+    # Map objectives by vendeur code
+    objs_by_code = {}
+    for o in objectives:
+        if o['vendeur']:
+            code = o['vendeur'].split()[0].upper()
+            objs_by_code[code] = o
+
+    merged_list = []
+    for r in rankings:
+        v_name = r['vendeur']
+        if not v_name:
+            continue
+        v_upper = v_name.strip().upper()
+        
+        # Check exclusion
+        is_excluded = False
+        for ex in vendeurs_exclude:
+            if ex in v_upper:
+                is_excluded = True
+                break
+        if is_excluded:
+            continue
+
+        code = v_name.split()[0].upper()
+        obj = objs_by_code.get(code)
+
+        # Calculate realise and rest
+        obj_acm = obj['obj_acm'] if obj else 0.0
+        dev = r['percent'] or 0.0
+        realise = (1.0 + dev) * obj_acm if obj_acm > 0 else 0.0
+        rest = obj_acm - realise
+
+        merged_list.append({
+            "vendeur": v_name,
+            "secteur": r["secteur"],
+            "dn_fin_mai": 0.0,
+            "obj_juin": obj["obj_juin"] if obj else 0.0,
+            "nb_clients": obj["nb_clients"] if obj else 0,
+            "obj_acm": obj_acm,
+            "percent": dev,
+            "realise": realise,
+            "rest": rest,
+            "jour_rest": jour_rest,
+            "rest_jour": rest / float(jour_rest) if (rest > 0 and jour_rest > 0) else 0.0
+        })
+
+    # Add virtual representative 'AUTRE' with averages of focus metrics
+    if merged_list:
+        avg_vmm = {
+            "vendeur": "AUTRE",
+            "secteur": "AUTRES SECTEURS",
+            "dn_fin_mai": 0.0,
+            "obj_juin": sum(x["obj_juin"] for x in merged_list) / len(merged_list),
+            "nb_clients": int(sum(x["nb_clients"] for x in merged_list) / len(merged_list)),
+            "obj_acm": sum(x["obj_acm"] for x in merged_list) / len(merged_list),
+            "percent": sum(x["percent"] for x in merged_list) / len(merged_list),
+            "realise": sum(x["realise"] for x in merged_list) / len(merged_list),
+            "rest": sum(x["rest"] for x in merged_list) / len(merged_list),
+            "jour_rest": jour_rest,
+            "rest_jour": sum(x["rest_jour"] for x in merged_list) / len(merged_list)
+        }
+        merged_list.append(avg_vmm)
+
+    return merged_list
 
 def save_focus_som_data(date, data_list):
     """Save focus SOM data as separate columns"""
@@ -544,19 +720,16 @@ def save_focus_som_data(date, data_list):
     conn.close()
 
 def get_focus_som_data(date, exclude_families=None):
-    """Get focus SOM data from column-based table"""
+    """Get focus SOM data from rankings and objectives tables instead of legacy sheet table"""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    query = """
-    SELECT vendeur, secteur, glace_ht, ttc, percent, realise, rest, rest_jour, jour_rest
-    FROM focus_som_data
-    WHERE date = ?
-    """
-    params = [date]
+    dyn_days = get_dynamic_workdays(date)
+    jour_rest = dyn_days["rest"]
 
+    # Get unique vendeurs to exclude based on exclude_families
+    vendeurs_exclude = set()
     if exclude_families and exclude_families:
-        # Get unique vendeurs for these families from quantitative data
         family_vendeurs_query = """
         SELECT DISTINCT vendeur FROM quantitative_data
         WHERE date = ? AND famille IN ({})
@@ -564,20 +737,100 @@ def get_focus_som_data(date, exclude_families=None):
         family_vendeurs_params = [date] + exclude_families
         family_vendeurs_cursor = conn.cursor()
         family_vendeurs_cursor.execute(family_vendeurs_query, family_vendeurs_params)
-        family_vendeurs = [row["vendeur"] for row in family_vendeurs_cursor.fetchall()]
+        for row in family_vendeurs_cursor.fetchall():
+            if row["vendeur"]:
+                vendeurs_exclude.add(row["vendeur"].strip().upper())
 
-        if family_vendeurs:
-            placeholders = ",".join(["?" for _ in family_vendeurs])
-            query += f" AND vendeur NOT IN ({placeholders})"
-            params.extend(family_vendeurs)
+    # Find latest date in focus_rankings that is <= date, fallback to latest
+    cursor.execute("SELECT DISTINCT upload_date FROM focus_rankings ORDER BY upload_date DESC")
+    dates = [row[0] for row in cursor.fetchall()]
+    if not dates:
+        conn.close()
+        return []
 
-    query += " ORDER BY vendeur, secteur"
+    target_date = dates[0]
+    for d in dates:
+        if d <= date:
+            target_date = d
+            break
 
-    cursor.execute(query, params)
-    rows = cursor.fetchall()
+    # Now query the rankings for this target_date
+    cursor.execute("""
+        SELECT representative as vendeur, secteur, deviation as percent
+        FROM focus_rankings
+        WHERE upload_date = ? AND focus_type = 'GLACE'
+    """, (target_date,))
+    rankings = [dict(r) for r in cursor.fetchall()]
+
+    # Query objectives
+    cursor.execute("""
+        SELECT vendeur, secteur, ttc, glace_ht
+        FROM focus_objectives
+        WHERE focus_type = 'GLACE'
+    """)
+    objectives = [dict(o) for o in cursor.fetchall()]
     conn.close()
 
-    return [dict(row) for row in rows]
+    # Map objectives by vendeur code
+    objs_by_code = {}
+    for o in objectives:
+        if o['vendeur']:
+            code = o['vendeur'].split()[0].upper()
+            objs_by_code[code] = o
+
+    merged_list = []
+    for r in rankings:
+        v_name = r['vendeur']
+        if not v_name:
+            continue
+        v_upper = v_name.strip().upper()
+        
+        # Check exclusion
+        is_excluded = False
+        for ex in vendeurs_exclude:
+            if ex in v_upper:
+                is_excluded = True
+                break
+        if is_excluded:
+            continue
+
+        code = v_name.split()[0].upper()
+        obj = objs_by_code.get(code)
+
+        # Calculate realise and rest
+        ttc = obj['ttc'] if obj else 0.0
+        dev = r['percent'] or 0.0
+        realise = (1.0 + dev) * ttc if ttc > 0 else 0.0
+        rest = ttc - realise
+
+        merged_list.append({
+            "vendeur": v_name,
+            "secteur": r["secteur"],
+            "glace_ht": obj["glace_ht"] if obj else 0.0,
+            "ttc": ttc,
+            "percent": dev,
+            "realise": realise,
+            "rest": rest,
+            "jour_rest": jour_rest,
+            "rest_jour": rest / float(jour_rest) if (rest > 0 and jour_rest > 0) else 0.0
+        })
+
+    # Add virtual representative 'AUTRE' with averages of focus metrics
+    if merged_list:
+        avg_som = {
+            "vendeur": "AUTRE",
+            "secteur": "AUTRES SECTEURS",
+            "glace_ht": sum(x["glace_ht"] for x in merged_list) / len(merged_list),
+            "ttc": sum(x["ttc"] for x in merged_list) / len(merged_list),
+            "percent": sum(x["percent"] for x in merged_list) / len(merged_list),
+            "realise": sum(x["realise"] for x in merged_list) / len(merged_list),
+            "rest": sum(x["rest"] for x in merged_list) / len(merged_list),
+            "jour_rest": jour_rest,
+            "rest_jour": sum(x["rest_jour"] for x in merged_list) / len(merged_list)
+        }
+        merged_list.append(avg_som)
+
+    return merged_list
 
 def save_settings(date, rest_days, exclude_families):
     """Save settings for a specific date"""
@@ -861,6 +1114,20 @@ def save_suivi_data(date, data):
     qualitative = data.get("qualitative") or []
     focus_vmm = data.get("focus_vmm") or []
     focus_som = data.get("focus_som") or []
+
+    # Clear old records for this date to avoid orphaned rows
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM quantitative_data WHERE date = ?", (date,))
+        cursor.execute("DELETE FROM qualitative_data WHERE date = ?", (date,))
+        cursor.execute("DELETE FROM focus_vmm_data WHERE date = ?", (date,))
+        cursor.execute("DELETE FROM focus_som_data WHERE date = ?", (date,))
+        conn.commit()
+    except Exception as e:
+        print(f"Error clearing old data for {date}: {e}")
+    finally:
+        conn.close()
 
     try:
         if quantitative:
@@ -1639,6 +1906,32 @@ def save_focus_objectives(objectives):
     conn.close()
 
 
+def save_focus_names(som_name, vmm_name):
+    """Save custom focus names (e.g. BECHAMEL, PESCADA ALGERIENNE)"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if som_name:
+        cursor.execute("INSERT OR REPLACE INTO focus_names (focus_type, focus_name) VALUES ('GLACE', ?)", (som_name.strip(),))
+    if vmm_name:
+        cursor.execute("INSERT OR REPLACE INTO focus_names (focus_type, focus_name) VALUES ('TOMATE_FRITO', ?)", (vmm_name.strip(),))
+    conn.commit()
+    conn.close()
+
+
+def get_focus_names():
+    """Retrieve custom focus names with default fallbacks"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT focus_type, focus_name FROM focus_names")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    names = {"GLACE": "GLACE", "TOMATE_FRITO": "TOMATE FRITO"}
+    for r in rows:
+        names[r['focus_type']] = r['focus_name']
+    return names
+
+
 def get_latest_focus_upload_date():
     """Retrieve the latest upload date from rankings"""
     conn = get_db_connection()
@@ -2049,6 +2342,150 @@ def get_stock_favorites():
     try:
         cursor.execute("SELECT produit FROM stock_favorites")
         return [r[0] for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def save_anomaly(date, vendeur, type_anomali, commentaire=None, tag=None):
+    """Save an anomaly record to database"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO anomalies (date, vendeur, type_anomali, commentaire, tag) VALUES (?, ?, ?, ?, ?)",
+            (date, vendeur, type_anomali, commentaire, tag)
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error saving anomaly: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_all_anomalies():
+    """Get all anomaly records sorted by date descending"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, date, vendeur, type_anomali, commentaire, tag, created_at FROM anomalies ORDER BY date DESC, id DESC")
+        rows = cursor.fetchall()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"Error fetching anomalies: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def delete_anomaly(anomaly_id):
+    """Delete an anomaly record by ID"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM anomalies WHERE id = ?", (anomaly_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error deleting anomaly {anomaly_id}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def save_task(title, assignee_type, assignee, date, priority, status='Start', creator='me', subtasks=None):
+    """Save a task record and its subtasks to the database"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO tasks (title, assignee_type, assignee, date, priority, status, creator) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (title, assignee_type, assignee, date, priority, status, creator)
+        )
+        task_id = cursor.lastrowid
+        if subtasks and isinstance(subtasks, list):
+            for sub_title in subtasks:
+                if sub_title.strip():
+                    cursor.execute(
+                        "INSERT INTO subtasks (task_id, title, completed) VALUES (?, ?, 0)",
+                        (task_id, sub_title.strip())
+                    )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error saving task: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_all_tasks():
+    """Retrieve all tasks including their subtasks"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, title, assignee_type, assignee, date, priority, status, creator, created_at FROM tasks ORDER BY date ASC, id DESC")
+        task_rows = cursor.fetchall()
+        tasks = [dict(row) for row in task_rows]
+
+        for task in tasks:
+            cursor.execute("SELECT id, title, completed FROM subtasks WHERE task_id = ?", (task['id'],))
+            subtask_rows = cursor.fetchall()
+            task['subtasks'] = [dict(sub) for sub in subtask_rows]
+            
+        return tasks
+    except Exception as e:
+        print(f"Error fetching tasks: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def delete_task(task_id):
+    """Delete a task and its subtasks"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys = ON")
+        cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        cursor.execute("DELETE FROM subtasks WHERE task_id = ?", (task_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error deleting task {task_id}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def update_task_status(task_id, status):
+    """Update status of a task"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE tasks SET status = ? WHERE id = ?", (status, task_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error updating task status {task_id}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def toggle_subtask_completed(subsub_id, completed):
+    """Toggle completed status of a subtask"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        val = 1 if completed else 0
+        cursor.execute("UPDATE subtasks SET completed = ? WHERE id = ?", (val, subsub_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error toggling subtask {subsub_id}: {e}")
+        return False
     finally:
         conn.close()
 

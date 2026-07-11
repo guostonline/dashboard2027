@@ -1,6 +1,7 @@
 let terrainRawData = [];
 let terrainFilteredData = [];
 let terrainChartInstance = null;
+let terrainFocusNames = {"GLACE": "GLACE", "TOMATE_FRITO": "TOMATE FRITO"};
 
 document.addEventListener('DOMContentLoaded', () => {
     // Only initialize if the terrain-container exists in the DOM
@@ -32,6 +33,15 @@ function fetchTerrainData() {
             if (res.status === 'success') {
                 terrainRawData = res.data;
                 terrainFilteredData = [...terrainRawData];
+                if (res.focus_names) {
+                    terrainFocusNames = res.focus_names;
+                }
+                
+                // Populate Google Sheet URL input
+                const sheetUrlInput = document.getElementById('terrain-sheet-url');
+                if (sheetUrlInput && res.google_sheet_url) {
+                    sheetUrlInput.value = res.google_sheet_url;
+                }
                 
                 // Populate filters
                 populateTerrainFilters();
@@ -53,6 +63,10 @@ function populateTerrainFilters() {
     const vendeurSelect = document.getElementById('terrain-filter-vendeur');
     const activiteSelect = document.getElementById('terrain-filter-activite');
 
+    const tableDateSelect = document.getElementById('terrain-table-filter-date');
+    const tableVendeurSelect = document.getElementById('terrain-table-filter-vendeur');
+    const tableActiviteSelect = document.getElementById('terrain-table-filter-activite');
+
     if (!dateSelect || !vendeurSelect || !activiteSelect) return;
 
     // Save current values to restore
@@ -64,6 +78,10 @@ function populateTerrainFilters() {
     dateSelect.innerHTML = '<option value="">Toutes les dates</option>';
     vendeurSelect.innerHTML = '<option value="">Tous les vendeurs</option>';
     activiteSelect.innerHTML = '<option value="">Toutes les activités</option>';
+
+    if (tableDateSelect) tableDateSelect.innerHTML = '<option value="">Date (Toutes)</option>';
+    if (tableVendeurSelect) tableVendeurSelect.innerHTML = '<option value="">Vendeur (Tous)</option>';
+    if (tableActiviteSelect) tableActiviteSelect.innerHTML = '<option value="">Activité (Toutes)</option>';
 
     // Get unique sorted values
     const dates = [...new Set(terrainRawData.map(r => r.date))].sort((a,b) => {
@@ -77,14 +95,27 @@ function populateTerrainFilters() {
     const vendeurs = [...new Set(terrainRawData.map(r => r.vendeur))].sort();
     const activites = [...new Set(terrainRawData.map(r => r.activite))].sort();
 
-    dates.forEach(d => dateSelect.innerHTML += `<option value="${d}">${d}</option>`);
-    vendeurs.forEach(v => vendeurSelect.innerHTML += `<option value="${v}">${v}</option>`);
-    activites.forEach(a => activiteSelect.innerHTML += `<option value="${a}">${a}</option>`);
+    dates.forEach(d => {
+        dateSelect.innerHTML += `<option value="${d}">${d}</option>`;
+        if (tableDateSelect) tableDateSelect.innerHTML += `<option value="${d}">${d}</option>`;
+    });
+    vendeurs.forEach(v => {
+        vendeurSelect.innerHTML += `<option value="${v}">${v}</option>`;
+        if (tableVendeurSelect) tableVendeurSelect.innerHTML += `<option value="${v}">${v}</option>`;
+    });
+    activites.forEach(a => {
+        activiteSelect.innerHTML += `<option value="${a}">${a}</option>`;
+        if (tableActiviteSelect) tableActiviteSelect.innerHTML += `<option value="${a}">${a}</option>`;
+    });
 
     // Restore selected values
     dateSelect.value = selectedDate;
     vendeurSelect.value = selectedVendeur;
     activiteSelect.value = selectedActivite;
+
+    if (tableDateSelect) tableDateSelect.value = selectedDate;
+    if (tableVendeurSelect) tableVendeurSelect.value = selectedVendeur;
+    if (tableActiviteSelect) tableActiviteSelect.value = selectedActivite;
 }
 
 function setupTerrainEventListeners() {
@@ -93,20 +124,92 @@ function setupTerrainEventListeners() {
     const activiteSelect = document.getElementById('terrain-filter-activite');
     const resetBtn = document.getElementById('terrain-filter-reset');
 
-    const triggerFilter = () => {
+    const tableDateSelect = document.getElementById('terrain-table-filter-date');
+    const tableVendeurSelect = document.getElementById('terrain-table-filter-vendeur');
+    const tableActiviteSelect = document.getElementById('terrain-table-filter-activite');
+    const tableResetBtn = document.getElementById('terrain-table-filter-reset');
+
+    const sheetUpdateBtn = document.getElementById('terrain-sheet-update-btn');
+
+    // Sync helper
+    const syncAndFilter = (source, target, value) => {
+        if (target) target.value = value;
         applyTerrainFilters();
     };
 
-    if (dateSelect) dateSelect.addEventListener('change', triggerFilter);
-    if (vendeurSelect) vendeurSelect.addEventListener('change', triggerFilter);
-    if (activiteSelect) activiteSelect.addEventListener('change', triggerFilter);
+    if (dateSelect) {
+        dateSelect.addEventListener('change', () => syncAndFilter(dateSelect, tableDateSelect, dateSelect.value));
+    }
+    if (tableDateSelect) {
+        tableDateSelect.addEventListener('change', () => syncAndFilter(tableDateSelect, dateSelect, tableDateSelect.value));
+    }
+
+    if (vendeurSelect) {
+        vendeurSelect.addEventListener('change', () => syncAndFilter(vendeurSelect, tableVendeurSelect, vendeurSelect.value));
+    }
+    if (tableVendeurSelect) {
+        tableVendeurSelect.addEventListener('change', () => syncAndFilter(tableVendeurSelect, vendeurSelect, tableVendeurSelect.value));
+    }
+
+    if (activiteSelect) {
+        activiteSelect.addEventListener('change', () => syncAndFilter(activiteSelect, tableActiviteSelect, activiteSelect.value));
+    }
+    if (tableActiviteSelect) {
+        tableActiviteSelect.addEventListener('change', () => syncAndFilter(tableActiviteSelect, activiteSelect, tableActiviteSelect.value));
+    }
     
-    if (resetBtn) {
-        resetBtn.addEventListener('click', () => {
-            if (dateSelect) dateSelect.value = "";
-            if (vendeurSelect) vendeurSelect.value = "";
-            if (activiteSelect) activiteSelect.value = "";
-            applyTerrainFilters();
+    const resetAll = () => {
+        if (dateSelect) dateSelect.value = "";
+        if (tableDateSelect) tableDateSelect.value = "";
+        if (vendeurSelect) vendeurSelect.value = "";
+        if (tableVendeurSelect) tableVendeurSelect.value = "";
+        if (activiteSelect) activiteSelect.value = "";
+        if (tableActiviteSelect) tableActiviteSelect.value = "";
+        applyTerrainFilters();
+    };
+
+    if (resetBtn) resetBtn.addEventListener('click', resetAll);
+    if (tableResetBtn) tableResetBtn.addEventListener('click', resetAll);
+
+    if (sheetUpdateBtn) {
+        sheetUpdateBtn.addEventListener('click', () => {
+            const urlInput = document.getElementById('terrain-sheet-url');
+            const url = urlInput ? urlInput.value.trim() : "";
+            
+            sheetUpdateBtn.disabled = true;
+            const originalContent = sheetUpdateBtn.innerHTML;
+            sheetUpdateBtn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Synchronisation...`;
+            
+            fetch('/api/terrain/update_sheet', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ google_sheet_url: url })
+            })
+            .then(res => res.json())
+            .then(res => {
+                sheetUpdateBtn.disabled = false;
+                sheetUpdateBtn.innerHTML = originalContent;
+                if (res.status === 'success') {
+                    terrainRawData = res.data;
+                    terrainFilteredData = [...terrainRawData];
+                    
+                    // Populate filters & render view
+                    populateTerrainFilters();
+                    renderTerrainView();
+                    
+                    alert("Lien Google Sheet mis à jour et synchronisé avec succès !");
+                } else {
+                    alert("Erreur: " + (res.message || "Impossible de mettre à jour le lien."));
+                }
+            })
+            .catch(err => {
+                console.error("Error updating sheet URL:", err);
+                sheetUpdateBtn.disabled = false;
+                sheetUpdateBtn.innerHTML = originalContent;
+                alert("Une erreur s'est produite lors de l'enregistrement.");
+            });
         });
     }
 }
@@ -133,7 +236,9 @@ function renderTerrainView() {
     const thTerrainReal = document.getElementById('th-terrain-real');
     const thTerrainGlace = document.getElementById('th-terrain-glace');
     if (thTerrainReal) thTerrainReal.innerText = `Real CA (${taxMode})`;
-    if (thTerrainGlace) thTerrainGlace.innerText = `CA Glace (${taxMode})`;
+    
+    const glaceTitle = terrainFocusNames.GLACE || "Glace";
+    if (thTerrainGlace) thTerrainGlace.innerText = `CA ${glaceTitle} (${taxMode})`;
 
     // 1. Calculate and render KPIs
     let totalCa = 0;
@@ -167,6 +272,18 @@ function renderTerrainView() {
     document.getElementById('terrain-kpi-tomate').innerText = formatNumber(totalTomate);
     document.getElementById('terrain-kpi-glace').innerText = formatCurrency(totalGlace);
 
+    // Update KPI card labels dynamically based on focus names
+    const kpiTomateEl = document.getElementById('terrain-kpi-tomate');
+    if (kpiTomateEl && kpiTomateEl.parentElement) {
+        const label = kpiTomateEl.parentElement.querySelector('.summary-label');
+        if (label) label.innerText = `CA ${terrainFocusNames.TOMATE_FRITO || "TOMATE"} (VMM)`;
+    }
+    const kpiGlaceEl = document.getElementById('terrain-kpi-glace');
+    if (kpiGlaceEl && kpiGlaceEl.parentElement) {
+        const label = kpiGlaceEl.parentElement.querySelector('.summary-label');
+        if (label) label.innerText = `CA ${terrainFocusNames.GLACE || "GLACE"} (SOM)`;
+    }
+
     // 2. Render Table
     const tableBody = document.querySelector('#terrain-table tbody');
     if (tableBody) {
@@ -193,6 +310,23 @@ function renderTerrainView() {
                     </tr>
                 `;
             }).join('');
+        }
+    }
+
+    const tableFoot = document.getElementById('terrain-table-foot');
+    if (tableFoot) {
+        if (terrainFilteredData.length === 0) {
+            tableFoot.innerHTML = '';
+        } else {
+            tableFoot.innerHTML = `
+                <tr>
+                    <td colspan="4" style="text-align: left; vertical-align: middle;"><strong>TOTAL</strong></td>
+                    <td class="neon-text-blue" style="text-align: right; font-family: var(--font-mono); font-weight: bold;">${formatNumber(totalCa)} DH</td>
+                    <td class="neon-text-green" style="text-align: right; font-family: var(--font-mono); font-weight: bold;">${formatNumber(totalBl)}</td>
+                    <td class="neon-text-amber" style="text-align: right; font-family: var(--font-mono); font-weight: bold;">${formatNumber(totalTomate)}</td>
+                    <td class="neon-text-pink" style="text-align: right; font-family: var(--font-mono); font-weight: bold;">${formatNumber(totalGlace)} DH</td>
+                </tr>
+            `;
         }
     }
 

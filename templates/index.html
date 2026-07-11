@@ -14,10 +14,11 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=2.8">
+    <link rel="stylesheet" href="/static/css/style.css?v=3.1">
 </head>
 <body class="cyber-grid {% if theme %}{{ theme }}{% endif %} {% if light_mode %}light-mode{% endif %}">
     <!-- ===== Animated background layers ===== -->
@@ -37,7 +38,7 @@
             </div>
             
             <nav class="sidebar-nav">
-                <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
+                <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' and active_tab != 'anomalis' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
                 <a href="/details" class="nav-item {% if active_tab == 'details' %}active{% endif %}" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
                 <a href="/clients" class="nav-item {% if active_tab == 'clients' %}active{% endif %}" id="nav-clients"><i class="fa-solid fa-address-book"></i> <span>Client</span></a>
                 <a href="/fdv" class="nav-item {% if active_tab == 'fdv' %}active{% endif %}" id="nav-fdv"><i class="fa-solid fa-people-group"></i> <span>FDV</span></a>
@@ -45,6 +46,8 @@
                 <a href="/focus" class="nav-item {% if active_tab == 'focus' %}active{% endif %}" id="nav-focus"><i class="fa-solid fa-bullseye"></i> <span>Focus</span></a>
                 <a href="/rapport" class="nav-item {% if active_tab == 'rapport' %}active{% endif %}" id="nav-rapport"><i class="fa-solid fa-brain"></i> <span>Rapport</span></a>
                 <a href="/stock" class="nav-item {% if active_tab == 'stock' and active_sub_tab != 'favorites' and active_sub_tab != 'favorit' %}active{% endif %}" id="nav-stock"><i class="fa-solid fa-boxes-stacked"></i> <span>Stock</span></a>
+                <a href="/anomalis" class="nav-item {% if active_tab == 'anomalis' %}active{% endif %}" id="nav-anomalis"><i class="fa-solid fa-triangle-exclamation neon-text-pink"></i> <span>Anomalies</span></a>
+                <a href="/tasks" class="nav-item {% if active_tab == 'tasks' %}active{% endif %}" id="nav-tasks"><i class="fa-solid fa-list-check"></i> <span>Tâches</span></a>
                 <a href="/stock?view=favorit" class="nav-item {% if active_tab == 'stock' and (active_sub_tab == 'favorites' or active_sub_tab == 'favorit') %}active{% endif %}" id="nav-stock-favorites" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'stock' %}display: none;{% endif %}"><i class="fa-solid fa-star" style="color: var(--neon-amber);"></i> <span>Favorit</span></a>
             </nav>
             
@@ -70,45 +73,51 @@
                     </select>
                 </div>
                 
-                <div class="sidebar-layout-wrapper" style="display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; margin-top: 0.5rem;">
+                <div class="sidebar-layout-wrapper" style="display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; margin-top: 0.5rem; position: relative;">
                     <span class="tech-label"><i class="fa-solid fa-layer-group"></i> BLOCS ACTIFS</span>
-                    <div class="sidebar-layout-toggles" style="display: flex; flex-direction: column; gap: 0.35rem; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,0,0,0.15);">
-                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="toggle-quanti-chart" checked style="accent-color: var(--neon-blue);">
-                            <span>Perf Quanti Chart</span>
-                        </label>
-                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="toggle-quali-chart" checked style="accent-color: var(--neon-blue);">
-                            <span>Perf Quali Chart</span>
-                        </label>
-                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="toggle-radar-chart" checked style="accent-color: var(--neon-blue);">
-                            <span>Radar Analyse</span>
-                        </label>
-                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="toggle-focus-card" checked style="accent-color: var(--neon-blue);">
-                            <span>Focus Mensuel</span>
-                        </label>
-                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="toggle-chakib-families" checked style="accent-color: var(--neon-blue);">
-                            <span>Suivi Familles</span>
-                        </label>
-                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="toggle-chakib-focus" checked style="accent-color: var(--neon-blue);">
-                            <span>Progression Focus</span>
-                        </label>
-                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="toggle-quanti-table" checked style="accent-color: var(--neon-blue);">
-                            <span>Tableau Quanti</span>
-                        </label>
-                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="toggle-quali-table" checked style="accent-color: var(--neon-blue);">
-                            <span>Tableau Quali</span>
-                        </label>
-                        <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="toggle-alerts-section" checked style="accent-color: var(--neon-blue);">
-                            <span>Alertes Système</span>
-                        </label>
+                    <div class="custom-dropdown" id="blocks-dropdown" style="position: relative; width: 100%;">
+                        <button type="button" id="blocks-dropdown-btn" class="cyber-select" style="width: 100%; border-color: var(--neon-blue); text-align: left; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: rgba(0,0,0,0.2); padding: 0.5rem 0.75rem; font-family: var(--font-mono); font-size: 0.75rem; text-transform: uppercase; border-radius: 4px; color: var(--text-main); outline: none;">
+                            <span>Sélectionner les blocs</span>
+                            <i class="fa-solid fa-chevron-down" style="font-size: 0.7rem; color: var(--neon-blue); transition: transform 0.2s;"></i>
+                        </button>
+                        <div id="blocks-dropdown-content" style="display: none; position: absolute; bottom: 100%; left: 0; width: 100%; z-index: 1000; margin-bottom: 0.25rem; flex-direction: column; gap: 0.45rem; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 4px; background: var(--card-bg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 -10px 30px rgba(0,0,0,0.85); box-sizing: border-box;">
+                            <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="toggle-quanti-chart" checked style="accent-color: var(--neon-blue);">
+                                <span>Perf Quanti Chart</span>
+                            </label>
+                            <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="toggle-quali-chart" checked style="accent-color: var(--neon-blue);">
+                                <span>Perf Quali Chart</span>
+                            </label>
+                            <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="toggle-radar-chart" checked style="accent-color: var(--neon-blue);">
+                                <span>Radar Analyse</span>
+                            </label>
+                            <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="toggle-focus-card" checked style="accent-color: var(--neon-blue);">
+                                <span>Focus Mensuel</span>
+                            </label>
+                            <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="toggle-chakib-families" checked style="accent-color: var(--neon-blue);">
+                                <span>Suivi Familles</span>
+                            </label>
+                            <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="toggle-chakib-focus" checked style="accent-color: var(--neon-blue);">
+                                <span>Progression Focus</span>
+                            </label>
+                            <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="toggle-quanti-table" checked style="accent-color: var(--neon-blue);">
+                                <span>Tableau Quanti</span>
+                            </label>
+                            <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="toggle-quali-table" checked style="accent-color: var(--neon-blue);">
+                                <span>Tableau Quali</span>
+                            </label>
+                            <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="toggle-alerts-section" checked style="accent-color: var(--neon-blue);">
+                                <span>Alertes Système</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
 
@@ -199,7 +208,7 @@
         </div>
     </header>
 
-    <main class="dashboard-container" id="main-dashboard-container" style="{% if active_tab == 'details' or active_tab == 'clients' or active_tab == 'fdv' or active_tab == 'terrain' or active_tab == 'focus' or active_tab == 'rapport' %}display: none;{% endif %}; position: relative; z-index: 10;">
+    <main class="dashboard-container" id="main-dashboard-container" style="{% if active_tab == 'details' or active_tab == 'clients' or active_tab == 'fdv' or active_tab == 'terrain' or active_tab == 'focus' or active_tab == 'rapport' or active_tab == 'stock' or active_tab == 'anomalis' or active_tab == 'tasks' %}display: none;{% endif %}; position: relative; z-index: 10;">
         <!-- TOP SUMMARY CARDS -->
         <section class="summary-section" id="summary-section">
             <div class="cyber-card summary-card glow-blue">
@@ -596,7 +605,6 @@
                 </table>
             </div>
         </section>
-
         <!-- QUALITATIVE CHART PANEL -->
         <section class="cyber-card chart-card" style="margin-top: 1.5rem; margin-bottom: 1.5rem; min-height: 480px;">
             <div class="card-edge"></div>
@@ -1056,6 +1064,20 @@
         <section class="filter-section cyber-card" id="terrain-filter-section" style="margin-bottom: 1.5rem;">
             <div class="card-edge"></div>
             <div class="filter-controls" style="display: flex; flex-direction: column; gap: 1rem; width: 100%;">
+                
+                <!-- Google Sheet Integration Row -->
+                <div class="sheet-integration-group" style="display: flex; align-items: flex-end; gap: 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 1.25rem; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 280px; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <label class="tech-label" style="margin-bottom: 0;"><i class="fa-solid fa-file-csv neon-text-green"></i> LIEN GOOGLE SHEET (SUIVI TERRAIN)</label>
+                        <input type="text" id="terrain-sheet-url" class="cyber-input" style="width: 100%; box-sizing: border-box; font-family: var(--font-mono); height: 38px; padding: 0 0.75rem; font-size: 0.85rem;" placeholder="https://docs.google.com/spreadsheets/d/.../edit" />
+                    </div>
+                    <div>
+                        <button id="terrain-sheet-update-btn" class="cyber-btn" type="button" style="height: 38px; border-color: var(--neon-blue); white-space: nowrap;">
+                            <i class="fa-solid fa-cloud-arrow-down"></i> Enregistrer & Synchroniser
+                        </button>
+                    </div>
+                </div>
+
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; width: 100%;">
                     
                     <!-- Date Filter -->
@@ -1107,8 +1129,23 @@
         <!-- TABLE PANEL -->
         <div class="cyber-card table-card" id="terrain-table-card">
             <div class="card-edge"></div>
-            <div class="card-header">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                 <span class="tech-label"><i class="fa-solid fa-list-check"></i> RÉALISATIONS JOURNALIÈRES (FORMULAIRE DE TERRAIN)</span>
+                <!-- Table Quick Filters -->
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <select id="terrain-table-filter-date" class="cyber-select" style="height: 32px; font-size: 0.75rem; padding: 0 0.5rem; border-color: var(--neon-amber); text-transform: uppercase; width: auto; min-width: 120px;">
+                        <option value="">Date (Toutes)</option>
+                    </select>
+                    <select id="terrain-table-filter-vendeur" class="cyber-select" style="height: 32px; font-size: 0.75rem; padding: 0 0.5rem; border-color: var(--neon-blue); text-transform: uppercase; width: auto; min-width: 150px;">
+                        <option value="">Vendeur (Tous)</option>
+                    </select>
+                    <select id="terrain-table-filter-activite" class="cyber-select" style="height: 32px; font-size: 0.75rem; padding: 0 0.5rem; border-color: var(--neon-green); text-transform: uppercase; width: auto; min-width: 130px;">
+                        <option value="">Activité (Toutes)</option>
+                    </select>
+                    <button id="terrain-table-filter-reset" class="cyber-btn" title="Réinitialiser" style="height: 32px; border-color: var(--neon-pink); padding: 0 0.75rem; display: flex; align-items: center; justify-content: center; font-size: 0.75rem;">
+                        <i class="fa-solid fa-rotate-left" style="margin-right: 4px;"></i> RESET
+                    </button>
+                </div>
             </div>
             <div class="table-container">
                 <table class="cyber-table" id="terrain-table">
@@ -1127,6 +1164,9 @@
                     <tbody>
                         <!-- Inserted dynamically -->
                     </tbody>
+                    <tfoot id="terrain-table-foot" style="font-weight: bold; background: rgba(0, 212, 255, 0.05); border-top: 2px solid var(--neon-blue);">
+                        <!-- Inserted dynamically -->
+                    </tfoot>
                 </table>
             </div>
         </div>
@@ -1156,6 +1196,14 @@
                 
                 <button type="button" class="cyber-btn" id="focus-upload-btn" style="border-color: var(--neon-blue); height: 38px; padding: 0 1rem; font-size: 0.85rem;">
                     <i class="fa-solid fa-upload"></i> IMPORTER CLASSEMENT
+                </button>
+                
+                <button type="button" class="cyber-btn" id="focus-objectifs-upload-btn" style="border-color: var(--neon-pink); height: 38px; padding: 0 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-bullseye"></i> IMPORTER OBJECTIFS
+                </button>
+
+                <button type="button" class="cyber-btn" id="focus-objectifs-edit-btn" style="border-color: var(--neon-green); height: 38px; padding: 0 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-pen-to-square"></i> ÉDITER OBJECTIFS
                 </button>
             </div>
         </section>
@@ -1333,6 +1381,18 @@
                         <i class="fa-solid fa-xmark"></i> Effacer
                     </button>
                 </div>
+
+                <div class="form-group" style="margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 0.75rem;">
+                    <label class="tech-label" style="display: block; margin-bottom: 0.4rem; font-size: 0.75rem; color: var(--text-muted);"><i class="fa-solid fa-file-invoice"></i> Format du Rapport</label>
+                    <div style="display: flex; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px; gap: 4px;">
+                        <button type="button" class="report-format-btn active" data-format="complet" style="flex: 1; background: var(--bg-card); border: 1px solid var(--neon-blue); color: var(--text-main); font-family: var(--font-mono); font-size: 0.75rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                            <i class="fa-solid fa-file-lines" style="color: var(--neon-blue);"></i> Complet
+                        </button>
+                        <button type="button" class="report-format-btn" data-format="mini" style="flex: 1; background: transparent; border: 1px solid transparent; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.75rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                            <i class="fa-solid fa-compress"></i> Mini
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <!-- CELL 2 — Analysis toggles -->
@@ -1474,6 +1534,133 @@
             <!-- Content state -->
             <div id="report-content-wrapper" class="report-markdown-content" style="display:none; padding:0.5rem 1rem;">
                 <!-- Inserted dynamically -->
+            </div>
+
+            <!-- WhatsApp Mini Image Template (Only populated/shown in Mini mode) -->
+            <div id="whatsapp-mini-image-template" style="display:none; margin: 2rem auto; max-width: 750px; background: #ffffff; color: #1e293b; font-family: 'Outfit', 'Inter', sans-serif; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02); overflow: hidden;">
+                <!-- Header -->
+                <div style="background: linear-gradient(135deg, #f8fafc, #f1f5f9); padding: 1.75rem; text-align: center; border-bottom: 1px solid #e2e8f0; position: relative;">
+                    <div style="color: #2563eb; font-size: 1.05rem; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 0.35rem;"><i class="fa-solid fa-chart-line"></i> MADEC - SUIVI DE PERFORMANCE</div>
+                    <div id="wa-card-vendeur" style="font-size: 2.0rem; font-weight: 800; color: #0f172a;">AGENCE GLOBALE</div>
+                    <div id="wa-card-date" style="font-size: 1.1rem; color: #64748b; margin-top: 0.35rem; font-family: var(--font-mono);">Date: --/--/----</div>
+                </div>
+
+                <div style="padding: 1.75rem; display: flex; flex-direction: column; gap: 1.5rem;">
+                    <!-- 1. Quantitatif Section -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.4rem;">
+                        <h4 style="margin: 0 0 1rem 0; color: #2563eb; font-size: 1.2rem; text-transform: uppercase; border-bottom: 1px dashed #cbd5e1; padding-bottom: 0.5rem; display: flex; align-items: center; gap: 8px;">
+                             <i class="fa-solid fa-sack-dollar"></i> PERFORMANCE QUANTITATIVE (CA)
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.25rem;">
+                            <div style="background: #ffffff; border: 1px solid #f1f5f9; padding: 0.6rem; border-radius: 6px;">
+                                <div style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; white-space: nowrap;">CA Réalisé</div>
+                                <div id="wa-ca-real" style="font-size: 1.35rem; font-weight: bold; color: #10b981; font-family: var(--font-mono); margin-top: 4px;">0 DH</div>
+                            </div>
+                            <div style="background: #ffffff; border: 1px solid #f1f5f9; padding: 0.6rem; border-radius: 6px;">
+                                <div style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; white-space: nowrap;">Objectif</div>
+                                <div id="wa-ca-obj" style="font-size: 1.35rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono); margin-top: 4px;">0 DH</div>
+                            </div>
+                            <div style="background: #ffffff; border: 1px solid #f1f5f9; padding: 0.6rem; border-radius: 6px;">
+                                <div style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; white-space: nowrap;">Reste à Faire</div>
+                                <div id="wa-ca-raf" style="font-size: 1.35rem; font-weight: bold; color: #d97706; font-family: var(--font-mono); margin-top: 4px;">0 DH</div>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; justify-content: space-between; align-items: center; background: #eff6ff; padding: 0.85rem; border-radius: 6px; border: 1px solid #bfdbfe; margin-bottom: 1.25rem;">
+                            <span style="font-size: 1.05rem; font-weight: bold; color: #1e3a8a;">Taux de Réalisation</span>
+                            <span id="wa-ca-rate" style="font-size: 1.55rem; font-weight: 800; color: #2563eb; font-family: var(--font-mono);">0.0%</span>
+                        </div>
+
+                        <!-- Product Families Details -->
+                        <div style="margin-top: 1.25rem; border-top: 1px dashed #cbd5e1; padding-top: 1rem;">
+                            <div style="font-size: 0.9rem; color: #64748b; font-weight: bold; margin-bottom: 0.75rem; text-transform: uppercase;"><i class="fa-solid fa-tags"></i> Détail par Famille de Produits</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem; text-align: left;">
+                                <thead>
+                                    <tr style="color: #64748b; border-bottom: 1px solid #e2e8f0;">
+                                        <th style="padding: 6px 0;">Famille</th>
+                                        <th style="padding: 6px 0; text-align: right;">Réalisé</th>
+                                        <th style="padding: 6px 0; text-align: right;">Taux</th>
+                                        <th style="padding: 6px 0; text-align: right;">RAF</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="wa-families-tbody" style="color: #0f172a;">
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 2. Qualitatif Section -->
+                    <div style="background: #faf5ff; border: 1px solid #f3e8ff; border-radius: 8px; padding: 1.4rem;">
+                        <h4 style="margin: 0 0 1rem 0; color: #db2777; font-size: 1.2rem; text-transform: uppercase; border-bottom: 1px dashed #f5d0fe; padding-bottom: 0.5rem; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-chart-bar"></i> INDICATEURS QUALITATIFS
+                        </h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div style="background: #ffffff; border: 1px solid #f3e8ff; padding: 0.75rem; border-radius: 6px; display: flex; flex-direction: column; gap: 4px;">
+                                <span style="font-size: 0.9rem; color: #64748b; text-transform: uppercase;">ACM (Visites)</span>
+                                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                                    <span id="wa-quali-acm" style="font-size: 1.35rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0.0%</span>
+                                    <span style="font-size: 0.9rem; color: #64748b;">RAF: <span id="wa-quali-acm-raf" style="color: #0f172a; font-weight: bold;">0</span></span>
+                                </div>
+                            </div>
+                            <div style="background: #ffffff; border: 1px solid #f3e8ff; padding: 0.75rem; border-radius: 6px; display: flex; flex-direction: column; gap: 4px;">
+                                <span style="font-size: 0.9rem; color: #64748b; text-transform: uppercase;">TSM (Succès)</span>
+                                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                                    <span id="wa-quali-tsm" style="font-size: 1.35rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0.0%</span>
+                                    <span style="font-size: 0.9rem; color: #64748b;">RAF: <span id="wa-quali-tsm-raf" style="color: #0f172a; font-weight: bold;">0</span></span>
+                                </div>
+                            </div>
+                            <div style="background: #ffffff; border: 1px solid #f3e8ff; padding: 0.75rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 0.95rem; color: #64748b;">Prog. Clients</span>
+                                <span id="wa-quali-prog" style="font-size: 1.2rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0</span>
+                            </div>
+                            <div style="background: #ffffff; border: 1px solid #f3e8ff; padding: 0.75rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 0.95rem; color: #64748b;">Clt Facturés</span>
+                                <span id="wa-quali-fact" style="font-size: 1.2rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Focus Section -->
+                    <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 1.4rem;">
+                        <h4 style="margin: 0 0 1rem 0; color: #16a34a; font-size: 1.2rem; text-transform: uppercase; border-bottom: 1px dashed #bbf7d0; padding-bottom: 0.5rem; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-star"></i> PERFORMANCE D'ALIGNEMENT FOCUS
+                        </h4>
+                        
+                        <div style="margin-bottom: 1.25rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 1.05rem; margin-bottom: 0.35rem;">
+                                <span style="font-weight: bold; color: #2563eb;"><i class="fa-solid fa-ice-cream"></i> SOM (<span id="wa-focus-som-name">GLACE</span>)</span>
+                                <span id="wa-focus-som-pct" style="font-weight: bold; color: #0f172a; font-family: var(--font-mono); font-size: 1.2rem;">0.0%</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                                <span>Globale RAF: <span id="wa-focus-som-raf" style="color: #0f172a; font-weight: bold; font-family: var(--font-mono);">0 DH</span></span>
+                                <span>RAF/Jour: <span id="wa-focus-som-raf-jour" style="color: #0f172a; font-weight: bold; font-family: var(--font-mono);">0 DH/j</span></span>
+                            </div>
+                            <div style="height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                                <div id="wa-focus-som-bar" style="height: 100%; width: 0%; background: #2563eb; border-radius: 4px;"></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 1.05rem; margin-bottom: 0.35rem;">
+                                <span style="font-weight: bold; color: #db2777;"><i class="fa-solid fa-tomato"></i> VMM (<span id="wa-focus-vmm-name">TOMATE FRITO</span>)</span>
+                                <span id="wa-focus-vmm-pct" style="font-weight: bold; color: #0f172a; font-family: var(--font-mono); font-size: 1.2rem;">0.0%</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                                <span>Globale RAF: <span id="wa-focus-vmm-raf" style="color: #0f172a; font-weight: bold; font-family: var(--font-mono);">0</span></span>
+                                <span>RAF/Jour: <span id="wa-focus-vmm-raf-jour" style="color: #0f172a; font-weight: bold; font-family: var(--font-mono);">0/j</span></span>
+                            </div>
+                            <div style="height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                                <div id="wa-focus-vmm-bar" style="height: 100%; width: 0%; background: #db2777; border-radius: 4px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer logo/stamp -->
+                <div style="background: #f8fafc; padding: 1rem; text-align: center; font-size: 0.9rem; color: #94a3b8; border-top: 1px solid #e2e8f0; font-family: var(--font-mono);">
+                    Généré automatiquement par l'IA MADEC Dashboard 2027
+                </div>
             </div>
 
         </div><!-- /rp-result-panel -->
@@ -1684,6 +1871,202 @@
 
     </main>
 
+    <!-- ANOMALIS VIEW CONTAINER -->
+    <main class="dashboard-container" id="anomalis-container" style="{% if active_tab != 'anomalis' %}display: none;{% endif %}; position: relative; z-index: 10;">
+        <section class="summary-section" id="anomalis-summary-section">
+            <div class="summary-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 1rem;">
+                <div class="summary-title">
+                    <h2>SUIVI DES ANOMALIES</h2>
+                    <p class="summary-subtitle" style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono);">
+                        Gestion des retards, des rapports manquants et de la discipline
+                    </p>
+                </div>
+                <div>
+                    <button type="button" class="cyber-btn-submit" id="add-anomaly-btn" style="padding: 0.5rem 1.25rem;">
+                        <i class="fa-solid fa-plus-circle"></i> AJOUTER UNE ANOMALIE
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ANOMALIES TABLE -->
+        <section class="cyber-card table-card" id="anomalis-table-card" style="margin-top: 1.5rem;">
+            <div class="card-edge"></div>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <span class="tech-label">
+                    <i class="fa-solid fa-triangle-exclamation neon-text-pink"></i>
+                    LISTE DES ANOMALIES ENREGISTRÉES
+                </span>
+                <span class="badge-pink" id="anomalis-table-badge">0 anomalies</span>
+            </div>
+            
+            <!-- Dynamic Filters Row inside Table Card -->
+            <div class="anomalis-filters-row" style="display: flex; gap: 1rem; align-items: center; justify-content: flex-start; padding: 0.75rem 1.5rem; background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid var(--border-color); flex-wrap: wrap;">
+                
+                <!-- Search Bar -->
+                <div class="search-input-wrapper" style="position: relative; width: 220px; margin: 0;">
+                    <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.8rem;"></i>
+                    <input type="text" id="anomalis-search-input" placeholder="Recherche rapide..." autocomplete="off" style="font-size: 0.8rem; height: 32px; padding-left: 2.25rem; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-main); outline: none;">
+                </div>
+                
+                <!-- Vendeur Filter -->
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-user-tie"></i> VENDEUR :</span>
+                    <select id="anomalis-vendeur-filter" class="cyber-select" style="width: 160px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
+                        <option value="All">TOUS</option>
+                    </select>
+                </div>
+                
+                <!-- Type Filter -->
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-circle-info"></i> TYPE :</span>
+                    <select id="anomalis-type-filter" class="cyber-select" style="width: 130px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
+                        <option value="All">TOUS</option>
+                        <option value="Rapport">Rapport</option>
+                        <option value="Retard">Retard</option>
+                        <option value="Discipline">Décipline</option>
+                    </select>
+                </div>
+                
+                <!-- Tag Filter -->
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-tag"></i> TAG :</span>
+                    <select id="anomalis-tag-filter" class="cyber-select" style="width: 140px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
+                        <option value="All">TOUS</option>
+                        <option value="None">AUCUN TAG</option>
+                        <option value="Urgent">URGENT</option>
+                        <option value="A Suivre">A SUIVRE</option>
+                        <option value="Résolu">RÉSOLU</option>
+                        <option value="Justifié">JUSTIFIÉ</option>
+                        <option value="Non justifié">NON JUSTIFIÉ</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="table-container" style="max-height: 70vh;">
+                <table class="cyber-table" id="anomalis-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Vendeur</th>
+                            <th>Type d'anomalie</th>
+                            <th>Commentaire</th>
+                            <th>Tag</th>
+                            <th>Date d'enregistrement</th>
+                            <th style="width: 80px; text-align: center;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="anomalis-tbody">
+                        <!-- Injected dynamically -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- LOADING PLACEHOLDER -->
+        <div id="anomalis-loading" style="display: none; text-align: center; padding: 3rem 0;">
+            <div class="cyber-spinner" style="margin: 0 auto 1rem;"></div>
+            <span class="tech-label neon-text-blue">CHARGEMENT DES ANOMALIES...</span>
+        </div>
+
+        <!-- EMPTY STATE -->
+        <div id="anomalis-empty" style="display: none; text-align: center; padding: 3rem 0;">
+            <i class="fa-solid fa-clipboard-check" style="font-size: 3rem; color: var(--text-muted); margin-bottom: 1rem;"></i>
+            <h3 style="color: var(--text-main);">Aucune anomalie trouvée</h3>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">Tout est en ordre ! Cliquez sur le bouton ci-dessus pour en ajouter une.</p>
+        </div>
+    </main>
+
+    <!-- TASKS VIEW CONTAINER -->
+    <main class="dashboard-container" id="tasks-container" style="{% if active_tab != 'tasks' %}display: none;{% endif %}; position: relative; z-index: 10;">
+        <section class="summary-section" id="tasks-summary-section">
+            <div class="summary-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 1rem;">
+                <div class="summary-title">
+                    <h2>SUIVI DES TÂCHES</h2>
+                    <p class="summary-subtitle" style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono);">
+                        Création, assignation et suivi d'avancement des objectifs d'équipe
+                    </p>
+                </div>
+                <div>
+                    <button type="button" class="cyber-btn-submit" id="add-task-btn" style="padding: 0.5rem 1.25rem;">
+                        <i class="fa-solid fa-plus-circle"></i> CRÉER UNE TÂCHE
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- TASKS FILTERS CARD -->
+        <section class="cyber-card table-card" id="tasks-table-card" style="margin-top: 1.5rem;">
+            <div class="card-edge"></div>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <span class="tech-label">
+                    <i class="fa-solid fa-list-check neon-text-blue"></i>
+                    TABLEAU DE BORD DES TÂCHES
+                </span>
+                <span class="badge-blue" id="tasks-table-badge">0 tâches</span>
+            </div>
+            
+            <!-- Filters Row inside Table Card -->
+            <div class="anomalis-filters-row" style="display: flex; gap: 1rem; align-items: center; justify-content: flex-start; padding: 0.75rem 1.5rem; background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid var(--border-color); flex-wrap: wrap;">
+                
+                <!-- Search Bar -->
+                <div class="search-input-wrapper" style="position: relative; width: 200px; margin: 0;">
+                    <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.8rem;"></i>
+                    <input type="text" id="tasks-search-input" placeholder="Recherche rapide..." autocomplete="off" style="font-size: 0.8rem; height: 32px; padding-left: 2.25rem; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-main); outline: none;">
+                </div>
+                
+                <!-- Filter Type Assignee -->
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-user-gear"></i> ASSIGNATION :</span>
+                    <select id="tasks-assignee-filter" class="cyber-select" style="width: 140px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
+                        <option value="All">TOUS</option>
+                        <option value="Toute l'agence">TOUTE L'AGENCE</option>
+                    </select>
+                </div>
+                
+                <!-- Filter Priority -->
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-triangle-exclamation"></i> PRIORITÉ :</span>
+                    <select id="tasks-priority-filter" class="cyber-select" style="width: 140px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
+                        <option value="All">TOUTES</option>
+                        <option value="Urgent">URGENT</option>
+                        <option value="Important">IMPORTANT</option>
+                        <option value="Urgent et Important">URGENT & IMPORTANT</option>
+                    </select>
+                </div>
+                
+                <!-- Filter Status -->
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-spinner"></i> STATUT :</span>
+                    <select id="tasks-status-filter" class="cyber-select" style="width: 130px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
+                        <option value="All">TOUS</option>
+                        <option value="Start">À FAIRE (START)</option>
+                        <option value="In progress">EN COURS</option>
+                        <option value="Finish">TERMINÉ</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Task Cards Container Grid -->
+            <div id="tasks-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem; padding: 1.5rem; background: rgba(0,0,0,0.1);">
+                <!-- Injected dynamically -->
+            </div>
+        </section>
+
+        <!-- LOADING PLACEHOLDER -->
+        <div id="tasks-loading" style="display: none; text-align: center; padding: 3rem 0;">
+            <div class="cyber-spinner" style="margin: 0 auto 1rem;"></div>
+            <span class="tech-label neon-text-blue">CHARGEMENT DES TÂCHES...</span>
+        </div>
+
+        <!-- EMPTY STATE -->
+        <div id="tasks-empty" style="display: none; text-align: center; padding: 3rem 0;">
+            <i class="fa-solid fa-list-check" style="font-size: 3rem; color: var(--text-muted); margin-bottom: 1rem;"></i>
+            <h3 style="color: var(--text-main);">Aucune tâche enregistrée</h3>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">Cliquez sur le bouton ci-dessus pour planifier une tâche.</p>
+        </div>
+    </main>
+
     <!-- PDF Generation Overlay -->
     <div id="pdf-overlay" class="pdf-overlay" style="display:none;">
         <div class="pdf-overlay-card">
@@ -1781,6 +2164,138 @@
         </div> <!-- .main-content -->
 
     </div> <!-- .app-layout -->
+
+    <!-- ADD ANOMALY MODAL -->
+    <div class="modal-backdrop" id="anomaly-modal">
+        <div class="cyber-modal" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-triangle-exclamation neon-text-pink"></i> AJOUTER UNE ANOMALIE</h3>
+                <button class="close-btn" id="close-anomaly-modal-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="anomaly-form">
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label class="tech-label">VENDEUR</label>
+                        <select id="anomaly-vendeur-select" class="cyber-select" style="width: 100%; border-color: var(--neon-blue);" required>
+                            <option value="">Sélectionner un vendeur</option>
+                            <!-- Injected dynamically -->
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label class="tech-label">DATE DE L'ANOMALIE</label>
+                        <input type="date" id="anomaly-date-input" class="cyber-input" style="width: 100%; border-color: var(--neon-blue);" required>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label class="tech-label">TYPE D'ANOMALIE</label>
+                        <select id="anomaly-type-select" class="cyber-select" style="width: 100%; border-color: var(--neon-blue);" required>
+                            <option value="">Sélectionner le type</option>
+                            <option value="Rapport">Rapport</option>
+                            <option value="Retard">Retard</option>
+                            <option value="Discipline">Décipline</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label class="tech-label">COMMENTAIRE</label>
+                        <input type="text" id="anomaly-commentaire-input" class="cyber-input" style="width: 100%; border-color: var(--neon-blue);" placeholder="Commentaire optionnel">
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label class="tech-label">TAG DE L'ANOMALIE</label>
+                        <select id="anomaly-tag-select" class="cyber-select" style="width: 100%; border-color: var(--neon-blue);">
+                            <option value="">Aucun</option>
+                            <option value="Urgent">Urgent</option>
+                            <option value="A Suivre">A Suivre</option>
+                            <option value="Résolu">Résolu</option>
+                            <option value="Justifié">Justifié</option>
+                            <option value="Non justifié">Non justifié</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="cyber-btn-submit" id="anomaly-submit-btn" style="margin-top: 1rem; width: 100%;">
+                        <i class="fa-solid fa-plus-circle"></i> ENREGISTRER L'ANOMALIE
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- CREATE TASK MODAL -->
+    <div class="modal-backdrop" id="task-modal">
+        <div class="cyber-modal" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-list-check neon-text-blue"></i> CRÉER UNE NOUVELLE TÂCHE</h3>
+                <button class="close-btn" id="close-task-modal-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="task-form">
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label class="tech-label">TITRE DE LA TÂCHE</label>
+                        <input type="text" id="task-title-input" class="cyber-input" style="width: 100%; border-color: var(--neon-blue);" placeholder="Ex: Envoyer le rapport mensuel" required>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+                        <div class="form-group">
+                            <label class="tech-label">CRÉATEUR</label>
+                            <input type="text" id="task-creator-input" class="cyber-input" style="width: 100%; border-color: var(--border-color); background: rgba(0,0,0,0.3);" value="me" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label class="tech-label">DATE LIMITE</label>
+                            <input type="date" id="task-date-input" class="cyber-input" style="width: 100%; border-color: var(--neon-blue);" required>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+                        <div class="form-group">
+                            <label class="tech-label">ASSIGNATION À</label>
+                            <select id="task-assignee-type-select" class="cyber-select" style="width: 100%; border-color: var(--neon-blue);" required>
+                                <option value="all">Toute l'agence</option>
+                                <option value="team">Une équipe</option>
+                                <option value="vendeur">Un vendeur</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="task-assignee-val-group" style="display: none;">
+                            <label class="tech-label">CHOIX</label>
+                            <select id="task-assignee-select" class="cyber-select" style="width: 100%; border-color: var(--neon-blue);">
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label class="tech-label">PRIORITÉ</label>
+                        <select id="task-priority-select" class="cyber-select" style="width: 100%; border-color: var(--neon-blue);" required>
+                            <option value="Urgent">Urgent</option>
+                            <option value="Important">Important</option>
+                            <option value="Urgent et Important">Urgent & Important</option>
+                        </select>
+                    </div>
+
+                    <!-- Subtask Creator Builder -->
+                    <div class="form-group" style="margin-bottom: 1.25rem; border-top: 1px dashed var(--border-color); padding-top: 1rem;">
+                        <label class="tech-label">CHECKLIST DES SOUS-TÂCHES</label>
+                        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <input type="text" id="task-subtask-input" class="cyber-input" style="flex: 1; border-color: var(--neon-blue);" placeholder="Intitulé de la sous-tâche">
+                            <button type="button" id="task-add-subtask-btn" class="cyber-btn" style="border-color: var(--neon-blue); padding: 0 1rem; font-size: 0.8rem; height: 38px;">
+                                <i class="fa-solid fa-plus"></i> AJOUTER
+                            </button>
+                        </div>
+                        <div id="task-subtasks-preview-list" style="display: flex; flex-direction: column; gap: 0.25rem; max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 0.35rem; border-radius: 4px; border: 1px solid var(--border-color);">
+                            <span style="color: var(--text-muted); font-size: 0.72rem; font-style: italic; text-align: center; display: block; padding: 0.25rem 0;">Aucune sous-tâche ajoutée.</span>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="cyber-btn-submit" id="task-submit-btn" style="margin-top: 1rem; width: 100%;">
+                        <i class="fa-solid fa-plus-circle"></i> ENREGISTRER LA TÂCHE
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
 
     <!-- UPLOAD MODAL (MULTI-FILE) -->
     <div class="modal-backdrop" id="upload-modal">
@@ -2026,10 +2541,150 @@
                     </div>
                     <input type="file" id="focus-modal-file-input" style="display: none;" accept=".xlsx" />
                 </div>
+                
+                <!-- Sheet Mapping Section (initially hidden) -->
+                <div id="focus-sheet-mapping-section" style="display: none; margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                    <h4 style="margin-bottom: 1rem; color: var(--neon-blue); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
+                        <i class="fa-solid fa-map-location-dot"></i> Correspondance des Feuilles Excel
+                    </h4>
+                    
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label class="tech-label" style="display: block; margin-bottom: 0.3rem; font-size: 0.75rem;">
+                            <i class="fa-solid fa-users text-blue"></i> Vendeurs Focus SOM (<span class="som-focus-name">GLACE</span>)
+                        </label>
+                        <select id="focus-mapping-som-vendeurs" class="cyber-input" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);"></select>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label class="tech-label" style="display: block; margin-bottom: 0.3rem; font-size: 0.75rem;">
+                            <i class="fa-solid fa-user-shield text-blue"></i> CDZ Focus SOM (<span class="som-focus-name">GLACE</span>)
+                        </label>
+                        <select id="focus-mapping-som-cdz" class="cyber-input" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);"></select>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label class="tech-label" style="display: block; margin-bottom: 0.3rem; font-size: 0.75rem;">
+                            <i class="fa-solid fa-users text-pink"></i> Vendeurs Focus VMM (<span class="vmm-focus-name">TOMATE FRITO</span>)
+                        </label>
+                        <select id="focus-mapping-vmm-vendeurs" class="cyber-input" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);"></select>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label class="tech-label" style="display: block; margin-bottom: 0.3rem; font-size: 0.75rem;">
+                            <i class="fa-solid fa-user-shield text-pink"></i> CDZ Focus VMM (<span class="vmm-focus-name">TOMATE FRITO</span>)
+                        </label>
+                        <select id="focus-mapping-vmm-cdz" class="cyber-input" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);"></select>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
                 <button class="cyber-btn" id="cancel-focus-upload" style="border-color: var(--text-muted); color: var(--text-muted); padding: 0.5rem 1.25rem; font-size: 0.8rem;">ANNULER</button>
                 <button class="cyber-btn" id="submit-focus-upload" style="border-color: var(--neon-blue); color: var(--neon-blue); padding: 0.5rem 1.25rem; font-size: 0.8rem;"><i class="fa-solid fa-check"></i> CONFIRMER</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== FOCUS OBJECTIFS UPLOAD MODAL ===== -->
+    <div class="modal-backdrop" id="focus-objectifs-upload-modal">
+        <div class="cyber-modal" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-bullseye neon-text-pink"></i> IMPORTER OBJECTIFS FOCUS</h3>
+                <button class="close-btn" id="close-focus-objectifs-upload-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem;">
+                <div class="form-group">
+                    <label class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-upload"></i> FICHIER EXCEL (focus_obj.xlsx)</label>
+                    <div class="cyber-dropzone" id="focus-objectifs-dropzone">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                        <span class="dropzone-text">Glissez-déposez le fichier Excel ici ou cliquez pour choisir</span>
+                        <span class="dropzone-file-name" style="display: none; font-weight: bold; color: var(--neon-green);"></span>
+                    </div>
+                    <input type="file" id="focus-objectifs-modal-file-input" style="display: none;" accept=".xlsx" />
+                </div>
+                <div class="form-group" id="focus-objectifs-names-group" style="display: none; margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 1rem;">
+                    <label class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-pen-to-square"></i> MODIFIER LES NOMS DÉTECTÉS (OPTIONNEL)</label>
+                    <div style="display: flex; gap: 0.75rem;">
+                        <div style="flex: 1;">
+                            <label class="tech-label" style="font-size: 0.7rem; color: var(--neon-blue);">SOM (Glace)</label>
+                            <input type="text" id="focus-objectifs-som-name" class="cyber-input" style="width: 100%; font-family: var(--font-mono); box-sizing: border-box;" placeholder="SOM name" />
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="tech-label" style="font-size: 0.7rem; color: var(--neon-pink);">VMM (Tomate)</label>
+                            <input type="text" id="focus-objectifs-vmm-name" class="cyber-input" style="width: 100%; font-family: var(--font-mono); box-sizing: border-box;" placeholder="VMM name" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button class="cyber-btn" id="cancel-focus-objectifs-upload" style="border-color: var(--text-muted); color: var(--text-muted); padding: 0.5rem 1.25rem; font-size: 0.8rem;">ANNULER</button>
+                <button class="cyber-btn" id="submit-focus-objectifs-upload" style="border-color: var(--neon-pink); color: var(--neon-pink); padding: 0.5rem 1.25rem; font-size: 0.8rem;"><i class="fa-solid fa-check"></i> CONFIRMER</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== FOCUS OBJECTIFS EDIT MODAL ===== -->
+    <div class="modal-backdrop" id="focus-edit-objectifs-modal">
+        <div class="cyber-modal" style="max-width: 900px; width: 95%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-pen-to-square neon-text-green"></i> ÉDITER LES OBJECTIFS FOCUS</h3>
+                <button class="close-btn" id="close-focus-edit-objectifs-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem; max-height: 70vh; overflow-y: auto;">
+                <div class="channel-tabs" style="margin-bottom: 1rem; display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+                    <button class="tab-btn active" id="focus-edit-tab-som" style="background: transparent; border: none; color: var(--text-main); font-family: var(--font-mono); font-weight: bold; cursor: pointer; padding: 0.5rem 1rem; border-bottom: 3px solid var(--neon-blue);">
+                        OBJECTIFS SOM (<span class="som-focus-name">GLACE</span>)
+                    </button>
+                    <button class="tab-btn" id="focus-edit-tab-vmm" style="background: transparent; border: none; color: var(--text-muted); font-family: var(--font-mono); font-weight: bold; cursor: pointer; padding: 0.5rem 1rem; border-bottom: 3px solid transparent;">
+                        OBJECTIFS VMM (<span class="vmm-focus-name">TOMATE FRITO</span>)
+                    </button>
+                </div>
+
+                <!-- SOM Tab Table -->
+                <div id="focus-edit-som-container" style="display: block;">
+                    <button type="button" class="cyber-btn" id="focus-edit-add-row-som" style="border-color: var(--neon-blue); margin-bottom: 1rem; font-size: 0.8rem; padding: 0.25rem 0.75rem;">
+                        <i class="fa-solid fa-plus"></i> AJOUTER VENDEUR
+                    </button>
+                    <div style="overflow-x: auto;">
+                        <table class="cyber-table" style="width: 100%; border-collapse: collapse; min-width: 600px;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align: left; padding: 0.5rem;">Vendeur (Nom ou Code Vendeur)</th>
+                                    <th style="text-align: left; padding: 0.5rem;">Secteur</th>
+                                    <th style="text-align: right; padding: 0.5rem; width: 120px;">Glace HT</th>
+                                    <th style="text-align: right; padding: 0.5rem; width: 120px;">TTC</th>
+                                    <th style="text-align: center; padding: 0.5rem; width: 60px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="focus-edit-som-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- VMM Tab Table -->
+                <div id="focus-edit-vmm-container" style="display: none;">
+                    <button type="button" class="cyber-btn" id="focus-edit-add-row-vmm" style="border-color: var(--neon-pink); margin-bottom: 1rem; font-size: 0.8rem; padding: 0.25rem 0.75rem;">
+                        <i class="fa-solid fa-plus"></i> AJOUTER VENDEUR
+                    </button>
+                    <div style="overflow-x: auto;">
+                        <table class="cyber-table" style="width: 100%; border-collapse: collapse; min-width: 700px;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align: left; padding: 0.5rem;">Vendeur (Nom ou Code Vendeur)</th>
+                                    <th style="text-align: left; padding: 0.5rem;">Secteur</th>
+                                    <th style="text-align: right; padding: 0.5rem; width: 100px;">Nb Clients</th>
+                                    <th style="text-align: right; padding: 0.5rem; width: 110px;">Obj ACM</th>
+                                    <th style="text-align: right; padding: 0.5rem; width: 110px;">Obj Juin</th>
+                                    <th style="text-align: center; padding: 0.5rem; width: 60px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="focus-edit-vmm-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button class="cyber-btn" id="cancel-focus-edit-objectifs" style="border-color: var(--text-muted); color: var(--text-muted); padding: 0.5rem 1.25rem; font-size: 0.8rem;">ANNULER</button>
+                <button class="cyber-btn" id="submit-focus-edit-objectifs" style="border-color: var(--neon-green); color: var(--neon-green); padding: 0.5rem 1.25rem; font-size: 0.8rem;"><i class="fa-solid fa-save"></i> SAUVEGARDER</button>
             </div>
         </div>
     </div>
@@ -2224,11 +2879,11 @@
 
 
     <!-- Custom Script JS -->
-    <script src="/static/js/dashboard.js?v=3.8"></script>
+    <script src="/static/js/dashboard.js?v=4.0"></script>
     <script src="/static/js/fdv.js?v=1.0"></script>
     <script src="/static/js/bg-anim.js?v=1.0"></script>
-    <script src="/static/js/terrain.js?v=1.0"></script>
-    <script src="/static/js/focus.js?v=1.0"></script>
+    <script src="/static/js/terrain.js?v=1.1"></script>
+    <script src="/static/js/focus.js?v=1.4"></script>
     <script src="/static/js/stock.js?v=1.1"></script>
 </body>
 </html>

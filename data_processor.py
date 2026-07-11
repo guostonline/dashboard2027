@@ -198,32 +198,40 @@ def calculate_calendar_workdays(date_str=None):
     import datetime
     import calendar
     
+    today = datetime.date.today()
+    
     if date_str:
         try:
-            dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
         except Exception:
-            dt = datetime.datetime.now()
+            dt = today
     else:
-        dt = datetime.datetime.now()
+        dt = today
         
     year = dt.year
     month = dt.month
-    day = dt.day
     
     _, total_days_in_month = calendar.monthrange(year, month)
     
-    elapsed_workdays = 0
+    # Total workdays in month (excluding Sundays)
+    total_workdays = 0
     for d in range(1, total_days_in_month + 1):
         curr_date = datetime.date(year, month, d)
-        is_sunday = (curr_date.weekday() == 6)
-        is_last_day = (d == total_days_in_month)
-        
-        is_workday = (not is_sunday) and (not is_last_day)
-        if is_workday and d < day:
-            elapsed_workdays += 1
+        if curr_date.weekday() != 6:
+            total_workdays += 1
             
-    total_workdays = 24
-    elapsed_workdays = min(24, elapsed_workdays)
+    # Elapsed workdays (before today if current month, or all/none if past/future)
+    if today.year > year or (today.year == year and today.month > month):
+        elapsed_workdays = total_workdays
+    elif today.year < year or (today.year == year and today.month < month):
+        elapsed_workdays = 0
+    else:
+        elapsed_workdays = 0
+        for d in range(1, today.day):
+            curr_date = datetime.date(year, month, d)
+            if curr_date.weekday() != 6:
+                elapsed_workdays += 1
+                
     remaining_workdays = max(0, total_workdays - elapsed_workdays)
     return {
         "total": total_workdays,
@@ -323,12 +331,6 @@ class ExcelProcessor:
             sheet_ranges_quali['G1'] = "TSM"
             sheet_ranges_quali['H1'] = "RAF TSM"
             sheet_ranges_quali['I1'] = "RAF ACM"
-            
-            # Set specific names if rows match
-            if sheet_ranges_quali.max_row >= 23:
-                sheet_ranges_quali['A23'] = "CHAKIB ELFIL"
-            if sheet_ranges_quali.max_row >= 12:
-                sheet_ranges_quali['A12'] = "BOUTMEZGUINE EL MOSTAFA"
 
             # Compute RAF TSM = (B_val - B_val * TSM_val) / rest_days (if numeric)
             for row in range(2, sheet_ranges_quali.max_row + 1):
@@ -403,11 +405,6 @@ class ExcelProcessor:
             sheet_ranges_quanti['I1'] = "EnCours"
             sheet_ranges_quanti['J1'] = "OBJ MOIS"
             sheet_ranges_quanti['K1'] = "RAF"
-            
-            if sheet_ranges_quanti.max_row >= 21:
-                sheet_ranges_quanti['K21'] = "CHAKIB ELFIL"
-            if sheet_ranges_quanti.max_row >= 10:
-                sheet_ranges_quanti['K10'] = "BOUTMEZGUINE EL MOSTAFA"
 
             # 1. Clean Percent column and replace 'SAUCES TACOS' with 'SAUCES'
             for i in range(1, sheet_ranges_quanti.max_row + 1):
@@ -480,11 +477,14 @@ class ExcelProcessor:
                     if obj_mois_val is not None and real_val is not None:
                         obj_mois_num = float(obj_mois_val)
                         real_num = float(real_val)
-                        sheet_ranges_quanti[f"K{row}"].value = (obj_mois_num - real_num) / jour_rest
+                        if jour_rest > 0:
+                            sheet_ranges_quanti[f"K{row}"].value = max(0.0, (obj_mois_num - real_num) / jour_rest)
+                        else:
+                            sheet_ranges_quanti[f"K{row}"].value = 0.0
                     else:
-                        sheet_ranges_quanti[f"K{row}"].value = None
+                        sheet_ranges_quanti[f"K{row}"].value = 0.0
                 except Exception:
-                    sheet_ranges_quanti[f"K{row}"].value = None
+                    sheet_ranges_quanti[f"K{row}"].value = 0.0
 
             # 6. Convert columns to integers where appropriate
             for row in range(2, sheet_ranges_quanti.max_row + 1):
@@ -709,7 +709,28 @@ class ExcelProcessor:
                     raw_h_2024 = float(row.get("H 2024", 0)) if pd.notna(row.get("H 2024")) else 0.0
                     raw_encours = float(row.get("EnCours", 0)) if pd.notna(row.get("EnCours")) else 0.0
                     raw_obj_mois = float(row.get("OBJ MOIS", 0)) if pd.notna(row.get("OBJ MOIS")) else 0.0
-                    raw_raf = float(row.get("RAF", 0)) if pd.notna(row.get("RAF")) else 0.0
+                    # Look up RAF column with support for "RAF TTC" (pre-tax-converted) and "RAF" (HT)
+                    raw_raf = 0.0
+                    is_already_ttc = False
+                    
+                    # 1. Check for explicit RAF TTC headers
+                    for k in ["RAF TTC", "raf ttc", "RAF_TTC"]:
+                        # Perform case-insensitive header lookup if not exact
+                        matching_col = next((c for c in row.index if str(c).strip().upper() == k), None)
+                        if matching_col and pd.notna(row.get(matching_col)):
+                            raw_raf = float(row.get(matching_col))
+                            is_already_ttc = True
+                            break
+                            
+                    # 2. Check for standard RAF headers
+                    if not is_already_ttc:
+                        for k in ["RAF", "raf"]:
+                            matching_col = next((c for c in row.index if str(c).strip().upper() == k), None)
+                            if matching_col and pd.notna(row.get(matching_col)):
+                                raw_raf = float(row.get(matching_col))
+                                break
+                    
+                    raf_ttc_val = raw_raf if is_already_ttc else raw_raf * 1.2
 
                     quanti_records.append({
                         "vendeur": str(row.get("Vendeur", "")).strip(),
@@ -722,7 +743,7 @@ class ExcelProcessor:
                         "h_pct": float(row.get("H %", 0)) if pd.notna(row.get("H %")) and not isinstance(row.get("H %"), str) else 0.0,
                         "encours": int(round(raw_encours * 1.2)),
                         "obj_mois": int(round(raw_obj_mois * 1.2)),
-                        "raf": int(round(raw_raf * 1.2))
+                        "raf": int(round(raf_ttc_val))
                     })
                 except Exception as ex:
                     print(f"Error parsing row: {row}. Error: {ex}")

@@ -1,7 +1,8 @@
 {
     "rest_days": 20,
     "exclude_families": [],
-    "theme": "theme-3",
+    "theme": "theme-1",
     "light_mode": true,
-    "excluded_dates": []
+    "excluded_dates": [],
+    "google_sheet_url": "https://docs.google.com/spreadsheets/d/13QZ8U40aUS74DkgJtJeS5RuyhVn1g9mlhsv6tqsbxa8"
 }

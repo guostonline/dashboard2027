@@ -11,6 +11,8 @@
     let selectedVendeurFilter = '';
     let selectedCdzFilter = '';
     let selectedUploadFile = null;
+    let selectedObjectivesUploadFile = null;
+    let focusNames = {"GLACE": "GLACE", "TOMATE_FRITO": "TOMATE FRITO"};
     let focusWorkdays = null;
     let focusSettings = null;
     let focusTotalDays = 24;
@@ -144,6 +146,93 @@
             }
         }
 
+        // Bind Focus Objectives upload modal triggers
+        const objectivesUploadBtn = document.getElementById('focus-objectifs-upload-btn');
+        const objectivesUploadModal = document.getElementById('focus-objectifs-upload-modal');
+        const closeObjectivesModalBtn = document.getElementById('close-focus-objectifs-upload-modal');
+        const cancelObjectivesModalBtn = document.getElementById('cancel-focus-objectifs-upload');
+        const submitObjectivesModalBtn = document.getElementById('submit-focus-objectifs-upload');
+        const objectivesFileInput = document.getElementById('focus-objectifs-modal-file-input');
+        const objectivesDropzone = document.getElementById('focus-objectifs-dropzone');
+
+        if (objectivesUploadBtn && objectivesUploadModal) {
+            // Open modal
+            objectivesUploadBtn.addEventListener('click', function () {
+                objectivesUploadModal.classList.add('open');
+                selectedObjectivesUploadFile = null;
+                resetObjectivesUploadModalState();
+            });
+
+            // Close modal functions
+            const closeObjectivesModal = function () {
+                objectivesUploadModal.classList.remove('open');
+                selectedObjectivesUploadFile = null;
+                resetObjectivesUploadModalState();
+            };
+
+            if (closeObjectivesModalBtn) closeObjectivesModalBtn.addEventListener('click', closeObjectivesModal);
+            if (cancelObjectivesModalBtn) cancelObjectivesModalBtn.addEventListener('click', closeObjectivesModal);
+            
+            // Clicking backdrop closes modal
+            objectivesUploadModal.addEventListener('click', function (e) {
+                if (e.target === objectivesUploadModal) {
+                    closeObjectivesModal();
+                }
+            });
+
+            // Drag and Drop handlers for objectives
+            if (objectivesDropzone && objectivesFileInput) {
+                objectivesDropzone.addEventListener('click', function () {
+                    objectivesFileInput.click();
+                });
+
+                objectivesFileInput.addEventListener('change', function () {
+                    if (objectivesFileInput.files.length > 0) {
+                        selectObjectivesUploadFileFunc(objectivesFileInput.files[0]);
+                    }
+                });
+
+                ['dragenter', 'dragover'].forEach(eventName => {
+                    objectivesDropzone.addEventListener(eventName, function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        objectivesDropzone.classList.add('dragover');
+                    }, false);
+                });
+
+                ['dragleave', 'drop'].forEach(eventName => {
+                    objectivesDropzone.addEventListener(eventName, function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        objectivesDropzone.classList.remove('dragover');
+                    }, false);
+                });
+
+                objectivesDropzone.addEventListener('drop', function (e) {
+                    const dt = e.dataTransfer;
+                    const files = dt.files;
+                    if (files.length > 0) {
+                        selectObjectivesUploadFileFunc(files[0]);
+                    }
+                }, false);
+            }
+
+            // Confirm objectives upload
+            if (submitObjectivesModalBtn) {
+                submitObjectivesModalBtn.addEventListener('click', function () {
+                    if (!selectedObjectivesUploadFile) {
+                        if (window.showToast) {
+                            window.showToast("Veuillez sélectionner ou glisser un fichier Excel d'objectifs.", "error");
+                        } else {
+                            alert("Veuillez sélectionner un fichier Excel d'objectifs.");
+                        }
+                        return;
+                    }
+                    handleObjectivesUpload(selectedObjectivesUploadFile, closeObjectivesModal);
+                });
+            }
+        }
+
         // 3. Bind Vendeur filter select dropdown
         const vendeurFilter = document.getElementById('focus-vendeur-filter');
         if (vendeurFilter) {
@@ -169,9 +258,285 @@
             });
         }
 
+        // 5. Bind Objectives Edit Modal Triggers
+        const editBtn = document.getElementById('focus-objectifs-edit-btn');
+        const editModal = document.getElementById('focus-edit-objectifs-modal');
+        const closeEditModalBtn = document.getElementById('close-focus-edit-objectifs-modal');
+        const cancelEditModalBtn = document.getElementById('cancel-focus-edit-objectifs');
+        const submitEditModalBtn = document.getElementById('submit-focus-edit-objectifs');
+        
+        if (editBtn && editModal) {
+            editBtn.addEventListener('click', function () {
+                openObjectivesEditor();
+            });
+            
+            const closeEditModal = function () {
+                editModal.classList.remove('open');
+            };
+            
+            if (closeEditModalBtn) closeEditModalBtn.addEventListener('click', closeEditModal);
+            if (cancelEditModalBtn) cancelEditModalBtn.addEventListener('click', closeEditModal);
+            
+            editModal.addEventListener('click', function (e) {
+                if (e.target === editModal) {
+                    closeEditModal();
+                }
+            });
+            
+            // Tab switches inside editor
+            const editTabSom = document.getElementById('focus-edit-tab-som');
+            const editTabVmm = document.getElementById('focus-edit-tab-vmm');
+            const somContainer = document.getElementById('focus-edit-som-container');
+            const vmmContainer = document.getElementById('focus-edit-vmm-container');
+            
+            if (editTabSom && editTabVmm && somContainer && vmmContainer) {
+                editTabSom.addEventListener('click', function () {
+                    editTabSom.classList.add('active');
+                    editTabSom.style.borderBottom = '3px solid var(--neon-blue)';
+                    editTabSom.style.color = 'var(--text-main)';
+                    editTabVmm.classList.remove('active');
+                    editTabVmm.style.borderBottom = '3px solid transparent';
+                    editTabVmm.style.color = 'var(--text-muted)';
+                    somContainer.style.display = 'block';
+                    vmmContainer.style.display = 'none';
+                });
+                editTabVmm.addEventListener('click', function () {
+                    editTabVmm.classList.add('active');
+                    editTabVmm.style.borderBottom = '3px solid var(--neon-pink)';
+                    editTabVmm.style.color = 'var(--text-main)';
+                    editTabSom.classList.remove('active');
+                    editTabSom.style.borderBottom = '3px solid transparent';
+                    editTabSom.style.color = 'var(--text-muted)';
+                    vmmContainer.style.display = 'block';
+                    somContainer.style.display = 'none';
+                });
+            }
+            
+            // Add row triggers
+            const addRowSomBtn = document.getElementById('focus-edit-add-row-som');
+            const addRowVmmBtn = document.getElementById('focus-edit-add-row-vmm');
+            
+            if (addRowSomBtn) {
+                addRowSomBtn.addEventListener('click', function () {
+                    addObjectiveRow('GLACE');
+                });
+            }
+            if (addRowVmmBtn) {
+                addRowVmmBtn.addEventListener('click', function () {
+                    addObjectiveRow('TOMATE_FRITO');
+                });
+            }
+            
+            // Submit trigger
+            if (submitEditModalBtn) {
+                submitEditModalBtn.addEventListener('click', function () {
+                    saveObjectives(closeEditModal);
+                });
+            }
+        }
+
         // 4. Load initial rankings and historical trend data
         loadFocusData();
         loadFocusTrendData();
+    }
+
+    function openObjectivesEditor() {
+        const editModal = document.getElementById('focus-edit-objectifs-modal');
+        if (!editModal) return;
+        
+        const somNameEls = editModal.querySelectorAll('.som-focus-name');
+        const vmmNameEls = editModal.querySelectorAll('.vmm-focus-name');
+        
+        const somName = focusNames.GLACE || "GLACE";
+        const vmmName = focusNames.TOMATE_FRITO || "TOMATE FRITO";
+        
+        somNameEls.forEach(el => el.innerText = somName);
+        vmmNameEls.forEach(el => el.innerText = vmmName);
+        
+        fetch('/api/focus/objectives')
+        .then(response => response.json())
+        .then(res => {
+            if (res.status === 'success') {
+                populateEditTables(res.objectives);
+                editModal.classList.add('open');
+            } else {
+                if (window.showToast) {
+                    window.showToast("Erreur lors de la récupération des objectifs.", "error");
+                }
+            }
+        })
+        .catch(err => {
+            console.error("Fetch objectives failed:", err);
+        });
+    }
+
+    function populateEditTables(objectives) {
+        const somTbody = document.getElementById('focus-edit-som-tbody');
+        const vmmTbody = document.getElementById('focus-edit-vmm-tbody');
+        
+        if (somTbody) somTbody.innerHTML = '';
+        if (vmmTbody) vmmTbody.innerHTML = '';
+        
+        objectives.forEach(obj => {
+            const tr = document.createElement('tr');
+            const focusType = obj.focus_type;
+            const rowHtml = createEditRowHtml(focusType, obj);
+            tr.innerHTML = rowHtml;
+            
+            tr.querySelector('.edit-delete-row')?.addEventListener('click', function () {
+                tr.remove();
+            });
+            
+            if (focusType === 'GLACE') {
+                if (somTbody) somTbody.appendChild(tr);
+            } else {
+                if (vmmTbody) vmmTbody.appendChild(tr);
+            }
+        });
+    }
+
+    function createEditRowHtml(focusType, obj = {}) {
+        const vendeur = obj.vendeur || '';
+        const secteur = obj.secteur || '';
+        if (focusType === 'GLACE') {
+            const glace_ht = obj.glace_ht || 0;
+            const ttc = obj.ttc || 0;
+            return `
+                <td style="padding: 0.5rem;"><input type="text" class="cyber-input edit-vendeur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${vendeur}" placeholder="ex: 03 ALAMI" required /></td>
+                <td style="padding: 0.5rem;"><input type="text" class="cyber-input edit-secteur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${secteur}" placeholder="ex: SECTEUR 1" required /></td>
+                <td style="padding: 0.5rem;"><input type="number" step="any" class="cyber-input edit-glace-ht" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${glace_ht}" /></td>
+                <td style="padding: 0.5rem;"><input type="number" step="any" class="cyber-input edit-ttc" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${ttc}" /></td>
+                <td style="padding: 0.5rem; text-align: center;"><button type="button" class="cyber-btn edit-delete-row" style="border-color: var(--neon-red); color: var(--neon-red); padding: 0.2rem 0.5rem;"><i class="fa-solid fa-trash"></i></button></td>
+            `;
+        } else {
+            const number_client = obj.number_client || 0;
+            const obj_acm = obj.obj_acm || 0;
+            const obj_juin = obj.obj_juin || 0;
+            return `
+                <td style="padding: 0.5rem;"><input type="text" class="cyber-input edit-vendeur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${vendeur}" placeholder="ex: 03 ALAMI" required /></td>
+                <td style="padding: 0.5rem;"><input type="text" class="cyber-input edit-secteur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${secteur}" placeholder="ex: SECTEUR 1" required /></td>
+                <td style="padding: 0.5rem;"><input type="number" step="any" class="cyber-input edit-nb-clients" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${number_client}" /></td>
+                <td style="padding: 0.5rem;"><input type="number" step="any" class="cyber-input edit-obj-acm" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${obj_acm}" /></td>
+                <td style="padding: 0.5rem;"><input type="number" step="any" class="cyber-input edit-obj-juin" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${obj_juin}" /></td>
+                <td style="padding: 0.5rem; text-align: center;"><button type="button" class="cyber-btn edit-delete-row" style="border-color: var(--neon-red); color: var(--neon-red); padding: 0.2rem 0.5rem;"><i class="fa-solid fa-trash"></i></button></td>
+            `;
+        }
+    }
+
+    function addObjectiveRow(focusType) {
+        const tbodyId = focusType === 'GLACE' ? 'focus-edit-som-tbody' : 'focus-edit-vmm-tbody';
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        
+        const tr = document.createElement('tr');
+        tr.innerHTML = createEditRowHtml(focusType);
+        
+        tr.querySelector('.edit-delete-row')?.addEventListener('click', function () {
+            tr.remove();
+        });
+        
+        tbody.appendChild(tr);
+        const modalBody = tbody.closest('.modal-body');
+        if (modalBody) {
+            modalBody.scrollTop = modalBody.scrollHeight;
+        }
+    }
+
+    function saveObjectives(callback) {
+        const somTbody = document.getElementById('focus-edit-som-tbody');
+        const vmmTbody = document.getElementById('focus-edit-vmm-tbody');
+        const submitBtn = document.getElementById('submit-focus-edit-objectifs');
+        
+        const objectives = [];
+        let isValid = true;
+        
+        const collectRows = function (tbody, focusType) {
+            if (!tbody) return;
+            const rows = tbody.querySelectorAll('tr');
+            rows.forEach(row => {
+                const vendeur = row.querySelector('.edit-vendeur')?.value.trim();
+                const secteur = row.querySelector('.edit-secteur')?.value.trim();
+                
+                if (!vendeur || !secteur) {
+                    isValid = false;
+                    row.querySelector('.edit-vendeur')?.classList.add('error');
+                    row.querySelector('.edit-secteur')?.classList.add('error');
+                    return;
+                }
+                
+                if (focusType === 'GLACE') {
+                    const glace_ht = parseFloat(row.querySelector('.edit-glace-ht')?.value || '0');
+                    const ttc = parseFloat(row.querySelector('.edit-ttc')?.value || '0');
+                    objectives.push({
+                        focus_type: 'GLACE',
+                        vendeur: vendeur,
+                        secteur: secteur,
+                        glace_ht: glace_ht,
+                        ttc: ttc
+                    });
+                } else {
+                    const number_client = parseInt(row.querySelector('.edit-nb-clients')?.value || '0');
+                    const obj_acm = parseFloat(row.querySelector('.edit-obj-acm')?.value || '0');
+                    const obj_juin = parseFloat(row.querySelector('.edit-obj-juin')?.value || '0');
+                    objectives.push({
+                        focus_type: 'TOMATE_FRITO',
+                        vendeur: vendeur,
+                        secteur: secteur,
+                        number_client: number_client,
+                        obj_acm: obj_acm,
+                        obj_juin: obj_juin
+                    });
+                }
+            });
+        };
+        
+        collectRows(somTbody, 'GLACE');
+        collectRows(vmmTbody, 'TOMATE_FRITO');
+        
+        if (!isValid) {
+            if (window.showToast) {
+                window.showToast("Veuillez remplir le nom du vendeur et le secteur pour toutes les lignes.", "error");
+            }
+            return;
+        }
+        
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ENREGISTREMENT...';
+        }
+        
+        fetch('/api/focus/objectives/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ objectives: objectives })
+        })
+        .then(response => response.json())
+        .then(res => {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-save"></i> SAUVEGARDER';
+            }
+            if (res.status === 'success') {
+                if (window.showToast) {
+                    window.showToast(res.message, "success");
+                }
+                if (callback) callback();
+                loadFocusData();
+            } else {
+                if (window.showToast) {
+                    window.showToast(res.message || "Erreur lors de l'enregistrement.", "error");
+                }
+            }
+        })
+        .catch(err => {
+            console.error("Save objectives failed:", err);
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-save"></i> SAUVEGARDER';
+            }
+        });
     }
 
     function resetUploadModalState() {
@@ -179,6 +544,7 @@
         const dropzone = document.getElementById('focus-dropzone');
         const fileInput = document.getElementById('focus-modal-file-input');
         const submitModalBtn = document.getElementById('submit-focus-upload');
+        const mappingSection = document.getElementById('focus-sheet-mapping-section');
         
         if (submitModalBtn) {
             submitModalBtn.disabled = false;
@@ -186,6 +552,12 @@
         }
         
         if (fileInput) fileInput.value = '';
+        if (mappingSection) {
+            mappingSection.style.display = 'none';
+            const mappingSelects = mappingSection.querySelectorAll('select');
+            mappingSelects.forEach(select => select.innerHTML = '');
+        }
+        
         if (dropzone) {
             const textEl = dropzone.querySelector('.dropzone-text');
             const fileEl = dropzone.querySelector('.dropzone-file-name');
@@ -225,6 +597,98 @@
                 iconEl.className = 'fa-solid fa-file-excel neon-text-green';
             }
         }
+        
+        inspectExcelFile(file);
+    }
+
+    function inspectExcelFile(file) {
+        const mappingSection = document.getElementById('focus-sheet-mapping-section');
+        const submitModalBtn = document.getElementById('submit-focus-upload');
+        if (!mappingSection) return;
+        
+        if (submitModalBtn) {
+            submitModalBtn.disabled = true;
+            submitModalBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> INSPECTION DU FICHIER...';
+        }
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        fetch('/api/focus/inspect', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(res => {
+            if (submitModalBtn) {
+                submitModalBtn.disabled = false;
+                submitModalBtn.innerHTML = '<i class="fa-solid fa-check"></i> CONFIRMER';
+            }
+            if (res.status === 'success') {
+                populateSheetMappings(res.sheets, res.focus_names);
+                mappingSection.style.display = 'block';
+            } else {
+                if (window.showToast) {
+                    window.showToast(res.message || "Impossible d'analyser le fichier.", "error");
+                }
+            }
+        })
+        .catch(err => {
+            console.error("Inspect failed:", err);
+            if (submitModalBtn) {
+                submitModalBtn.disabled = false;
+                submitModalBtn.innerHTML = '<i class="fa-solid fa-check"></i> CONFIRMER';
+            }
+        });
+    }
+
+    function populateSheetMappings(sheets, names) {
+        const somNameEls = document.querySelectorAll('.som-focus-name');
+        const vmmNameEls = document.querySelectorAll('.vmm-focus-name');
+        
+        const somName = names.GLACE || "GLACE";
+        const vmmName = names.TOMATE_FRITO || "TOMATE FRITO";
+        
+        somNameEls.forEach(el => el.innerText = somName);
+        vmmNameEls.forEach(el => el.innerText = vmmName);
+        
+        const somVendeursSelect = document.getElementById('focus-mapping-som-vendeurs');
+        const somCdzSelect = document.getElementById('focus-mapping-som-cdz');
+        const vmmVendeursSelect = document.getElementById('focus-mapping-vmm-vendeurs');
+        const vmmCdzSelect = document.getElementById('focus-mapping-vmm-cdz');
+        
+        const selects = [somVendeursSelect, somCdzSelect, vmmVendeursSelect, vmmCdzSelect];
+        
+        selects.forEach(select => {
+            if (!select) return;
+            select.innerHTML = '<option value="none">-- Ignorer cette feuille --</option>';
+            sheets.forEach(sheet => {
+                const opt = document.createElement('option');
+                opt.value = sheet;
+                opt.innerText = sheet;
+                select.appendChild(opt);
+            });
+        });
+        
+        const somUpper = somName.toUpperCase();
+        const vmmUpper = vmmName.toUpperCase();
+        
+        sheets.forEach(sheet => {
+            const su = sheet.toUpperCase();
+            
+            if (su.includes('DET') && (su.includes('SOM') || su.includes(somUpper) || su.includes('GLACE'))) {
+                if (somVendeursSelect) somVendeursSelect.value = sheet;
+            }
+            else if (su.includes('CDZ') && (su.includes('SOM') || su.includes(somUpper) || su.includes('GLACE'))) {
+                if (somCdzSelect) somCdzSelect.value = sheet;
+            }
+            else if (su.includes('DET') && (su.includes('VMM') || su.includes(vmmUpper) || su.includes('TOMATE'))) {
+                if (vmmVendeursSelect) vmmVendeursSelect.value = sheet;
+            }
+            else if (su.includes('CDZ') && (su.includes('VMM') || su.includes(vmmUpper) || su.includes('TOMATE'))) {
+                if (vmmCdzSelect) vmmCdzSelect.value = sheet;
+            }
+        });
     }
 
     function switchTab(type) {
@@ -264,9 +728,18 @@
             submitModalBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> IMPORTATION...';
         }
 
+        const somVendeurs = document.getElementById('focus-mapping-som-vendeurs')?.value || '';
+        const somCdz = document.getElementById('focus-mapping-som-cdz')?.value || '';
+        const vmmVendeurs = document.getElementById('focus-mapping-vmm-vendeurs')?.value || '';
+        const vmmCdz = document.getElementById('focus-mapping-vmm-cdz')?.value || '';
+
         const formData = new FormData();
         formData.append('file', file);
         formData.append('date', dateStr);
+        formData.append('som_vendeurs_sheet', somVendeurs);
+        formData.append('som_cdz_sheet', somCdz);
+        formData.append('vmm_vendeurs_sheet', vmmVendeurs);
+        formData.append('vmm_cdz_sheet', vmmCdz);
 
         fetch('/api/focus/upload', {
             method: 'POST',
@@ -279,7 +752,6 @@
                     window.showToast(res.message, "success");
                 }
                 if (callback) callback();
-                // Reload data and historical trend
                 loadFocusData();
                 loadFocusTrendData();
             } else {
@@ -304,6 +776,157 @@
         });
     }
 
+    function resetObjectivesUploadModalState() {
+        selectedObjectivesUploadFile = null;
+        const dropzone = document.getElementById('focus-objectifs-dropzone');
+        const fileInput = document.getElementById('focus-objectifs-modal-file-input');
+        const submitModalBtn = document.getElementById('submit-focus-objectifs-upload');
+        const namesGroup = document.getElementById('focus-objectifs-names-group');
+        const somNameInput = document.getElementById('focus-objectifs-som-name');
+        const vmmNameInput = document.getElementById('focus-objectifs-vmm-name');
+        
+        if (submitModalBtn) {
+            submitModalBtn.disabled = false;
+            submitModalBtn.innerHTML = '<i class="fa-solid fa-check"></i> CONFIRMER';
+        }
+        
+        if (fileInput) fileInput.value = '';
+        if (namesGroup) namesGroup.style.display = 'none';
+        if (somNameInput) somNameInput.value = '';
+        if (vmmNameInput) vmmNameInput.value = '';
+        
+        if (dropzone) {
+            const textEl = dropzone.querySelector('.dropzone-text');
+            const fileEl = dropzone.querySelector('.dropzone-file-name');
+            const iconEl = dropzone.querySelector('i');
+            if (textEl) textEl.style.display = 'block';
+            if (fileEl) {
+                fileEl.style.display = 'none';
+                fileEl.innerText = '';
+            }
+            if (iconEl) {
+                iconEl.className = 'fa-solid fa-cloud-arrow-up';
+            }
+        }
+    }
+
+    function selectObjectivesUploadFileFunc(file) {
+        if (!file.name.endsWith('.xlsx')) {
+            if (window.showToast) {
+                window.showToast("Seuls les fichiers Excel (.xlsx) sont acceptés.", "error");
+            } else {
+                alert("Fichier invalide.");
+            }
+            return;
+        }
+        selectedObjectivesUploadFile = file;
+        
+        // Dynamic dropzone update
+        const dropzone = document.getElementById('focus-objectifs-dropzone');
+        if (dropzone) {
+            const textEl = dropzone.querySelector('.dropzone-text');
+            const fileEl = dropzone.querySelector('.dropzone-file-name');
+            const iconEl = dropzone.querySelector('i');
+            if (textEl) textEl.style.display = 'none';
+            if (fileEl) {
+                fileEl.style.display = 'block';
+                fileEl.innerText = `${file.name} (${formatBytes(file.size)})`;
+            }
+            if (iconEl) {
+                iconEl.className = 'fa-solid fa-file-excel neon-text-green';
+            }
+        }
+
+        // Post to parse names endpoint to let the user edit them
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const namesGroup = document.getElementById('focus-objectifs-names-group');
+        const somNameInput = document.getElementById('focus-objectifs-som-name');
+        const vmmNameInput = document.getElementById('focus-objectifs-vmm-name');
+        
+        if (namesGroup) {
+            namesGroup.style.display = 'block';
+            if (somNameInput) somNameInput.value = 'Chargement...';
+            if (vmmNameInput) vmmNameInput.value = 'Chargement...';
+        }
+
+        fetch('/api/focus/parse_sheet_names', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(res => {
+            if (res.status === 'success') {
+                if (somNameInput) somNameInput.value = res.som_name;
+                if (vmmNameInput) vmmNameInput.value = res.vmm_name;
+            } else {
+                if (somNameInput) somNameInput.value = 'GLACE';
+                if (vmmNameInput) vmmNameInput.value = 'TOMATE FRITO';
+            }
+        })
+        .catch(err => {
+            console.error("Error parsing names:", err);
+            if (somNameInput) somNameInput.value = 'GLACE';
+            if (vmmNameInput) vmmNameInput.value = 'TOMATE FRITO';
+        });
+    }
+
+    function handleObjectivesUpload(file, callback) {
+        const submitModalBtn = document.getElementById('submit-focus-objectifs-upload');
+        const somNameInput = document.getElementById('focus-objectifs-som-name');
+        const vmmNameInput = document.getElementById('focus-objectifs-vmm-name');
+        
+        if (submitModalBtn) {
+            submitModalBtn.disabled = true;
+            submitModalBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> IMPORTATION...';
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        if (somNameInput && somNameInput.value) {
+            formData.append('som_name', somNameInput.value.trim());
+        }
+        if (vmmNameInput && vmmNameInput.value) {
+            formData.append('vmm_name', vmmNameInput.value.trim());
+        }
+
+        fetch('/api/focus/upload_objectives', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(res => {
+            if (res.status === 'success') {
+                if (window.showToast) {
+                    window.showToast(res.message, "success");
+                }
+                if (callback) callback();
+                // Reload data and historical trend to reflect new objectives
+                loadFocusData();
+                loadFocusTrendData();
+            } else {
+                if (window.showToast) {
+                    window.showToast(res.message || "Erreur lors de l'importation.", "error");
+                }
+                if (submitModalBtn) {
+                    submitModalBtn.disabled = false;
+                    submitModalBtn.innerHTML = '<i class="fa-solid fa-check"></i> CONFIRMER';
+                }
+            }
+        })
+        .catch(err => {
+            console.error("Objectives upload failed:", err);
+            if (window.showToast) {
+                window.showToast("Erreur réseau de communication.", "error");
+            }
+            if (submitModalBtn) {
+                submitModalBtn.disabled = false;
+                submitModalBtn.innerHTML = '<i class="fa-solid fa-check"></i> CONFIRMER';
+            }
+        });
+    }
+
     function loadFocusData() {
         const statusEl = document.getElementById('focus-upload-status');
         fetch('/api/focus/data?agence=AGADIR')
@@ -312,13 +935,21 @@
             if (res.status === 'success' && res.data) {
                 focusData = res.data;
                 focusWorkdays = res.workdays || null;
+                if (res.focus_names) {
+                    focusNames = res.focus_names;
+                    updateTabTitles();
+                }
                 if (statusEl) {
-                    statusEl.innerHTML = `<i class="fa-solid fa-clock"></i> Dernière mise à jour : <strong>${res.upload_date}</strong>`;
+                    if (res.upload_date) {
+                        statusEl.innerHTML = `<i class="fa-solid fa-clock"></i> Dernière mise à jour : <strong>${res.upload_date}</strong>`;
+                    } else {
+                        statusEl.innerHTML = `<i class="fa-solid fa-circle-info"></i> Objectifs chargés. Veuillez importer les classements (focus2.xlsx).`;
+                    }
                 }
                 renderFocusView();
             } else {
                 if (statusEl) {
-                    statusEl.innerText = "Aucun historique ou donnée disponible. Veuillez importer focus2.xlsx.";
+                    statusEl.innerText = "Aucun historique ou donnée disponible. Veuillez importer focus2.xlsx ou les objectifs (focus_obj.xlsx).";
                 }
             }
         })
@@ -328,6 +959,17 @@
                 statusEl.innerText = "Erreur de connexion serveur.";
             }
         });
+    }
+
+    function updateTabTitles() {
+        const tabGlace = document.getElementById('focus-tab-glace');
+        const tabTomate = document.getElementById('focus-tab-tomate');
+        if (tabGlace) {
+            tabGlace.innerHTML = `<i class="fa-solid fa-ice-cream neon-text-blue"></i> FOCUS ${focusNames.GLACE || "GLACE"} (SOM)`;
+        }
+        if (tabTomate) {
+            tabTomate.innerHTML = `<i class="fa-solid fa-tomato neon-text-pink"></i> FOCUS ${focusNames.TOMATE_FRITO || "TOMATE FRITO"} (VMM)`;
+        }
     }
 
     function loadFocusTrendData() {
@@ -352,6 +994,38 @@
         const cohort = currentFocusType === 'GLACE' ? focusData.glace : focusData.tomate;
         let reps = cohort.reps || [];
         const cdz = cohort.cdz || [];
+        
+        // Fallback to objectives if rankings are empty
+        if (reps.length === 0 && focusData.objectives && focusData.objectives.length > 0) {
+            const targetType = currentFocusType === 'GLACE' ? 'GLACE' : 'TOMATE_FRITO';
+            const filteredObjs = focusData.objectives.filter(o => o.focus_type === targetType);
+            
+            reps = filteredObjs.map((o, idx) => {
+                return {
+                    rank: idx + 1,
+                    representative: o.vendeur,
+                    secteur: o.secteur,
+                    obj_ttc: o.ttc,
+                    obj_ht: o.glace_ht,
+                    obj_acm: o.obj_acm,
+                    nb_clients: o.number_client,
+                    realised_ttc: 0,
+                    realised_clients: 0,
+                    deviation: 0.0,
+                    cdz: "N/A"
+                };
+            });
+            
+            // Sort by objective value descending
+            reps.sort((a, b) => {
+                const valA = currentFocusType === 'GLACE' ? a.obj_ttc : a.obj_acm;
+                const valB = currentFocusType === 'GLACE' ? b.obj_ttc : b.obj_acm;
+                return valB - valA;
+            });
+            
+            // Reset ranks
+            reps.forEach((r, idx) => r.rank = idx + 1);
+        }
         
         // Filter representatives based on vendedor selection
         if (selectedVendeurFilter) {
@@ -431,7 +1105,7 @@
 
         if (currentFocusType === 'GLACE') {
             const taxMode = localStorage.getItem('taxMode') || 'TTC';
-            tableTitle.innerHTML = `<i class="fa-solid fa-list-ol"></i> CLASSEMENT REPRÉSENTANTS GLACE (SOM)`;
+            tableTitle.innerHTML = `<i class="fa-solid fa-list-ol"></i> CLASSEMENT REPRÉSENTANTS ${focusNames.GLACE || "GLACE"} (SOM)`;
             repsHeaders.innerHTML = `
                 <th>Rang</th>
                 <th>Vendeur</th>
@@ -468,7 +1142,7 @@
                 repsTbody.appendChild(tr);
             });
         } else {
-            tableTitle.innerHTML = `<i class="fa-solid fa-list-ol"></i> CLASSEMENT REPRÉSENTANTS TOMATE FRITO (VMM)`;
+            tableTitle.innerHTML = `<i class="fa-solid fa-list-ol"></i> CLASSEMENT REPRÉSENTANTS ${focusNames.TOMATE_FRITO || "TOMATE FRITO"} (VMM)`;
             repsHeaders.innerHTML = `
                 <th>Rang</th>
                 <th>Vendeur</th>
@@ -693,7 +1367,7 @@
             }
         };
 
-        const chartTitle = currentFocusType === 'GLACE' ? "ÉCARTS GLACE (SOM) PAR VENDEUR (%)" : "ÉCARTS TOMATE FRITO (VMM) PAR VENDEUR (%)";
+        const chartTitle = currentFocusType === 'GLACE' ? `ÉCARTS ${focusNames.GLACE || "GLACE"} (SOM) PAR VENDEUR (%)` : `ÉCARTS ${focusNames.TOMATE_FRITO || "TOMATE FRITO"} (VMM) PAR VENDEUR (%)`;
         document.getElementById('focus-chart-title').innerHTML = `<i class="fa-solid fa-chart-bar"></i> ${chartTitle}`;
 
         focusChartInstance = new Chart(ctx, {
@@ -797,9 +1471,7 @@
         const formatShortDate = (dateStr) => {
             const parts = dateStr.split('-');
             if (parts.length !== 3) return dateStr;
-            const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
-            const idx = parseInt(parts[1]) - 1;
-            return `${parts[2]} ${months[idx] || parts[1]}`;
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
         };
 
         const dateLabels = dates.map(formatShortDate);
@@ -875,6 +1547,50 @@
                 tension: 0.15
             });
         }
+
+        // Add CDZ (Chakib Elfil and Boutmezguine Mostafa) datasets to trend line chart
+        const cdzs = history.cdz || [];
+        
+        const chakibDeviations = dates.map(d => {
+            const record = cdzs.find(c => c.upload_date.startsWith(d) && (c.cdz || '').trim().toUpperCase().includes('CHAKIB'));
+            return record ? Math.round(record.deviation * 100) : null;
+        });
+
+        const boutmezguineDeviations = dates.map(d => {
+            const record = cdzs.find(c => c.upload_date.startsWith(d) && (c.cdz || '').trim().toUpperCase().includes('BOUTMEZGUINE'));
+            return record ? Math.round(record.deviation * 100) : null;
+        });
+
+        const chakibColor = neonGreen;
+        const boutmezguineColor = currentFocusType === 'GLACE' ? neonPink : neonBlue;
+
+        datasets.push({
+            label: 'Chakib Elfil (%)',
+            data: chakibDeviations,
+            borderColor: chakibColor,
+            backgroundColor: chakibColor + '10',
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: chakibColor,
+            pointBorderColor: '#fff',
+            pointBorderWidth: 1,
+            fill: false,
+            tension: 0.15
+        });
+
+        datasets.push({
+            label: 'Boutmezguine Mostafa (%)',
+            data: boutmezguineDeviations,
+            borderColor: boutmezguineColor,
+            backgroundColor: boutmezguineColor + '10',
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: boutmezguineColor,
+            pointBorderColor: '#fff',
+            pointBorderWidth: 1,
+            fill: false,
+            tension: 0.15
+        });
 
         // 3. Add Cible Partielle (Objectif Partiel) dataset to trend line chart
         const prorataDeviations = dates.map(d => {

@@ -129,6 +129,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const onFocusRoute = path === '/focus';
             const onRapportRoute = path === '/rapport';
             const onStockRoute = path === '/stock';
+            const onAnomalisRoute = path === '/anomalis';
+            const onTasksRoute = path === '/tasks';
             
             if (onDetailsRoute) {
                 activeView = 'details';
@@ -144,6 +146,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 activeView = 'rapport';
             } else if (onStockRoute) {
                 activeView = 'stock';
+            } else if (onAnomalisRoute) {
+                activeView = 'anomalis';
+            } else if (onTasksRoute) {
+                activeView = 'tasks';
             } else {
                 activeView = 'dashboard';
             }
@@ -151,9 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
             switchView(activeView);
             
             // Skip the main dashboard fetch when the user is on sub routes
-            // (the dashboard-container is hidden in that case, but
-            // the network call would still fire and trigger a modal error).
-            if (!onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute && !onStockRoute) {
+            if (!onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute && !onStockRoute && !onAnomalisRoute && !onTasksRoute) {
                 fetchSuiviDates(() => {
                     fetchDashboardData();
                 });
@@ -163,6 +167,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setupEventListeners();
             initDetailsView();
             initMultiUploadView();
+            initAnomalisView();
+            initTasksView();
             const dropdownList = document.getElementById('vendeur-dropdown-list');
             if (dropdownList) {
                 loadVendeursList();
@@ -259,6 +265,8 @@ function switchView(viewName) {
     const navRapport = document.getElementById('nav-rapport');
     const navStock = document.getElementById('nav-stock');
     const navStockFavorites = document.getElementById('nav-stock-favorites');
+    const navAnomalis = document.getElementById('nav-anomalis');
+    const navTasks = document.getElementById('nav-tasks');
     
     const mainDashboard = document.getElementById('main-dashboard-container');
     const detailsContainer = document.getElementById('details-container');
@@ -268,17 +276,19 @@ function switchView(viewName) {
     const focusContainer = document.getElementById('focus-container');
     const rapportContainer = document.getElementById('rapport-container');
     const stockContainer = document.getElementById('stock-container');
+    const anomalisContainer = document.getElementById('anomalis-container');
+    const tasksContainer = document.getElementById('tasks-container');
     
     const dateSelect = document.getElementById('date-select');
     const timelapseCtrl = document.getElementById('timelapse-control');
     
     // Remove active class from all nav items
-    [navDashboard, navRealisation, navDetails, navClients, navFdv, navTerrain, navFocus, navRapport, navStock, navStockFavorites].forEach(nav => {
+    [navDashboard, navRealisation, navDetails, navClients, navFdv, navTerrain, navFocus, navRapport, navStock, navStockFavorites, navAnomalis, navTasks].forEach(nav => {
         if (nav) nav.classList.remove('active');
     });
     
     // Hide all view containers
-    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, focusContainer, rapportContainer, stockContainer].forEach(container => {
+    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, focusContainer, rapportContainer, stockContainer, anomalisContainer, tasksContainer].forEach(container => {
         if (container) container.style.display = 'none';
     });
     
@@ -298,24 +308,24 @@ function switchView(viewName) {
     
     if (viewName === 'details') {
         if (navDetails) navDetails.classList.add('active');
-        if (detailsContainer) detailsContainer.style.display = 'block';
+        if (detailsContainer) detailsContainer.style.display = '';
         loadTrendsData();
     } else if (viewName === 'clients') {
         if (navClients) navClients.classList.add('active');
-        if (clientsContainer) clientsContainer.style.display = 'block';
+        if (clientsContainer) clientsContainer.style.display = '';
     } else if (viewName === 'fdv') {
         if (navFdv) navFdv.classList.add('active');
-        if (fdvContainer) fdvContainer.style.display = 'block';
+        if (fdvContainer) fdvContainer.style.display = '';
     } else if (viewName === 'terrain') {
         if (navTerrain) navTerrain.classList.add('active');
-        if (terrainContainer) terrainContainer.style.display = 'block';
+        if (terrainContainer) terrainContainer.style.display = '';
     } else if (viewName === 'focus') {
         if (navFocus) navFocus.classList.add('active');
-        if (focusContainer) focusContainer.style.display = 'block';
+        if (focusContainer) focusContainer.style.display = '';
     } else if (viewName === 'rapport') {
         if (navRapport) navRapport.classList.add('active');
         if (rapportContainer) {
-            rapportContainer.style.display = 'flex';
+            rapportContainer.style.display = '';
             // Always reload the vendeur list when switching to rapport
             loadVendeursList();
         }
@@ -327,21 +337,30 @@ function switchView(viewName) {
         } else {
             if (navStock) navStock.classList.add('active');
         }
-        if (stockContainer) stockContainer.style.display = 'block';
+        if (stockContainer) stockContainer.style.display = '';
         if (typeof window.initStockView === 'function') {
             window.initStockView();
         }
+    } else if (viewName === 'anomalis') {
+        if (navAnomalis) navAnomalis.classList.add('active');
+        if (anomalisContainer) anomalisContainer.style.display = '';
+        loadAnomalies();
+    } else if (viewName === 'tasks') {
+        if (navTasks) navTasks.classList.add('active');
+        if (tasksContainer) tasksContainer.style.display = '';
+        loadTasks();
     } else {
         // dashboard or realisation
         if (viewName === 'dashboard' && navDashboard) navDashboard.classList.add('active');
         if (viewName === 'realisation' && navRealisation) navRealisation.classList.add('active');
         
-        if (mainDashboard) mainDashboard.style.display = 'block';
+        if (mainDashboard) mainDashboard.style.display = '';
         if (dateSelect) dateSelect.style.display = 'block';
         if (timelapseCtrl) timelapseCtrl.style.display = 'flex';
         
         fetchDashboardData();
     }
+    setTimeout(injectCopyButtonsAppWide, 100);
 }
 
 function updateTaxToggleUI() {
@@ -765,6 +784,28 @@ function setupEventListeners() {
         }
     });
 
+    // Report format button switches (Complet vs Mini)
+    document.querySelectorAll('.report-format-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.report-format-btn').forEach(b => {
+                b.classList.remove('active');
+                b.style.background = 'transparent';
+                b.style.border = '1px solid transparent';
+                b.style.color = 'var(--text-muted)';
+                b.style.fontWeight = 'normal';
+                const icon = b.querySelector('i');
+                if (icon) icon.style.color = '';
+            });
+            btn.classList.add('active');
+            btn.style.background = 'var(--bg-card)';
+            btn.style.border = '1px solid var(--neon-blue)';
+            btn.style.color = 'var(--text-main)';
+            btn.style.fontWeight = 'bold';
+            const icon = btn.querySelector('i');
+            if (icon) icon.style.color = 'var(--neon-blue)';
+        });
+    });
+
     // Checkbox items - handle clicks on the whole label
     document.querySelectorAll('.checkbox-item').forEach(item => {
         item.addEventListener('click', (e) => {
@@ -804,7 +845,7 @@ function setupEventListeners() {
     }
     const whatsappReportBtn = document.getElementById('whatsapp-report-btn');
     if (whatsappReportBtn) {
-        whatsappReportBtn.addEventListener('click', openWhatsappShareDialog);
+        whatsappReportBtn.addEventListener('click', handleWhatsappShareClick);
     }
     const okReportBtn = document.getElementById('ok-report-btn');
     if (okReportBtn) {
@@ -839,10 +880,15 @@ function setupEventListeners() {
                 currentSelectionBadge.className = 'badge-blue';
             }
             fetchDashboardData();
-
+            
             // Also refresh Details trends
             const familySelect = document.getElementById('details-family-select');
             loadTrendsData(familySelect ? familySelect.value : 'C.A (TTC)');
+            
+            // Also refresh anomalies if on anomalies view
+            if (activeView === 'anomalis') {
+                loadAnomalies();
+            }
         });
     }
 
@@ -1311,21 +1357,57 @@ function handleRefreshClick() {
     if (refreshIcon) refreshIcon.classList.add('fa-spin');
     if (refreshLabel) refreshLabel.innerText = 'RELOADING...';
     
+    // First, sync/refresh database from Excel
     fetch('/api/refresh', {
         method: 'POST'
     })
     .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            showToast("Données rafraîchies depuis Excel avec succès !", "success");
-            fetchDashboardData();
+            // Fetch updated list of dates from database
+            fetchSuiviDates(() => {
+                // Set the dropdown to the most recent (last) date
+                const dateSelect = document.getElementById('date-select');
+                if (dateSelect && availableDates.length > 0) {
+                    dateSelect.value = availableDates[0];
+                }
+                
+                fetchDashboardData();
+                
+                // Refresh Details trends
+                const familySelect = document.getElementById('details-family-select');
+                loadTrendsData(familySelect ? familySelect.value : 'C.A (TTC)');
+                
+                // Refresh anomalies
+                if (activeView === 'anomalis') {
+                    loadAnomalies();
+                }
+                
+                showToast("Données rafraîchies et synchronisées sur la dernière date !", "success");
+            });
         } else {
-            showToast("Erreur lors du rafraîchissement: " + data.message, "error");
+            // Fallback: reload dates and get the last data from database anyway
+            fetchSuiviDates(() => {
+                const dateSelect = document.getElementById('date-select');
+                if (dateSelect && availableDates.length > 0) {
+                    dateSelect.value = availableDates[0];
+                }
+                fetchDashboardData();
+            });
+            showToast("Erreur lors du rafraîchissement Excel: " + data.message + ". Affichage des dernières données en base.", "warning");
         }
     })
     .catch(err => {
         console.error(err);
-        showToast("Une erreur de communication est survenue lors de la synchronisation.", "error");
+        // Fallback on network/comm error: reload dates and get the last data from database anyway
+        fetchSuiviDates(() => {
+            const dateSelect = document.getElementById('date-select');
+            if (dateSelect && availableDates.length > 0) {
+                dateSelect.value = availableDates[0];
+            }
+            fetchDashboardData();
+        });
+        showToast("Erreur de communication. Affichage des dernières données en base.", "warning");
     })
     .finally(() => {
         // Re-enable button & restore labels
@@ -1919,12 +2001,24 @@ function updateDashboard() {
 
     // 2. Compute Top cards
     // Filter CA (ht) family or sum everything
-    const totalCaObj = quantiRecords.filter(r => r.famille === 'C.A (ht)' || r.famille === 'C.A (TTC)').reduce((sum, r) => sum + r.obj, 0) || 1;
-    const totalCaReal = quantiRecords.filter(r => r.famille === 'C.A (ht)' || r.famille === 'C.A (TTC)').reduce((sum, r) => sum + r.real, 0);
+    const targetNameUpper = (currentSelection && currentSelection.type === 'vendeur') ? currentSelection.name.trim().toUpperCase() : '';
+    const isCdzSelected = targetNameUpper === 'CHAKIB ELFIL' || targetNameUpper === 'BOUTMEZGUINE EL MOSTAFA' || 
+        ((dashboardData && dashboardData.fdv) ? dashboardData.fdv.some(r => (r.cdz || '').trim().toUpperCase() === targetNameUpper) : false);
+
+    let cardQuanti = quantiRecords;
+    if (isCdzSelected) {
+        cardQuanti = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === targetNameUpper);
+    }
+
+    const totalCaObj = cardQuanti.filter(r => r.famille === 'C.A (ht)' || r.famille === 'C.A (TTC)').reduce((sum, r) => sum + r.obj, 0) || 1;
+    const totalCaReal = cardQuanti.filter(r => r.famille === 'C.A (ht)' || r.famille === 'C.A (TTC)').reduce((sum, r) => sum + r.real, 0);
     
     // Dynamic values
     const achievementRate = Math.round((totalCaReal / totalCaObj) * 100);
-    const uniqueVendeursInSelection = [...new Set(quantiRecords.map(item => item.vendeur))].length;
+    let uniqueVendeursInSelection = [...new Set(quantiRecords.map(item => item.vendeur))].length;
+    if (isCdzSelected) {
+        uniqueVendeursInSelection = [...new Set(quantiRecords.map(item => item.vendeur).filter(v => v.trim().toUpperCase() !== targetNameUpper))].length;
+    }
 
     // Populate Top Cards
     animateNumber('total-ca', totalCaReal, ' DH');
@@ -1965,7 +2059,11 @@ function updateDashboard() {
     // Flow values update skipped (flow chart removed)
 
     // 4. Render Tables
-    renderQuantiTable(quantiRecords);
+    let tableQuanti = quantiRecords;
+    if (isCdzSelected) {
+        tableQuanti = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === targetNameUpper);
+    }
+    renderQuantiTable(tableQuanti);
     renderQualiTable(qualiRecords);
 
     // 5. Render Focus
@@ -2197,12 +2295,12 @@ function updateDashboard() {
                 .then(res => {
                     if (res.status === 'success') {
                         chakibFocusHistoryData = res;
-                        renderChakibFocusProgress(res.data, res.settings, res.total_days);
+                        renderChakibFocusProgress(res.data, res.settings, res.total_days, res.focus_names);
                     }
                 })
                 .catch(err => console.error("Error fetching CHAKIB ELFIL focus trend:", err));
             } else {
-                renderChakibFocusProgress(chakibFocusHistoryData.data, chakibFocusHistoryData.settings, chakibFocusHistoryData.total_days);
+                renderChakibFocusProgress(chakibFocusHistoryData.data, chakibFocusHistoryData.settings, chakibFocusHistoryData.total_days, chakibFocusHistoryData.focus_names);
             }
         }
     } else {
@@ -2627,10 +2725,15 @@ function renderQuantiChart(quantiRecords) {
                 const pctLabel = (val > 0 ? '+' : '') + val + '%';
 
                 if (isSelectedVendeur) {
+                    const isLightMode = document.body.classList.contains('light-mode');
                     ctx.font = 'bold 13px JetBrains Mono';
-                    ctx.fillStyle = '#00f0ff'; // Neon cyan highlight for selected seller/CDZ
-                    ctx.shadowColor = 'rgba(0, 240, 255, 0.6)';
-                    ctx.shadowBlur = 6;
+                    ctx.fillStyle = neonBlue; // Neon highlight for selected seller/CDZ (dynamic blue/cyan)
+                    if (!isLightMode) {
+                        ctx.shadowColor = 'rgba(0, 240, 255, 0.6)';
+                        ctx.shadowBlur = 6;
+                    } else {
+                        ctx.shadowBlur = 0;
+                    }
                 } else {
                     ctx.font = 'bold 11px JetBrains Mono';
                     ctx.fillStyle = val >= 0 ? neonGreen : (val >= -20 ? neonAmber : neonPink);
@@ -2919,10 +3022,15 @@ function renderQualiChart(qualiRecords, quantiRecords) {
                 const label = val + '%';
 
                 if (isSelectedVendeur) {
+                    const isLightMode = document.body.classList.contains('light-mode');
                     ctx.font = 'bold 13px JetBrains Mono';
-                    ctx.fillStyle = '#00f0ff'; // Neon cyan highlight for selected vendeur/CDZ
-                    ctx.shadowColor = 'rgba(0, 240, 255, 0.6)';
-                    ctx.shadowBlur = 6;
+                    ctx.fillStyle = neonBlue; // Neon highlight for selected vendeur/CDZ (dynamic blue/cyan)
+                    if (!isLightMode) {
+                        ctx.shadowColor = 'rgba(0, 240, 255, 0.6)';
+                        ctx.shadowBlur = 6;
+                    } else {
+                        ctx.shadowBlur = 0;
+                    }
                 } else {
                     ctx.font = 'bold 11px JetBrains Mono';
                     ctx.fillStyle = val >= 100 ? neonGreen : (val >= 80 ? neonAmber : neonPink);
@@ -3276,57 +3384,68 @@ function updateDropdownHighlight(items) {
 }
 
 // Cybernetic Toast notification system
-function showToast(message, type = 'info') {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop open';
-    backdrop.style.zIndex = '9999';
+function showToast(message, type = 'info', duration = 3000) {
+    // 1. Get or create toast container
+    let container = document.getElementById('global-toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'global-toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
     
-    let title = 'SYSTEM MESSAGE';
+    // 2. Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    
     let iconClass = 'fa-circle-info';
-    let titleClass = 'neon-text-blue';
-    let borderClass = 'glow-blue';
+    if (type === 'success') iconClass = 'fa-circle-check';
+    else if (type === 'error') iconClass = 'fa-triangle-exclamation';
+    else if (type === 'warning') iconClass = 'fa-triangle-exclamation';
+    else if (type === 'loading') iconClass = 'fa-solid fa-circle-notch fa-spin';
     
-    if (type === 'success') {
-        title = 'SUCCESS // COMPLETED';
-        iconClass = 'fa-circle-check';
-        titleClass = 'neon-text-green';
-        borderClass = 'glow-green';
-    } else if (type === 'error') {
-        title = 'ALERT // SYSTEM ERROR';
-        iconClass = 'fa-triangle-exclamation';
-        titleClass = 'neon-text-pink';
-        borderClass = 'glow-pink';
-    } else if (type === 'info') {
-        title = 'INFO // SYSTEM';
-        iconClass = 'fa-circle-info';
-        titleClass = 'neon-text-blue';
-        borderClass = 'glow-blue';
-    }
-
-    backdrop.innerHTML = `
-        <div class="cyber-modal ${borderClass}" style="max-width: 450px; width: 90%;">
-            <div class="modal-header">
-                <h3 class="${titleClass}"><i class="fa-solid ${iconClass}"></i> ${title}</h3>
-            </div>
-            <div class="modal-body" style="padding: 1.5rem; text-align: center;">
-                <p style="font-family: var(--font-mono); font-size: 0.95rem; margin-bottom: 1.5rem; line-height: 1.5; color: var(--text-main);">${message}</p>
-                <button class="cyber-btn" id="popup-ok-btn" style="margin: 0 auto; min-width: 100px; justify-content: center;">OK</button>
-            </div>
-        </div>
+    let contentHtml = `
+        <span class="toast-icon"><i class="fa-solid ${iconClass}"></i></span>
+        <span class="toast-message" style="flex-grow: 1;">${message}</span>
     `;
-    
-    document.body.appendChild(backdrop);
-    
-    const okBtn = backdrop.querySelector('#popup-ok-btn');
-    if (okBtn) {
-        okBtn.focus();
-        okBtn.addEventListener('click', () => {
-            backdrop.classList.remove('open');
-            setTimeout(() => {
-                backdrop.remove();
-            }, 300);
-        });
+    if (type === 'loading') {
+        contentHtml = `
+            <div class="cyber-spinner" style="width: 18px; height: 18px; border-width: 2.5px; margin-right: 8px; flex-shrink: 0;"></div>
+            <span class="toast-message" style="flex-grow: 1;">${message}</span>
+        `;
     }
+    
+    toast.innerHTML = contentHtml;
+    container.appendChild(toast);
+    
+    // Trigger transition
+    setTimeout(() => {
+        toast.classList.add('show');
+    }, 10);
+    
+    const closeHandle = () => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            toast.remove();
+            if (container.children.length === 0) {
+                container.remove();
+            }
+        }, 400);
+    };
+    
+    // Auto close non-loading toasts after duration
+    let autoCloseTimer = null;
+    if (type !== 'loading' && duration > 0) {
+        autoCloseTimer = setTimeout(closeHandle, duration);
+    }
+    
+    return {
+        element: toast,
+        close: () => {
+            if (autoCloseTimer) clearTimeout(autoCloseTimer);
+            closeHandle();
+        }
+    };
 }
 
 // Variable to track veo animation state
@@ -4022,7 +4141,10 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     const selectedDate = dateSelect ? dateSelect.value : 'default';
 
     let url = '/api/generate_report';
-    const params = [`tax_mode=${currentTaxMode}`];
+    const activeFormatBtn = document.querySelector('.report-format-btn.active');
+    const reportFormat = activeFormatBtn ? activeFormatBtn.getAttribute('data-format') : 'complet';
+    
+    const params = [`tax_mode=${currentTaxMode}`, `report_type=${reportFormat}`];
     if (vendeurName) params.push(`vendeur=${encodeURIComponent(vendeurName)}`);
     else if (selectedCategory && selectedCategory !== 'All') params.push(`category=${encodeURIComponent(selectedCategory)}`);
     if (selectedDate && selectedDate !== 'default') params.push(`date=${encodeURIComponent(selectedDate)}`);
@@ -4069,7 +4191,21 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
             currentReportTitle = (titleEl && titleEl.innerText) ? titleEl.innerText : 'Rapport IA';
             currentReportVendeur = vendeurName || '';
 
+            if (data.focus_names) {
+                window.focusNames = data.focus_names;
+            }
+
             if (content) content.innerHTML = parseMarkdown(data.report);
+
+            const waTemplate = document.getElementById('whatsapp-mini-image-template');
+            if (waTemplate) {
+                if (reportFormat === 'mini' && data.summary_data) {
+                    waTemplate.style.display = 'block';
+                    populateWaTemplate(data.summary_data, currentReportVendeur, selectedDate);
+                } else {
+                    waTemplate.style.display = 'none';
+                }
+            }
 
             // Render the charts!
             renderReportCharts();
@@ -4204,6 +4340,28 @@ function sendReportViaWhatsapp(phone, format) {
     if (format === 'pdf') {
         return sendReportPdfViaWhatsapp(phone);
     }
+    if (format === 'image') {
+        const activeFormatBtn = document.querySelector('.report-format-btn.active');
+        const isMini = activeFormatBtn && activeFormatBtn.getAttribute('data-format') === 'mini';
+        const elementId = isMini ? 'whatsapp-mini-image-template' : 'report-content-wrapper';
+        
+        copyReportImageToClipboard(elementId, (success) => {
+            if (success) {
+                const text = "Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance sous forme d'image (faites Ctrl+V pour la coller et l'envoyer dans WhatsApp) :\n\nCordialement,\n— KPI Analytics";
+                const encoded = encodeURIComponent(text);
+                let url;
+                if (phone && /^\+?\d{6,}$/.test(phone.replace(/[\s-]/g, ''))) {
+                    const cleanPhone = phone.replace(/[\s+\-]/g, '');
+                    url = `https://wa.me/${cleanPhone}?text=${encoded}`;
+                } else {
+                    url = `https://wa.me/?text=${encoded}`;
+                }
+                window.open(url, '_blank', 'noopener,noreferrer');
+                closeWhatsappShareDialog();
+            }
+        });
+        return;
+    }
     const text = currentVendeurWhatsappMessage || buildWhatsappReportText();
     if (!text) {
         showToast("Aucun rapport à envoyer. Générez d'abord un rapport.", "warning");
@@ -4220,6 +4378,252 @@ function sendReportViaWhatsapp(phone, format) {
     window.open(url, '_blank', 'noopener,noreferrer');
     showToast("WhatsApp ouvert avec le rapport pré-rempli.", "success");
 }
+
+function copyReportImageToClipboard(elementId, callback) {
+    const element = document.getElementById(elementId);
+    if (!element) {
+        showToast("Rapport introuvable.", "error");
+        if (callback) callback(false);
+        return;
+    }
+    
+    const loader = showToast("Génération de l'image...", "loading");
+    
+    let hasResolved = false;
+    const timeoutTimer = setTimeout(() => {
+        if (!hasResolved) {
+            hasResolved = true;
+            loader.close();
+            showToast("La génération de l'image a expiré (temps limite dépassé).", "error");
+            if (callback) callback(false);
+        }
+    }, 12000); // 12 seconds safety timeout
+
+    html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+    }).then(canvas => {
+        if (hasResolved) return;
+        hasResolved = true;
+        clearTimeout(timeoutTimer);
+        
+        if (!canvas || canvas.width === 0 || canvas.height === 0) {
+            loader.close();
+            showToast("Erreur: Le canvas généré est vide.", "error");
+            if (callback) callback(false);
+            return;
+        }
+
+        canvas.toBlob(blob => {
+            loader.close();
+            if (!blob) {
+                showToast("Erreur de génération de l'image.", "error");
+                if (callback) callback(false);
+                return;
+            }
+            try {
+                const item = new ClipboardItem({ "image/png": blob });
+                navigator.clipboard.write([item]).then(() => {
+                    showToast("Image copiée ! Prête à coller (Ctrl+V) sur WhatsApp.", "success");
+                    if (callback) callback(true);
+                }).catch(err => {
+                    console.error("Clipboard write failed: ", err);
+                    showToast("Erreur de copie. Votre navigateur bloque la copie d'image.", "warning");
+                    if (callback) callback(false);
+                });
+            } catch (err) {
+                console.error("Clipboard API error: ", err);
+                showToast("Votre navigateur ne supporte pas la copie directe d'images.", "warning");
+                if (callback) callback(false);
+            }
+        }, "image/png");
+    }).catch(err => {
+        if (hasResolved) return;
+        hasResolved = true;
+        clearTimeout(timeoutTimer);
+        loader.close();
+        console.error("html2canvas error: ", err);
+        showToast("Erreur de conversion: " + err, "error");
+        if (callback) callback(false);
+    });
+}
+
+function copyCardAsImage(cardOrId) {
+    const card = typeof cardOrId === 'string' ? document.getElementById(cardOrId) : cardOrId;
+    if (!card) {
+        showToast("Élément introuvable.", "error");
+        return;
+    }
+    
+    const isCollapsed = card.classList.contains('collapsed');
+    if (isCollapsed) {
+        showToast("Veuillez maximiser le tableau ou graphique avant de le copier.", "warning");
+        return;
+    }
+    
+    // Hide card actions temporarily so they are not captured in the image
+    const actions = card.querySelector('.card-actions');
+    if (actions) {
+        actions.style.visibility = 'hidden';
+    }
+    
+    const loader = showToast("Génération de l'image...", "loading");
+    
+    // Freeze canvases to dynamic images to avoid blank spaces on capture
+    const canvases = Array.from(card.querySelectorAll('canvas'));
+    const swaps = [];
+    canvases.forEach(canvas => {
+        try {
+            const dataUrl = canvas.toDataURL('image/png');
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            img.style.width = canvas.style.width || (canvas.width + 'px');
+            img.style.height = canvas.style.height || (canvas.height + 'px');
+            img.style.display = 'block';
+            canvas.parentNode.insertBefore(img, canvas);
+            canvas.style.display = 'none';
+            swaps.push({ canvas, img });
+        } catch (e) {
+            console.error("Canvas freeze failed: ", e);
+        }
+    });
+
+    // Get computed theme background color to serve as solid background
+    const bodyBgColor = getComputedStyle(document.body).backgroundColor || '#0c0c0e';
+    
+    let hasResolved = false;
+    const timeoutTimer = setTimeout(() => {
+        if (!hasResolved) {
+            hasResolved = true;
+            loader.close();
+            if (actions) {
+                actions.style.visibility = 'visible';
+            }
+            swaps.forEach(({ canvas: origCanvas, img }) => {
+                origCanvas.style.display = '';
+                if (img && img.parentNode) img.remove();
+            });
+            showToast("La génération de l'image a expiré (temps limite dépassé).", "error");
+        }
+    }, 12000); // 12 seconds safety timeout
+
+    html2canvas(card, {
+        scale: 2.5, // higher resolution for crisp text
+        useCORS: true,
+        backgroundColor: bodyBgColor,
+        logging: false
+    }).then(canvas => {
+        if (hasResolved) return;
+        hasResolved = true;
+        clearTimeout(timeoutTimer);
+
+        // Restore actions and canvases
+        if (actions) {
+            actions.style.visibility = 'visible';
+        }
+        swaps.forEach(({ canvas: origCanvas, img }) => {
+            origCanvas.style.display = '';
+            img.remove();
+        });
+        
+        if (!canvas || canvas.width === 0 || canvas.height === 0) {
+            loader.close();
+            showToast("Erreur: Le canvas généré est vide.", "error");
+            return;
+        }
+
+        canvas.toBlob(blob => {
+            loader.close();
+            if (!blob) {
+                showToast("Erreur de génération de l'image.", "error");
+                return;
+            }
+            try {
+                const item = new ClipboardItem({ "image/png": blob });
+                navigator.clipboard.write([item]).then(() => {
+                    showToast("Image copiée ! Prête à coller (Ctrl+V) sur WhatsApp.", "success");
+                }).catch(err => {
+                    console.error("Clipboard write failed: ", err);
+                    showToast("Erreur de copie. Le navigateur bloque la copie d'images.", "warning");
+                });
+            } catch (err) {
+                console.error("Clipboard API error: ", err);
+                showToast("Votre navigateur ne supporte pas la copie directe d'images.", "warning");
+            }
+        }, "image/png");
+    }).catch(err => {
+        if (hasResolved) return;
+        hasResolved = true;
+        clearTimeout(timeoutTimer);
+
+        // Clean up on error
+        loader.close();
+        if (actions) {
+            actions.style.visibility = 'visible';
+        }
+        swaps.forEach(({ canvas: origCanvas, img }) => {
+            origCanvas.style.display = '';
+            img.remove();
+        });
+        console.error("html2canvas error: ", err);
+        showToast("Erreur de conversion: " + err, "error");
+    });
+}
+
+function injectCopyButtonsAppWide() {
+    document.querySelectorAll('canvas, table').forEach(el => {
+        // Skip background particles canvas or print/modal tables
+        if (el.id === 'bg-particles' || el.closest('#pdf-print-zone') || el.closest('.modal-content')) return;
+        
+        // Find containing card
+        const card = el.closest('.cyber-card');
+        if (!card) return;
+        
+        // Skip if copy button already exists
+        if (card.querySelector('.copy-btn')) return;
+        
+        // Find or create header
+        let header = card.querySelector('.card-header, .table-header, .chart-header, .focus-header, .focus-trend-header, .table-header-row');
+        if (!header) {
+            header = document.createElement('div');
+            header.className = 'card-header';
+            header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;';
+            card.insertBefore(header, card.firstChild);
+        }
+        
+        // Find or create card-actions container
+        let actions = header.querySelector('.card-actions');
+        if (!actions) {
+            actions = document.createElement('div');
+            actions.className = 'card-actions';
+            actions.style.cssText = 'margin-left: auto; display: flex; gap: 0.5rem; align-items: center; z-index: 10;';
+            
+            header.style.display = 'flex';
+            header.style.alignItems = 'center';
+            header.style.justifyContent = 'space-between';
+            
+            header.appendChild(actions);
+        }
+        
+        // Add copy button
+        if (!actions.querySelector('.copy-btn')) {
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'card-action-btn copy-btn';
+            copyBtn.title = 'Copier comme image';
+            copyBtn.style.cssText = 'background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 0.8rem; transition: color 0.2s;';
+            copyBtn.innerHTML = '<i class="fa-solid fa-copy"></i>';
+            
+            actions.insertBefore(copyBtn, actions.firstChild);
+            
+            copyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                copyCardAsImage(card);
+            });
+        }
+    });
+}
+
 
 // PDF variant: render the current report to a PDF, trigger a download,
 // then open WhatsApp with a short "voir PDF ci-joint" message.
@@ -4303,6 +4707,40 @@ function sendReportPdfViaWhatsapp(phone) {
     }, 800);
 }
 
+// Handles WhatsApp button click in the actions bar
+function handleWhatsappShareClick() {
+    if (!currentReportText) {
+        showToast("Aucun rapport à envoyer. Générez d'abord un rapport.", "warning");
+        return;
+    }
+    const activeFormatBtn = document.querySelector('.report-format-btn.active');
+    const isMini = activeFormatBtn && activeFormatBtn.getAttribute('data-format') === 'mini';
+    
+    if (isMini) {
+        if (currentReportVendeur) {
+            fetch('/api/fdv?vendeur=' + encodeURIComponent(currentReportVendeur))
+                .then(r => r.json())
+                .then(d => {
+                    let phone = '';
+                    if (d.status === 'success' && d.rows && d.rows.length > 0) {
+                        const row = d.rows[0];
+                        const rawPhone = row.whatsapp || row.telephone || '';
+                        phone = rawPhone.replace(/^\+/, '').trim();
+                    }
+                    sendReportViaWhatsapp(phone, 'image');
+                })
+                .catch(err => {
+                    console.error(err);
+                    sendReportViaWhatsapp('', 'image');
+                });
+        } else {
+            sendReportViaWhatsapp('', 'image');
+        }
+    } else {
+        openWhatsappShareDialog();
+    }
+}
+
 // Small modal that asks for an optional phone number, then opens WhatsApp.
 function openWhatsappShareDialog() {
     if (!currentReportText) {
@@ -4347,6 +4785,10 @@ function openWhatsappShareDialog() {
                                 <input type="radio" name="whatsapp-share-format" value="text" checked style="accent-color:#25D366;">
                                 <span><i class="fa-solid fa-message"></i> <b>Texte</b><br><small style="color:var(--text-muted);">Rapport complet collé dans le message</small></span>
                             </label>
+                            <label id="whatsapp-share-fmt-image-label" class="cyber-select" style="flex:1; cursor:pointer; display:flex; align-items:center; gap:.5rem; padding:.6rem .8rem; border-radius:6px;">
+                                <input type="radio" name="whatsapp-share-format" value="image" style="accent-color:#0284c7;">
+                                <span><i class="fa-solid fa-image" style="color:#0284c7;"></i> <b>Image</b><br><small style="color:var(--text-muted);">Copie l'image à coller (Ctrl+V) sur WhatsApp</small></span>
+                            </label>
                             <label id="whatsapp-share-fmt-pdf-label" class="cyber-select" style="flex:1; cursor:pointer; display:flex; align-items:center; gap:.5rem; padding:.6rem .8rem; border-radius:6px;">
                                 <input type="radio" name="whatsapp-share-format" value="pdf" style="accent-color:#f87171;">
                                 <span><i class="fa-solid fa-file-pdf" style="color:#f87171;"></i> <b>PDF</b><br><small style="color:var(--text-muted);">PDF téléchargé, à joindre manuellement</small></span>
@@ -4375,9 +4817,8 @@ function openWhatsappShareDialog() {
             const fmtRadio = document.querySelector('input[name="whatsapp-share-format"]:checked');
             const format = fmtRadio ? fmtRadio.value : 'text';
             sendReportViaWhatsapp(phoneInput ? phoneInput.value.trim() : '', format);
-            // Don't close the dialog if we're in PDF mode — the user
-            // might want to confirm the download completed first.
-            if (format !== 'pdf') {
+            // Close the dialog only in text mode
+            if (format === 'text') {
                 closeWhatsappShareDialog();
             }
         });
@@ -4395,17 +4836,34 @@ function openWhatsappShareDialog() {
         const format = fmtRadio ? fmtRadio.value : 'text';
         const label = document.getElementById('whatsapp-share-send-label');
         const textLabel = document.getElementById('whatsapp-share-fmt-text-label');
+        const imageLabel = document.getElementById('whatsapp-share-fmt-image-label');
         const pdfLabel = document.getElementById('whatsapp-share-fmt-pdf-label');
         const preview = document.getElementById('whatsapp-share-preview');
+        
         if (label) {
-            label.textContent = (format === 'pdf') ? 'GÉNÉRER PDF + WHATSAPP' : 'OUVRIR WHATSAPP';
+            if (format === 'pdf') {
+                label.textContent = 'GÉNÉRER PDF + WHATSAPP';
+            } else if (format === 'image') {
+                label.textContent = "COPIER L'IMAGE + WHATSAPP";
+            } else {
+                label.textContent = 'OUVRIR WHATSAPP';
+            }
         }
         if (textLabel) textLabel.style.background = (format === 'text') ? 'rgba(37,211,102,0.12)' : '';
         if (textLabel) textLabel.style.borderColor = (format === 'text') ? '#25D366' : '';
+        if (imageLabel) imageLabel.style.background = (format === 'image') ? 'rgba(2,132,199,0.12)' : '';
+        if (imageLabel) imageLabel.style.borderColor = (format === 'image') ? '#0284c7' : '';
         if (pdfLabel)  pdfLabel.style.background  = (format === 'pdf')  ? 'rgba(248,113,113,0.12)' : '';
         if (pdfLabel)  pdfLabel.style.borderColor  = (format === 'pdf')  ? '#f87171' : '';
+        
         if (preview) {
-            preview.textContent = (format === 'pdf') ? buildPdfPointerMessage() : (currentVendeurWhatsappMessage || buildWhatsappReportText());
+            if (format === 'pdf') {
+                preview.textContent = buildPdfPointerMessage();
+            } else if (format === 'image') {
+                preview.textContent = "Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance sous forme d'image (copiée dans votre presse-papier, faites simplement Ctrl+V pour la coller et l'envoyer dans WhatsApp).\n\nCordialement,\n— KPI Analytics";
+            } else {
+                preview.textContent = currentVendeurWhatsappMessage || buildWhatsappReportText();
+            }
         }
     }
 
@@ -4728,10 +5186,26 @@ function downloadReportAsPdf() {
     element.classList.add('pdf-print-mode');
     advancePdfStep(1);
 
+    let hasResolved = false;
+    let restoreCharts = () => {};
+    let unlock = () => {};
+
+    const timeoutTimer = setTimeout(() => {
+        if (!hasResolved) {
+            hasResolved = true;
+            hidePdfOverlay(false);
+            showToast("La génération du PDF a expiré (temps limite dépassé).", "error");
+            restoreCharts();
+            unlock();
+            element.classList.remove('pdf-print-mode');
+        }
+    }, 15000); // 15 seconds safety timeout
+
     setTimeout(() => {
+        if (hasResolved) return;
         advancePdfStep(2);
-        const restoreCharts = freezeChartsForPdf(element);
-        const unlock        = lockWrapperForCapture(element, 794);
+        restoreCharts = freezeChartsForPdf(element);
+        unlock        = lockWrapperForCapture(element, 794);
 
         const opt = {
             margin:       [8, 10, 10, 10],
@@ -4755,10 +5229,16 @@ function downloadReportAsPdf() {
         advancePdfStep(3);
         html2pdf().set(opt).from(element).save()
             .then(() => {
+                if (hasResolved) return;
+                hasResolved = true;
+                clearTimeout(timeoutTimer);
                 advancePdfStep(4);
                 setTimeout(() => hidePdfOverlay(true), 400);
             })
             .catch(err => {
+                if (hasResolved) return;
+                hasResolved = true;
+                clearTimeout(timeoutTimer);
                 console.error(err);
                 hidePdfOverlay(false);
                 showToast('Erreur PDF: ' + err, 'error');
@@ -4775,7 +5255,11 @@ function downloadReportAsPdf() {
 // but skips the jsPDF stage and downloads the raw canvas. Useful for sharing
 // in messengers that don't accept PDFs (WhatsApp, Telegram, etc.).
 function downloadReportAsImage() {
-    const element = document.getElementById('report-content-wrapper');
+    const activeFormatBtn = document.querySelector('.report-format-btn.active');
+    const isMini = activeFormatBtn && activeFormatBtn.getAttribute('data-format') === 'mini';
+    const elementId = isMini ? 'whatsapp-mini-image-template' : 'report-content-wrapper';
+    
+    const element = document.getElementById(elementId);
     if (!element || element.style.display === 'none') {
         showToast("Aucun rapport disponible.", "error");
         return;
@@ -4786,14 +5270,33 @@ function downloadReportAsImage() {
     const filename = `Rapport_KPI_${vendorSlug}.png`;
 
     showPdfOverlay();
-    element.classList.add('pdf-print-mode');
+    if (!isMini) {
+        element.classList.add('pdf-print-mode');
+    }
     advancePdfStep(1);
 
-    setTimeout(() => {
-        advancePdfStep(2);
-        const restoreCharts = freezeChartsForPdf(element);
-        const unlock        = lockWrapperForCapture(element, 794);
+    let hasResolved = false;
+    let restoreCharts = () => {};
+    let unlock = () => {};
 
+    const timeoutTimer = setTimeout(() => {
+        if (!hasResolved) {
+            hasResolved = true;
+            hidePdfOverlay(false);
+            showToast("La génération de l'image a expiré (temps limite dépassé).", "error");
+            restoreCharts();
+            unlock();
+            element.classList.remove('pdf-print-mode');
+        }
+    }, 15000); // 15 seconds safety timeout
+
+    setTimeout(() => {
+        if (hasResolved) return;
+        advancePdfStep(2);
+        restoreCharts = isMini ? () => {} : freezeChartsForPdf(element);
+        unlock        = isMini ? () => {} : lockWrapperForCapture(element, 794);
+
+        const captureWidth = isMini ? 550 : 794;
         const opt = {
             margin:       [0, 0],
             filename:     filename,
@@ -4805,8 +5308,8 @@ function downloadReportAsImage() {
                 logging: false,
                 scrollX: 0,
                 scrollY: -window.scrollY,
-                windowWidth: 794,
-                width: 794,
+                windowWidth: captureWidth,
+                width: captureWidth,
                 backgroundColor: '#ffffff'
             },
             jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
@@ -4815,7 +5318,12 @@ function downloadReportAsImage() {
 
         advancePdfStep(3);
         html2pdf().set(opt).from(element).toContainer().toCanvas().get('canvas').then((canvas) => {
+            if (hasResolved) return;
             canvas.toBlob((blob) => {
+                if (hasResolved) return;
+                hasResolved = true;
+                clearTimeout(timeoutTimer);
+
                 if (!blob) {
                     advancePdfStep(4);
                     hidePdfOverlay(false);
@@ -4838,6 +5346,9 @@ function downloadReportAsImage() {
                 showToast(`Image téléchargée ! (${sizeMb} Mo)`, "success");
             }, 'image/png');
         }).catch((err) => {
+            if (hasResolved) return;
+            hasResolved = true;
+            clearTimeout(timeoutTimer);
             console.error('Image export failed', err);
             advancePdfStep(4);
             hidePdfOverlay(false);
@@ -6746,14 +7257,18 @@ function renderPerDayQualiSections(vendeursList) {
     if (!container) return;
     container.innerHTML = '';
 
+    const card = container.closest('.cyber-card');
+    if (vendeursList.length === 1) {
+        if (card) card.style.display = 'none';
+        return;
+    } else {
+        if (card) card.style.display = 'block';
+    }
+
     // Update section title
     const titleEl = document.getElementById('per-day-quali-title');
     if (titleEl) {
-        if (vendeursList.length === 1) {
-            titleEl.innerHTML = `<i class="fa-solid fa-chart-line neon-text-green"></i> ÉVOLUTION QUALITATIVE — ${vendeursList[0]}`;
-        } else {
-            titleEl.innerHTML = `<i class="fa-solid fa-calendar-days neon-text-amber"></i> ANALYSE QUALITATIVE PAR JOUR`;
-        }
+        titleEl.innerHTML = `<i class="fa-solid fa-calendar-days neon-text-amber"></i> ANALYSE QUALITATIVE PAR JOUR`;
     }
 
     if (!trendsData || !trendsData.qualitative_trends) return;
@@ -7431,12 +7946,52 @@ function parseDateFromFilename(filename) {
         throw new Error("Aucun numéro de jour trouvé");
     }
     
+    let year = null;
+    let month = null;
     let day = null;
-    for (let m of matches) {
-        const val = parseInt(m, 10);
-        if (val >= 1 && val <= 31) {
-            day = val;
-            break;
+    
+    const isValidDay = (d) => d >= 1 && d <= 31;
+    const isValidMonth = (m) => m >= 1 && m <= 12;
+    const isValidYear = (y) => (y >= 2000 && y <= 2100) || (y >= 0 && y <= 99);
+    
+    if (matches.length >= 3) {
+        const first = parseInt(matches[0], 10);
+        const second = parseInt(matches[1], 10);
+        const third = parseInt(matches[2], 10);
+        
+        if (first > 1000 && isValidMonth(second) && isValidDay(third)) {
+            year = first;
+            month = second;
+            day = third;
+        } else if (isValidDay(first) && isValidMonth(second) && third > 1000) {
+            year = third;
+            month = second;
+            day = first;
+        } else if (isValidDay(first) && isValidMonth(second) && isValidYear(third)) {
+            year = third < 100 ? 2000 + third : third;
+            month = second;
+            day = first;
+        }
+    }
+    
+    if (day === null && matches.length >= 2) {
+        const first = parseInt(matches[0], 10);
+        const second = parseInt(matches[1], 10);
+        if (isValidDay(first) && isValidMonth(second)) {
+            day = first;
+            month = second;
+            const now = new Date();
+            year = now.getFullYear();
+        }
+    }
+    
+    if (day === null) {
+        for (let m of matches) {
+            const val = parseInt(m, 10);
+            if (isValidDay(val)) {
+                day = val;
+                break;
+            }
         }
     }
     
@@ -7444,12 +7999,38 @@ function parseDateFromFilename(filename) {
         throw new Error("Jour invalide (doit être entre 1 et 31)");
     }
     
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
+    if (year === null || month === null) {
+        const dateSelect = document.getElementById('date-select');
+        let refDate = new Date();
+        
+        if (dateSelect && dateSelect.value && dateSelect.value !== 'default') {
+            const parts = dateSelect.value.split('-');
+            if (parts.length === 3) {
+                const parsedRef = new Date(parts[0], parseInt(parts[1], 10) - 1, 1);
+                if (!isNaN(parsedRef.getTime())) {
+                    refDate = parsedRef;
+                }
+            }
+        }
+        
+        year = refDate.getFullYear();
+        month = refDate.getMonth() + 1;
+        
+        const now = new Date();
+        const testDate = new Date(year, month - 1, day);
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        if (testDate.getTime() - now.getTime() > oneDayMs) {
+            const prevMonthDate = new Date(year, month - 2, 1);
+            year = prevMonthDate.getFullYear();
+            month = prevMonthDate.getMonth() + 1;
+        }
+    }
+    
+    const yearStr = String(year);
+    const monthStr = String(month).padStart(2, '0');
     const dayStr = String(day).padStart(2, '0');
     
-    return `${year}-${month}-${dayStr}`;
+    return `${yearStr}-${monthStr}-${dayStr}`;
 }
 
 function handleMultiFileSelection(fileList) {
@@ -8334,7 +8915,27 @@ function initLayoutManager() {
                 const isCollapsed = layoutStates.collapsed[cardId] === true;
                 const collapseIcon = isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
                 
+                const isTableOrChart = [
+                    'quanti-chart-card',
+                    'quali-chart-card',
+                    'radar-chart-card',
+                    'quanti-table-card',
+                    'quali-table-card',
+                    'chakib-families-progress-card',
+                    'chakib-focus-progress-card'
+                ].includes(cardId);
+
+                let copyBtnHtml = '';
+                if (isTableOrChart) {
+                    copyBtnHtml = `
+                        <button class="card-action-btn copy-btn" title="Copier comme image" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 0.8rem; transition: color 0.2s;">
+                            <i class="fa-solid fa-copy"></i>
+                        </button>
+                    `;
+                }
+
                 actions.innerHTML = `
+                    ${copyBtnHtml}
                     <button class="card-action-btn collapse-btn" title="Minimiser/Maximiser" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 0.8rem; transition: color 0.2s;">
                         <i class="fa-solid ${collapseIcon}"></i>
                     </button>
@@ -8345,6 +8946,14 @@ function initLayoutManager() {
                 header.appendChild(actions);
 
                 // Setup button listeners
+                if (isTableOrChart) {
+                    const copyBtn = actions.querySelector('.copy-btn');
+                    copyBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        copyCardAsImage(cardId);
+                    });
+                }
+
                 const collapseBtn = actions.querySelector('.collapse-btn');
                 collapseBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -8410,6 +9019,32 @@ function initLayoutManager() {
             });
         }
     });
+
+    // Blocks Dropdown Toggle logic
+    const dropdownBtn = document.getElementById('blocks-dropdown-btn');
+    const dropdownContent = document.getElementById('blocks-dropdown-content');
+    if (dropdownBtn && dropdownContent) {
+        dropdownBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = dropdownContent.style.display === 'flex';
+            dropdownContent.style.display = isOpen ? 'none' : 'flex';
+            const icon = dropdownBtn.querySelector('i');
+            if (icon) {
+                icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+            }
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!dropdownContent.contains(e.target) && e.target !== dropdownBtn && !dropdownBtn.contains(e.target)) {
+                dropdownContent.style.display = 'none';
+                const icon = dropdownBtn.querySelector('i');
+                if (icon) {
+                    icon.style.transform = 'rotate(0deg)';
+                }
+            }
+        });
+    }
 
     // Support secondary config checkbox for alerts-section
     const configAlertsCheckbox = document.getElementById('toggle-alerts-section-config');
@@ -8576,9 +9211,18 @@ function escapeAttr(s) {
         .replace(/'/g, '&#39;');
 }
 
-function renderChakibFocusProgress(historyData, settings, totalDays) {
+function renderChakibFocusProgress(historyData, settings, totalDays, focusNames) {
     if (!historyData) return;
     
+    const nameGlace = (focusNames && focusNames.GLACE) ? focusNames.GLACE : 'Glace (SOM)';
+    const nameTomate = (focusNames && focusNames.TOMATE_FRITO) ? focusNames.TOMATE_FRITO : 'Tomate Frito (VMM)';
+    
+    // Update table headers dynamically
+    const tableHeaderGlace = document.querySelector('#chakib-focus-progress-table th:nth-child(2)');
+    const tableHeaderTomate = document.querySelector('#chakib-focus-progress-table th:nth-child(3)');
+    if (tableHeaderGlace) tableHeaderGlace.innerText = `Écart ${nameGlace}`;
+    if (tableHeaderTomate) tableHeaderTomate.innerText = `Écart ${nameTomate}`;
+
     const glaceCdz = (historyData.glace && historyData.glace.cdz) ? historyData.glace.cdz : [];
     const tomateCdz = (historyData.tomate && historyData.tomate.cdz) ? historyData.tomate.cdz : [];
     
@@ -8659,12 +9303,27 @@ function renderChakibFocusProgress(historyData, settings, totalDays) {
         return r ? Math.round(r.deviation * 100) : null;
     });
     
+    const calculateElapsedWorkdays = (dateStr) => {
+        const parts = dateStr.split('-');
+        if (parts.length !== 3) return 0;
+        const year = parseInt(parts[0]);
+        const month = parseInt(parts[1]);
+        const day = parseInt(parts[2]);
+        
+        let elapsed = 0;
+        for (let d = 1; d <= day; d++) {
+            const dt = new Date(year, month - 1, d);
+            if (dt.getDay() !== 0) { // 0 is Sunday
+                elapsed++;
+            }
+        }
+        return elapsed;
+    };
+    
     const prorataDeviations = allDates.map(date => {
-        const rest = settings ? settings[date] : null;
-        if (rest === null || rest === undefined) return null;
-        const elapsed = totalDays - rest;
+        const elapsed = calculateElapsedWorkdays(date);
         const prorataVal = (elapsed / totalDays - 1.0) * 100;
-        return Math.round(prorataVal);
+        return Math.round(prorataVal * 10) / 10;
     });
     
     chakibFocusChartInstance = new Chart(ctx, {
@@ -8673,7 +9332,7 @@ function renderChakibFocusProgress(historyData, settings, totalDays) {
             labels: labels,
             datasets: [
                 {
-                    label: 'Glace (SOM) (%)',
+                    label: nameGlace + ' (%)',
                     data: glaceData,
                     borderColor: neonBlue,
                     backgroundColor: neonBlue + '15',
@@ -8684,7 +9343,7 @@ function renderChakibFocusProgress(historyData, settings, totalDays) {
                     tension: 0.15
                 },
                 {
-                    label: 'Tomate Frito (VMM) (%)',
+                    label: nameTomate + ' (%)',
                     data: tomateData,
                     borderColor: neonPink,
                     backgroundColor: neonPink + '15',
@@ -8765,4 +9424,1043 @@ function renderChakibFocusProgress(historyData, settings, totalDays) {
             }
         }
     });
+}
+
+function formatCurrency(val) {
+    if (val === undefined || val === null) return '0 DH';
+    return Number(val).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' DH';
+}
+
+function populateWaTemplate(sData, vendeur, rawDate) {
+    // 1. Header
+    const cardVendeur = document.getElementById('wa-card-vendeur');
+    const cardDate = document.getElementById('wa-card-date');
+    const cardDays = document.getElementById('wa-card-days');
+    
+    if (cardVendeur) cardVendeur.innerText = vendeur ? vendeur.toUpperCase() : 'AGENCE GLOBALE';
+    
+    let formattedDate = '';
+    if (rawDate && rawDate !== 'default' && rawDate !== '') {
+        if (rawDate.includes('-')) {
+            const parts = rawDate.split('-');
+            if (parts.length === 3) {
+                formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+            }
+        }
+    }
+    if (!formattedDate) {
+        const now = new Date();
+        const dd = String(now.getDate()).padStart(2, '0');
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const yyyy = now.getFullYear();
+        formattedDate = `${dd}/${mm}/${yyyy}`;
+    }
+    if (cardDate) cardDate.innerText = `Période: ${formattedDate}`;
+    
+    const restDays = sData.workdays ? sData.workdays.rest : 20;
+    const elapsedDays = sData.workdays ? sData.workdays.elapsed : 4;
+    const totalDays = sData.workdays ? sData.workdays.total : 24;
+    if (cardDays) cardDays.innerText = `Jours: ${elapsedDays}/${totalDays} (Restant: ${restDays} j)`;
+    
+    // 2. Quantitatif
+    const taxLabel = (window.currentTaxMode || 'TTC');
+    const caRealEl = document.getElementById('wa-ca-real');
+    const caObjEl = document.getElementById('wa-ca-obj');
+    const caRafEl = document.getElementById('wa-ca-raf');
+    const caRateEl = document.getElementById('wa-ca-rate');
+    
+    const realCa = sData.agency_totals ? sData.agency_totals.total_real_ca_ttc : 0;
+    const objCa = sData.agency_totals ? sData.agency_totals.total_obj_ca_ttc : 1;
+    const rateCa = sData.agency_totals ? sData.agency_totals.variance_rate_ca : '0.0%';
+    const caRafVal = objCa - realCa;
+    
+    if (caRealEl) caRealEl.innerText = `${formatCurrency(realCa)}`;
+    if (caObjEl) caObjEl.innerText = `${formatCurrency(objCa)}`;
+    if (caRafEl) {
+        caRafEl.innerText = `${formatCurrency(caRafVal)}`;
+        if (caRafVal <= 0) {
+            caRafEl.style.color = '#10b981'; // Completed/Exceeded target
+        } else {
+            caRafEl.style.color = '#f59e0b';
+        }
+    }
+    
+    if (caRateEl) {
+        caRateEl.innerText = rateCa;
+        const rateFloat = parseFloat(rateCa);
+        if (rateFloat >= 0) {
+            caRateEl.style.color = '#10b981';
+        } else if (rateFloat >= -15) {
+            caRateEl.style.color = 'var(--neon-blue)';
+        } else {
+            caRateEl.style.color = '#ef4444';
+        }
+    }
+
+    // 2b. Product Families Table
+    const tbody = document.getElementById('wa-families-tbody');
+    if (tbody) {
+        tbody.innerHTML = '';
+        if (sData.families_performance) {
+            const normalFamilies = sData.families_performance.filter(f => {
+                const name = f.famille.toUpperCase();
+                return name !== 'C.A (HT)' && name !== 'C.A (TTC)' && name !== 'TOTAL';
+            });
+            
+            normalFamilies.forEach(f => {
+                const tr = document.createElement('tr');
+                tr.style.borderBottom = '1px solid #e2e8f0';
+                
+                let pctColor = '#0f172a';
+                const pctFloat = parseFloat(f.pct);
+                if (pctFloat >= 100) pctColor = '#16a34a';
+                else if (pctFloat >= 80) pctColor = '#2563eb';
+                else if (pctFloat > 0) pctColor = '#d97706';
+                else pctColor = '#dc2626';
+
+                tr.innerHTML = `
+                    <td style="padding: 6px 0; color: #0f172a; font-weight: 500;">${f.famille}</td>
+                    <td style="padding: 6px 0; text-align: right; font-family: var(--font-mono); color: #0f172a;">${formatCurrency(f.real)}</td>
+                    <td style="padding: 6px 0; text-align: right; font-family: var(--font-mono); color: ${pctColor}; font-weight: bold;">${f.pct_str}</td>
+                    <td style="padding: 6px 0; text-align: right; font-family: var(--font-mono); color: #d97706;">${formatCurrency(f.raf)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    }
+    
+    // 3. Qualitatif
+    const qualiAcmEl = document.getElementById('wa-quali-acm');
+    const qualiTsmEl = document.getElementById('wa-quali-tsm');
+    const qualiAcmRafEl = document.getElementById('wa-quali-acm-raf');
+    const qualiTsmRafEl = document.getElementById('wa-quali-tsm-raf');
+    const qualiProgEl = document.getElementById('wa-quali-prog');
+    const qualiFactEl = document.getElementById('wa-quali-fact');
+    
+    if (sData.vendeur_qualitative) {
+        if (qualiAcmEl) qualiAcmEl.innerText = sData.vendeur_qualitative.acm;
+        if (qualiTsmEl) qualiTsmEl.innerText = sData.vendeur_qualitative.tsm;
+        if (qualiAcmRafEl) qualiAcmRafEl.innerText = Math.round(sData.vendeur_qualitative.raf_acm || 0);
+        if (qualiTsmRafEl) qualiTsmRafEl.innerText = Math.round(sData.vendeur_qualitative.raf_tsm || 0);
+        if (qualiProgEl) qualiProgEl.innerText = sData.vendeur_qualitative.clt_programme;
+        if (qualiFactEl) qualiFactEl.innerText = sData.vendeur_qualitative.clt_facture;
+    } else {
+        if (qualiAcmEl) qualiAcmEl.innerText = sData.qualitative_averages ? sData.qualitative_averages.average_acm_rate : '0.0%';
+        if (qualiTsmEl) qualiTsmEl.innerText = sData.qualitative_averages ? sData.qualitative_averages.average_tsm_rate : '0.0%';
+        
+        let totalProg = 0;
+        let totalFact = 0;
+        let totalRafAcm = 0;
+        let totalRafTsm = 0;
+        if (sData.sellers_qualitative) {
+            sData.sellers_qualitative.forEach(r => {
+                totalProg += (r.clt_programme || 0);
+                totalFact += (r.clt_facture || 0);
+                totalRafAcm += (r.raf_acm || 0);
+                totalRafTsm += (r.raf_tsm || 0);
+            });
+        }
+        if (qualiAcmRafEl) qualiAcmRafEl.innerText = Math.round(totalRafAcm);
+        if (qualiTsmRafEl) qualiTsmRafEl.innerText = Math.round(totalRafTsm);
+        if (qualiProgEl) qualiProgEl.innerText = totalProg;
+        if (qualiFactEl) qualiFactEl.innerText = totalFact;
+    }
+    
+    // 4. Focus SOM and VMM
+    const focusSomNameEl = document.getElementById('wa-focus-som-name');
+    const focusVmmNameEl = document.getElementById('wa-focus-vmm-name');
+    const focusSomPctEl = document.getElementById('wa-focus-som-pct');
+    const focusVmmPctEl = document.getElementById('wa-focus-vmm-pct');
+    const focusSomBar = document.getElementById('wa-focus-som-bar');
+    const focusVmmBar = document.getElementById('wa-focus-vmm-bar');
+    const focusSomRafEl = document.getElementById('wa-focus-som-raf');
+    const focusVmmRafEl = document.getElementById('wa-focus-vmm-raf');
+    
+    const somName = (window.focusNames && window.focusNames.GLACE) || 'GLACE';
+    const vmmName = (window.focusNames && window.focusNames.TOMATE_FRITO) || 'TOMATE FRITO';
+    if (focusSomNameEl) focusSomNameEl.innerText = somName;
+    if (focusVmmNameEl) focusVmmNameEl.innerText = vmmName;
+    
+    let somPctStr = '0.0%';
+    let vmmPctStr = '0.0%';
+    let somRest = 0;
+    let vmmRest = 0;
+    let somRestJour = 0;
+    let vmmRestJour = 0;
+    
+    if (vendeur) {
+        const vUpper = vendeur.toUpperCase();
+        const somItem = sData.focus_som_summary ? sData.focus_som_summary.find(f => f.vendeur && f.vendeur.toUpperCase() === vUpper) : null;
+        const vmmItem = sData.focus_vmm_summary ? sData.focus_vmm_summary.find(f => f.vendeur && f.vendeur.toUpperCase() === vUpper) : null;
+        
+        if (somItem) {
+            somPctStr = somItem.percent;
+            somRest = parseFloat(somItem.rest) || 0;
+            somRestJour = parseFloat(somItem.rest_jour) || 0;
+        }
+        if (vmmItem) {
+            vmmPctStr = vmmItem.percent;
+            vmmRest = parseFloat(vmmItem.rest) || 0;
+            vmmRestJour = parseFloat(vmmItem.rest_jour) || 0;
+        }
+    } else {
+        let somSum = 0;
+        let countSom = 0;
+        if (sData.focus_som_summary && sData.focus_som_summary.length > 0) {
+            sData.focus_som_summary.forEach(f => {
+                if (f.vendeur && f.vendeur.toUpperCase() !== 'AUTRE') {
+                    somSum += parseFloat(f.percent) || 0;
+                    somRest += parseFloat(f.rest) || 0;
+                    somRestJour += parseFloat(f.rest_jour) || 0;
+                    countSom++;
+                }
+            });
+            somPctStr = `${(somSum / (countSom || 1)).toFixed(1)}%`;
+        }
+        
+        let vmmSum = 0;
+        let countVmm = 0;
+        if (sData.focus_vmm_summary && sData.focus_vmm_summary.length > 0) {
+            sData.focus_vmm_summary.forEach(f => {
+                if (f.vendeur && f.vendeur.toUpperCase() !== 'AUTRE') {
+                    vmmSum += parseFloat(f.percent) || 0;
+                    vmmRest += parseFloat(f.rest) || 0;
+                    vmmRestJour += parseFloat(f.rest_jour) || 0;
+                    countVmm++;
+                }
+            });
+            vmmPctStr = `${(vmmSum / (countVmm || 1)).toFixed(1)}%`;
+        }
+    }
+    
+    // Display raw deviation percentage directly
+    if (focusSomPctEl) focusSomPctEl.innerText = somPctStr;
+    if (focusVmmPctEl) focusVmmPctEl.innerText = vmmPctStr;
+    
+    // Progress bar fills according to achievement rate
+    let somPctVal = parseFloat(somPctStr) || 0;
+    let somProgress = somPctVal < 0 ? 100 + somPctVal : somPctVal;
+    let vmmPctVal = parseFloat(vmmPctStr) || 0;
+    let vmmProgress = vmmPctVal < 0 ? 100 + vmmPctVal : vmmPctVal;
+    
+    if (focusSomBar) focusSomBar.style.width = `${Math.max(0, Math.min(100, somProgress)).toFixed(1)}%`;
+    if (focusVmmBar) focusVmmBar.style.width = `${Math.max(0, Math.min(100, vmmProgress)).toFixed(1)}%`;
+
+    const focusSomRafJourEl = document.getElementById('wa-focus-som-raf-jour');
+    const focusVmmRafJourEl = document.getElementById('wa-focus-vmm-raf-jour');
+
+
+    if (focusSomRafEl) {
+        focusSomRafEl.innerText = formatCurrency(somRest);
+        focusSomRafEl.style.color = somRest <= 0 ? '#10b981' : '#0f172a';
+    }
+    if (focusSomRafJourEl) {
+        if (restDays <= 0) {
+            focusSomRafJourEl.innerText = 'N/A';
+            focusSomRafJourEl.style.color = '#64748b';
+        } else {
+            focusSomRafJourEl.innerText = `${formatCurrency(somRestJour)}/j`;
+            focusSomRafJourEl.style.color = somRestJour <= 0 ? '#10b981' : '#0f172a';
+        }
+    }
+    if (focusVmmRafEl) {
+        focusVmmRafEl.innerText = formatNumber(vmmRest);
+        focusVmmRafEl.style.color = vmmRest <= 0 ? '#10b981' : '#0f172a';
+    }
+    if (focusVmmRafJourEl) {
+        if (restDays <= 0) {
+            focusVmmRafJourEl.innerText = 'N/A';
+            focusVmmRafJourEl.style.color = '#64748b';
+        } else {
+            focusVmmRafJourEl.innerText = `${formatNumber(vmmRestJour)}/j`;
+            focusVmmRafJourEl.style.color = vmmRestJour <= 0 ? '#10b981' : '#0f172a';
+        }
+    }
+}
+
+function initAnomalisView() {
+    const addAnomalyBtn = document.getElementById('add-anomaly-btn');
+    const anomalyModal = document.getElementById('anomaly-modal');
+    const closeAnomalyModalBtn = document.getElementById('close-anomaly-modal-btn');
+    const anomalyForm = document.getElementById('anomaly-form');
+    const anomalyVendeurSelect = document.getElementById('anomaly-vendeur-select');
+    const anomalyDateInput = document.getElementById('anomaly-date-input');
+
+    if (addAnomalyBtn && anomalyModal) {
+        addAnomalyBtn.addEventListener('click', () => {
+            if (anomalyDateInput) {
+                anomalyDateInput.value = new Date().toISOString().split('T')[0];
+            }
+            const categorySelect = document.getElementById('category-select');
+            const category = categorySelect ? categorySelect.value : 'All';
+            const url = category && category !== 'All' ? `/api/vendeurs?category=${encodeURIComponent(category)}` : '/api/vendeurs';
+            
+            fetch(url)
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success' && anomalyVendeurSelect) {
+                        anomalyVendeurSelect.innerHTML = '<option value="">Sélectionner un vendeur</option>';
+                        res.vendeurs.forEach(v => {
+                            const opt = document.createElement('option');
+                            opt.value = v;
+                            opt.innerText = v;
+                            anomalyVendeurSelect.appendChild(opt);
+                        });
+                    }
+                })
+                .catch(err => console.error("Error loading sellers:", err));
+
+            anomalyModal.classList.add('open');
+        });
+    }
+
+    if (closeAnomalyModalBtn && anomalyModal) {
+        closeAnomalyModalBtn.addEventListener('click', () => {
+            anomalyModal.classList.remove('open');
+        });
+        anomalyModal.addEventListener('click', (e) => {
+            if (e.target === anomalyModal) {
+                anomalyModal.classList.remove('open');
+            }
+        });
+    }
+
+    if (anomalyForm) {
+        anomalyForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const date = document.getElementById('anomaly-date-input').value;
+            const vendeur = document.getElementById('anomaly-vendeur-select').value;
+            const type_anomali = document.getElementById('anomaly-type-select').value;
+            const commentaire = document.getElementById('anomaly-commentaire-input').value || '';
+            const tag = document.getElementById('anomaly-tag-select').value || '';
+
+            if (!date || !vendeur || !type_anomali) {
+                showToast("Veuillez remplir tous les champs.", "error");
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/anomalies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date, vendeur, type_anomali, commentaire, tag })
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showToast("Anomalie ajoutée avec succès !", "success");
+                    anomalyModal.classList.remove('open');
+                    anomalyForm.reset();
+                    loadAnomalies();
+                } else {
+                    showToast("Erreur : " + data.message, "error");
+                }
+            } catch (err) {
+                console.error("Error adding anomaly:", err);
+                showToast("Erreur lors de l'ajout de l'anomalie.", "error");
+            }
+        });
+    }
+
+    const tagFilter = document.getElementById('anomalis-tag-filter');
+    if (tagFilter) tagFilter.addEventListener('change', loadAnomalies);
+    
+    const typeFilter = document.getElementById('anomalis-type-filter');
+    if (typeFilter) typeFilter.addEventListener('change', loadAnomalies);
+    
+    const vendeurFilter = document.getElementById('anomalis-vendeur-filter');
+    if (vendeurFilter) vendeurFilter.addEventListener('change', loadAnomalies);
+    
+    const searchInput = document.getElementById('anomalis-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', loadAnomalies);
+    }
+
+    if (window.location.pathname === '/anomalis') {
+        loadAnomalies();
+    }
+}
+
+async function loadAnomalies() {
+    const loadingEl = document.getElementById('anomalis-loading');
+    const emptyEl = document.getElementById('anomalis-empty');
+    const tableCardEl = document.getElementById('anomalis-table-card');
+    const tbodyEl = document.getElementById('anomalis-tbody');
+    const badgeEl = document.getElementById('anomalis-table-badge');
+
+    if (!tbodyEl) return;
+
+    if (loadingEl) loadingEl.style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (tableCardEl) tableCardEl.style.display = 'none';
+
+    try {
+        const categorySelect = document.getElementById('category-select');
+        const selectedCategory = categorySelect ? categorySelect.value : 'All';
+        
+        let sellersUrl = '/api/vendeurs';
+        if (selectedCategory && selectedCategory !== 'All') {
+            sellersUrl += '?category=' + encodeURIComponent(selectedCategory);
+        }
+        
+        const [anomRes, sellersRes] = await Promise.all([
+            fetch('/api/anomalies?_=' + Date.now()),
+            fetch(sellersUrl)
+        ]);
+        
+        const data = await anomRes.json();
+        const sellersData = await sellersRes.json();
+        
+        const allowedSellers = (sellersData.status === 'success' && sellersData.vendeurs) 
+            ? sellersData.vendeurs.map(v => v.toUpperCase().trim()) 
+            : [];
+        
+        if (loadingEl) loadingEl.style.display = 'none';
+
+        // 1. Populate Vendeur Filter options dynamically if needed
+        const vendeurFilter = document.getElementById('anomalis-vendeur-filter');
+        if (vendeurFilter && sellersData.status === 'success' && sellersData.vendeurs) {
+            const currentVal = vendeurFilter.value || 'All';
+            vendeurFilter.innerHTML = '<option value="All">TOUS</option>';
+            sellersData.vendeurs.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v;
+                opt.innerText = v;
+                vendeurFilter.appendChild(opt);
+            });
+            // Try to preserve previous selected value
+            const options = Array.from(vendeurFilter.options).map(o => o.value);
+            if (options.includes(currentVal)) {
+                vendeurFilter.value = currentVal;
+            } else {
+                vendeurFilter.value = 'All';
+            }
+        }
+
+        if (data.status === 'success' && data.anomalies && data.anomalies.length > 0) {
+            tbodyEl.innerHTML = '';
+            
+            const tagFilter = document.getElementById('anomalis-tag-filter') ? document.getElementById('anomalis-tag-filter').value : 'All';
+            const typeFilter = document.getElementById('anomalis-type-filter') ? document.getElementById('anomalis-type-filter').value : 'All';
+            const vendeurFilterVal = document.getElementById('anomalis-vendeur-filter') ? document.getElementById('anomalis-vendeur-filter').value : 'All';
+            const searchQuery = document.getElementById('anomalis-search-input') ? document.getElementById('anomalis-search-input').value.toLowerCase().trim() : '';
+            
+            const filteredAnomalies = data.anomalies.filter(anomaly => {
+                // Category Filter
+                if (selectedCategory !== 'All' && !allowedSellers.includes((anomaly.vendeur || '').toUpperCase().trim())) {
+                    return false;
+                }
+                // Vendeur Filter
+                if (vendeurFilterVal !== 'All' && (anomaly.vendeur || '').toUpperCase().trim() !== vendeurFilterVal.toUpperCase().trim()) {
+                    return false;
+                }
+                // Type Filter
+                if (typeFilter !== 'All' && anomaly.type_anomali !== typeFilter) {
+                    return false;
+                }
+                // Tag Filter
+                if (tagFilter !== 'All') {
+                    if (tagFilter === 'None') {
+                        if (anomaly.tag && anomaly.tag !== '') return false;
+                    } else {
+                        if (anomaly.tag !== tagFilter) return false;
+                    }
+                }
+                // Search Query Filter
+                if (searchQuery !== '') {
+                    const dateParts = anomaly.date.split('-');
+                    const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : anomaly.date;
+                    const matchesSearch = 
+                        (anomaly.vendeur || '').toLowerCase().includes(searchQuery) ||
+                        (anomaly.type_anomali || '').toLowerCase().includes(searchQuery) ||
+                        (anomaly.commentaire || '').toLowerCase().includes(searchQuery) ||
+                        (anomaly.tag || '').toLowerCase().includes(searchQuery) ||
+                        formattedDate.includes(searchQuery);
+                    if (!matchesSearch) return false;
+                }
+                return true;
+            });
+            
+            if (filteredAnomalies.length > 0) {
+                filteredAnomalies.forEach(anomaly => {
+                    const tr = document.createElement('tr');
+                    
+                    const dateParts = anomaly.date.split('-');
+                    const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : anomaly.date;
+                    
+                    let formattedRegDate = anomaly.created_at || '';
+                    if (formattedRegDate && formattedRegDate.includes(' ')) {
+                        const [dPart, tPart] = formattedRegDate.split(' ');
+                        const regParts = dPart.split('-');
+                        if (regParts.length === 3) {
+                            formattedRegDate = `${regParts[2]}/${regParts[1]}/${regParts[0]} ${tPart}`;
+                        }
+                    }
+                    
+                    let badgeClass = 'badge-blue';
+                    if (anomaly.type_anomali === 'Retard') badgeClass = 'badge-amber';
+                    else if (anomaly.type_anomali === 'Rapport') badgeClass = 'badge-blue';
+                    else if (anomaly.type_anomali === 'Discipline' || anomaly.type_anomali === 'Décipline') badgeClass = 'badge-pink';
+
+                    // Determine tag badge class and label
+                    let tagBadgeHtml = '<span style="color:var(--text-muted); font-style:italic;">-</span>';
+                    if (anomaly.tag) {
+                        let tagBadgeClass = 'badge-blue';
+                        if (anomaly.tag === 'Urgent' || anomaly.tag === 'Non justifié') tagBadgeClass = 'badge-pink';
+                        else if (anomaly.tag === 'A Suivre') tagBadgeClass = 'badge-amber';
+                        else if (anomaly.tag === 'Résolu') tagBadgeClass = 'badge-green';
+                        else if (anomaly.tag === 'Justifié') tagBadgeClass = 'badge-cyan';
+                        
+                        tagBadgeHtml = `<span class="${tagBadgeClass}">${anomaly.tag}</span>`;
+                    }
+
+                    tr.innerHTML = `
+                        <td class="font-mono">${formattedDate}</td>
+                        <td><strong>${anomaly.vendeur}</strong></td>
+                        <td><span class="${badgeClass}">${anomaly.type_anomali}</span></td>
+                        <td style="color: var(--text-main); font-size: 0.85rem;">${anomaly.commentaire || '<span style="color:var(--text-muted); font-style:italic;">-</span>'}</td>
+                        <td>${tagBadgeHtml}</td>
+                        <td class="font-mono" style="font-size: 0.78rem; color: var(--text-muted);">${formattedRegDate}</td>
+                        <td style="text-align: center;">
+                            <button type="button" class="cyber-btn-mini delete-anomaly-btn" data-id="${anomaly.id}" style="border-color: var(--neon-pink); color: var(--neon-pink); background: transparent;" title="Supprimer">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </td>
+                    `;
+                    
+                    tr.querySelector('.delete-anomaly-btn').addEventListener('click', async (e) => {
+                        const id = e.currentTarget.getAttribute('data-id');
+                        if (confirm("Voulez-vous vraiment supprimer cette anomalie ?")) {
+                            try {
+                                const delRes = await fetch(`/api/anomalies/${id}`, { method: 'DELETE' });
+                                const delData = await delRes.json();
+                                if (delData.status === 'success') {
+                                    showToast("Anomalie supprimée.", "success");
+                                    loadAnomalies();
+                                } else {
+                                    showToast("Erreur : " + delData.message, "error");
+                                }
+                            } catch (err) {
+                                console.error(err);
+                                showToast("Erreur lors de la suppression.", "error");
+                            }
+                        }
+                    });
+                    
+                    tbodyEl.appendChild(tr);
+                });
+                
+                if (badgeEl) badgeEl.innerText = `${filteredAnomalies.length} anomalie${filteredAnomalies.length > 1 ? 's' : ''}`;
+                if (tableCardEl) tableCardEl.style.display = '';
+            } else {
+                if (emptyEl) emptyEl.style.display = 'block';
+                if (badgeEl) badgeEl.innerText = '0 anomalies';
+            }
+        } else {
+            if (emptyEl) emptyEl.style.display = 'block';
+            if (badgeEl) badgeEl.innerText = '0 anomalies';
+        }
+    } catch (err) {
+        console.error("Error loading anomalies:", err);
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'block';
+        if (badgeEl) badgeEl.innerText = 'erreur';
+        showToast("Erreur lors du chargement des anomalies.", "error");
+    }
+}
+
+function initTasksView() {
+    const navTasks = document.getElementById('nav-tasks');
+    const taskModal = document.getElementById('task-modal');
+    const addTaskBtn = document.getElementById('add-task-btn');
+    const closeTaskModalBtn = document.getElementById('close-task-modal-btn');
+    const taskForm = document.getElementById('task-form');
+    
+    // Assignee type toggles
+    const assigneeTypeSelect = document.getElementById('task-assignee-type-select');
+    const assigneeValGroup = document.getElementById('task-assignee-val-group');
+    const assigneeSelect = document.getElementById('task-assignee-select');
+    
+    // Subtask builder elements
+    const subtaskInput = document.getElementById('task-subtask-input');
+    const addSubtaskBtn = document.getElementById('task-add-subtask-btn');
+    const subtasksPreviewList = document.getElementById('task-subtasks-preview-list');
+    
+    // Filters elements
+    const tasksSearchInput = document.getElementById('tasks-search-input');
+    const tasksAssigneeFilter = document.getElementById('tasks-assignee-filter');
+    const tasksPriorityFilter = document.getElementById('tasks-priority-filter');
+    const tasksStatusFilter = document.getElementById('tasks-status-filter');
+    
+    let tempSubtasks = [];
+
+    if (navTasks) {
+        navTasks.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.location.href = '/tasks';
+        });
+    }
+
+    if (addTaskBtn && taskModal) {
+        addTaskBtn.addEventListener('click', () => {
+            // Reset state
+            tempSubtasks = [];
+            renderSubtasksPreview();
+            if (taskForm) taskForm.reset();
+            
+            // Set default date to today
+            const today = new Date().toISOString().split('T')[0];
+            const dateInput = document.getElementById('task-date-input');
+            if (dateInput) dateInput.value = today;
+            
+            if (assigneeValGroup) assigneeValGroup.style.display = 'none';
+            taskModal.classList.add('open');
+        });
+    }
+
+    if (closeTaskModalBtn && taskModal) {
+        closeTaskModalBtn.addEventListener('click', () => {
+            taskModal.classList.remove('open');
+        });
+        taskModal.addEventListener('click', (e) => {
+            if (e.target === taskModal) {
+                taskModal.classList.remove('open');
+            }
+        });
+    }
+
+    // Populate assignee select based on assignee type
+    if (assigneeTypeSelect && assigneeSelect && assigneeValGroup) {
+        assigneeTypeSelect.addEventListener('change', async () => {
+            const val = assigneeTypeSelect.value;
+            if (val === 'all') {
+                assigneeValGroup.style.display = 'none';
+                assigneeSelect.removeAttribute('required');
+            } else if (val === 'team') {
+                assigneeValGroup.style.display = 'block';
+                assigneeSelect.setAttribute('required', 'true');
+                
+                assigneeSelect.innerHTML = `
+                    <option value="">Sélectionner l'équipe</option>
+                    <option value="Chakib Equipe">Chakib Equipe</option>
+                    <option value="Boutmezguine Equipe">Boutmezguine Equipe</option>
+                `;
+            } else if (val === 'vendeur') {
+                assigneeValGroup.style.display = 'block';
+                assigneeSelect.setAttribute('required', 'true');
+                assigneeSelect.innerHTML = '<option value="">Chargement...</option>';
+                
+                try {
+                    const res = await fetch('/api/vendeurs');
+                    const data = await res.json();
+                    if (data.status === 'success' && data.vendeurs) {
+                        assigneeSelect.innerHTML = '<option value="">Sélectionner un vendeur</option>';
+                        data.vendeurs.forEach(v => {
+                            const opt = document.createElement('option');
+                            opt.value = v;
+                            opt.innerText = v;
+                            assigneeSelect.appendChild(opt);
+                        });
+                    } else {
+                        assigneeSelect.innerHTML = '<option value="">Erreur de chargement</option>';
+                    }
+                } catch (err) {
+                    console.error(err);
+                    assigneeSelect.innerHTML = '<option value="">Erreur de chargement</option>';
+                }
+            }
+        });
+    }
+
+    // Subtask builder click listeners
+    if (addSubtaskBtn && subtaskInput) {
+        addSubtaskBtn.addEventListener('click', () => {
+            const txt = subtaskInput.value.trim();
+            if (txt) {
+                tempSubtasks.push(txt);
+                subtaskInput.value = '';
+                renderSubtasksPreview();
+            }
+        });
+        subtaskInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addSubtaskBtn.click();
+            }
+        });
+    }
+
+    function renderSubtasksPreview() {
+        if (!subtasksPreviewList) return;
+        if (tempSubtasks.length === 0) {
+            subtasksPreviewList.innerHTML = `<span style="color: var(--text-muted); font-size: 0.72rem; font-style: italic; text-align: center; display: block; padding: 0.25rem 0;">Aucune sous-tâche ajoutée.</span>`;
+            return;
+        }
+        subtasksPreviewList.innerHTML = '';
+        tempSubtasks.forEach((sub, idx) => {
+            const div = document.createElement('div');
+            div.style = 'display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 0.25rem 0.5rem; border-radius: 2px; font-size: 0.75rem;';
+            div.innerHTML = `
+                <span style="color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%;">${sub}</span>
+                <button type="button" style="background:transparent; border:none; color: var(--neon-pink); cursor:pointer; font-size:0.8rem;" title="Supprimer">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            `;
+            div.querySelector('button').addEventListener('click', () => {
+                tempSubtasks.splice(idx, 1);
+                renderSubtasksPreview();
+            });
+            subtasksPreviewList.appendChild(div);
+        });
+    }
+
+    // Submit new task
+    if (taskForm) {
+        taskForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const title = document.getElementById('task-title-input').value.trim();
+            const date = document.getElementById('task-date-input').value;
+            const assignee_type = assigneeTypeSelect.value;
+            let assignee = '';
+            
+            if (assignee_type === 'all') {
+                assignee = "Toute l'agence";
+            } else {
+                assignee = assigneeSelect.value;
+            }
+            const priority = document.getElementById('task-priority-select').value;
+            
+            if (!title || !date || !assignee) {
+                showToast("Veuillez remplir les informations obligatoires.", "error");
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title,
+                        assignee_type,
+                        assignee,
+                        date,
+                        priority,
+                        subtasks: tempSubtasks
+                    })
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showToast("Tâche créée avec succès !", "success");
+                    taskModal.classList.remove('open');
+                    taskForm.reset();
+                    tempSubtasks = [];
+                    loadTasks();
+                } else {
+                    showToast("Erreur : " + data.message, "error");
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Erreur lors de la création de la tâche.", "error");
+            }
+        });
+    }
+
+    // Register filters change listeners
+    [tasksSearchInput, tasksAssigneeFilter, tasksPriorityFilter, tasksStatusFilter].forEach(el => {
+        if (el) {
+            const ev = el.tagName === 'INPUT' ? 'input' : 'change';
+            el.addEventListener(ev, loadTasks);
+        }
+    });
+
+    if (window.location.pathname === '/tasks') {
+        loadTasks();
+    }
+}
+
+async function loadTasks() {
+    const loadingEl = document.getElementById('tasks-loading');
+    const emptyEl = document.getElementById('tasks-empty');
+    const tableCardEl = document.getElementById('tasks-table-card');
+    const cardsGrid = document.getElementById('tasks-cards-grid');
+    const badgeEl = document.getElementById('tasks-table-badge');
+    const assigneeFilter = document.getElementById('tasks-assignee-filter');
+
+    if (!cardsGrid) return;
+
+    if (loadingEl) loadingEl.style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (tableCardEl) tableCardEl.style.display = 'none';
+
+    try {
+        const [tasksRes, sellersRes] = await Promise.all([
+            fetch('/api/tasks?_=' + Date.now()),
+            fetch('/api/vendeurs')
+        ]);
+        const tasksData = await tasksRes.json();
+        const sellersData = await sellersRes.json();
+
+        if (loadingEl) loadingEl.style.display = 'none';
+
+        if (tasksData.status === 'success' && tasksData.tasks) {
+            // Populate assignee filter options if empty (except All and Toute l'agence)
+            if (assigneeFilter && assigneeFilter.options.length <= 2) {
+                // Pre-add teams
+                const team1Opt = document.createElement('option');
+                team1Opt.value = 'Chakib Equipe';
+                team1Opt.innerText = 'CHAKIB EQUIPE';
+                assigneeFilter.appendChild(team1Opt);
+
+                const team2Opt = document.createElement('option');
+                team2Opt.value = 'Boutmezguine Equipe';
+                team2Opt.innerText = 'BOUTMEZGUINE EQUIPE';
+                assigneeFilter.appendChild(team2Opt);
+
+                if (sellersData.status === 'success' && sellersData.vendeurs) {
+                    sellersData.vendeurs.forEach(v => {
+                        const opt = document.createElement('option');
+                        opt.value = v;
+                        opt.innerText = v.toUpperCase();
+                        assigneeFilter.appendChild(opt);
+                    });
+                }
+            }
+
+            // Extract filters state
+            const searchInput = document.getElementById('tasks-search-input');
+            const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+            const assigneeVal = assigneeFilter ? assigneeFilter.value : 'All';
+            const priorityVal = document.getElementById('tasks-priority-filter') ? document.getElementById('tasks-priority-filter').value : 'All';
+            const statusVal = document.getElementById('tasks-status-filter') ? document.getElementById('tasks-status-filter').value : 'All';
+
+            // Filter tasks array
+            const filtered = tasksData.tasks.filter(task => {
+                // Assignee filter
+                if (assigneeVal !== 'All') {
+                    if (task.assignee !== assigneeVal) return false;
+                }
+                // Priority filter
+                if (priorityVal !== 'All') {
+                    if (task.priority !== priorityVal) return false;
+                }
+                // Status filter
+                if (statusVal !== 'All') {
+                    if (task.status !== statusVal) return false;
+                }
+                // Search query
+                if (query) {
+                    const dateParts = task.date.split('-');
+                    const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : task.date;
+                    const matches = 
+                        task.title.toLowerCase().includes(query) ||
+                        task.assignee.toLowerCase().includes(query) ||
+                        task.priority.toLowerCase().includes(query) ||
+                        task.status.toLowerCase().includes(query) ||
+                        formattedDate.includes(query);
+                    if (!matches) return false;
+                }
+                return true;
+            });
+
+            if (filtered.length > 0) {
+                cardsGrid.innerHTML = '';
+                filtered.forEach(task => {
+                    // Compute progress percent
+                    let progressPct = 0;
+                    if (task.subtasks && task.subtasks.length > 0) {
+                        const completed = task.subtasks.filter(s => s.completed === 1).length;
+                        progressPct = Math.round((completed / task.subtasks.length) * 100);
+                    } else {
+                        if (task.status === 'Finish') progressPct = 100;
+                        else if (task.status === 'In progress') progressPct = 50;
+                        else progressPct = 0;
+                    }
+
+                    // Format dates to dd/MM/YYYY
+                    const dParts = task.date.split('-');
+                    const formattedDate = dParts.length === 3 ? `${dParts[2]}/${dParts[1]}/${dParts[0]}` : task.date;
+
+                    // Priority glow colors classes
+                    let priorityBadgeClass = 'badge-blue';
+                    let borderGlowStyle = 'border-color: var(--border-color);';
+                    if (task.priority === 'Urgent') {
+                        priorityBadgeClass = 'badge-pink';
+                        borderGlowStyle = 'border-color: var(--neon-pink); box-shadow: 0 0 10px rgba(255, 45, 85, 0.15);';
+                    } else if (task.priority === 'Important') {
+                        priorityBadgeClass = 'badge-blue';
+                        borderGlowStyle = 'border-color: var(--neon-blue); box-shadow: 0 0 10px rgba(0, 212, 255, 0.15);';
+                    } else if (task.priority === 'Urgent et Important') {
+                        priorityBadgeClass = 'badge-pink';
+                        borderGlowStyle = 'border-color: var(--neon-pink); box-shadow: 0 0 15px rgba(255, 45, 85, 0.25);';
+                    }
+
+                    if (task.status === 'Finish') {
+                        borderGlowStyle = 'border-color: var(--neon-green); box-shadow: 0 0 12px var(--neon-green-glow);';
+                    }
+
+                    // Status classes
+                    let statusLabel = 'À FAIRE';
+                    let statusBadgeClass = 'badge-blue';
+                    if (task.status === 'In progress') {
+                        statusLabel = 'EN COURS';
+                        statusBadgeClass = 'badge-amber';
+                    } else if (task.status === 'Finish') {
+                        statusLabel = 'TERMINÉ';
+                        statusBadgeClass = 'badge-green';
+                    }
+
+                    // Build Card DOM element
+                    const card = document.createElement('div');
+                    card.className = 'cyber-card';
+                    card.style = `margin: 0; padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 200px; ${borderGlowStyle}`;
+                    
+                    // Render subtasks checklist
+                    let subtasksHtml = '';
+                    if (task.subtasks && task.subtasks.length > 0) {
+                        subtasksHtml = `
+                            <div class="subtask-list" style="margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 0.75rem;">
+                                <span class="tech-label" style="font-size: 0.68rem; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">Checklist :</span>
+                                <div style="display:flex; flex-direction:column; gap:0.35rem;">
+                                    ${task.subtasks.map(sub => `
+                                        <label style="display:flex; align-items:center; gap:0.45rem; font-family:var(--font-mono); font-size:0.75rem; color:${sub.completed === 1 ? 'var(--text-muted)' : 'var(--text-main)'}; cursor:pointer; user-select:none; text-decoration:${sub.completed === 1 ? 'line-through' : 'none'};">
+                                            <input type="checkbox" class="subtask-checkbox" data-sub-id="${sub.id}" ${sub.completed === 1 ? 'checked' : ''} style="accent-color: var(--neon-blue);">
+                                            <span>${sub.title}</span>
+                                        </label>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    card.innerHTML = `
+                        <div class="card-edge"></div>
+                        <div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                <span class="${priorityBadgeClass}" style="font-size: 0.65rem;">${task.priority}</span>
+                                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                    <span class="tech-label" style="font-size: 0.68rem; margin:0;">Statut :</span>
+                                    <select class="cyber-select task-status-selector" data-task-id="${task.id}" style="font-size: 0.7rem; padding: 0.15rem 0.35rem; height: 24px; width: 100px; border-color: var(--neon-blue);">
+                                        <option value="Start" ${task.status === 'Start' ? 'selected' : ''}>À faire</option>
+                                        <option value="In progress" ${task.status === 'In progress' ? 'selected' : ''}>En cours</option>
+                                        <option value="Finish" ${task.status === 'Finish' ? 'selected' : ''}>Terminé</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <h4 style="color: var(--text-main); font-size: 0.95rem; line-height: 1.35; margin-bottom: 0.5rem; font-weight: 600;">${task.title}</h4>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 0.25rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
+                                <div><span style="color: var(--neon-cyan);">Pour :</span> <strong>${task.assignee}</strong></div>
+                                <div><span style="color: var(--neon-cyan);">Créateur :</span> ${task.creator}</div>
+                                <div><span style="color: var(--neon-cyan);">Échéance :</span> ${formattedDate}</div>
+                            </div>
+
+                            ${subtasksHtml}
+                        </div>
+
+                        <div style="margin-top: 1rem;">
+                            <!-- Progress Bar -->
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; font-family: var(--font-mono); font-size: 0.72rem;">
+                                <span style="color: var(--text-muted);">Progression</span>
+                                <span style="color: var(--neon-blue); font-weight: bold;">${progressPct}%</span>
+                            </div>
+                            <div class="progress-bar-container" style="width: 100%; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; border: 1px solid var(--border-color);">
+                                <div class="progress-bar-fill" style="width: ${progressPct}%; height: 100%; background: linear-gradient(to right, var(--neon-blue), var(--neon-cyan)); border-radius: 3px; transition: width 0.3s ease;"></div>
+                            </div>
+
+                            <!-- Actions -->
+                            <div style="display: flex; justify-content: flex-end; margin-top: 0.75rem;">
+                                <button type="button" class="cyber-btn-mini delete-task-btn" data-task-id="${task.id}" style="border-color: var(--neon-pink); color: var(--neon-pink); background: transparent;" title="Supprimer cette tâche">
+                                    <i class="fa-solid fa-trash-can"></i> Supprimer
+                                </button>
+                            </div>
+                        </div>
+                    `;
+
+                    // Bind change listener on status select
+                    card.querySelector('.task-status-selector').addEventListener('change', async (e) => {
+                        const status = e.target.value;
+                        try {
+                            const patchRes = await fetch(`/api/tasks/${task.id}/status`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ status })
+                            });
+                            const patchData = await patchRes.json();
+                            if (patchData.status === 'success') {
+                                showToast("Statut mis à jour.", "success");
+                                loadTasks();
+                            } else {
+                                showToast("Erreur : " + patchData.message, "error");
+                            }
+                        } catch (err) {
+                            console.error(err);
+                            showToast("Erreur de mise à jour.", "error");
+                        }
+                    });
+
+                    // Bind change listeners on subtasks checkboxes
+                    card.querySelectorAll('.subtask-checkbox').forEach(chk => {
+                        chk.addEventListener('change', async (e) => {
+                            const subId = e.target.getAttribute('data-sub-id');
+                            const completed = e.target.checked;
+                            try {
+                                const subRes = await fetch(`/api/subtasks/${subId}/toggle`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ completed })
+                                });
+                                const subData = await subRes.json();
+                                if (subData.status === 'success') {
+                                    showToast("Sous-tâche mise à jour.", "success");
+                                    loadTasks();
+                                } else {
+                                    showToast("Erreur : " + subData.message, "error");
+                                    e.target.checked = !completed; // revert UI
+                                }
+                            } catch (err) {
+                                console.error(err);
+                                showToast("Erreur de mise à jour.", "error");
+                                e.target.checked = !completed; // revert UI
+                            }
+                        });
+                    });
+
+                    // Bind delete button click listener
+                    card.querySelector('.delete-task-btn').addEventListener('click', async () => {
+                        if (confirm("Voulez-vous vraiment supprimer cette tâche ?")) {
+                            try {
+                                const delRes = await fetch(`/api/tasks/${task.id}`, { method: 'DELETE' });
+                                const delData = await delRes.json();
+                                if (delData.status === 'success') {
+                                    showToast("Tâche supprimée.", "success");
+                                    loadTasks();
+                                } else {
+                                    showToast("Erreur : " + delData.message, "error");
+                                }
+                            } catch (err) {
+                                console.error(err);
+                                showToast("Erreur lors de la suppression.", "error");
+                            }
+                        }
+                    });
+
+                    cardsGrid.appendChild(card);
+                });
+
+                if (badgeEl) badgeEl.innerText = `${filtered.length} tâche${filtered.length > 1 ? 's' : ''}`;
+                if (tableCardEl) tableCardEl.style.display = '';
+            } else {
+                if (emptyEl) emptyEl.style.display = 'block';
+                if (badgeEl) badgeEl.innerText = '0 tâches';
+            }
+        } else {
+            if (emptyEl) emptyEl.style.display = 'block';
+            if (badgeEl) badgeEl.innerText = '0 tâches';
+        }
+    } catch (err) {
+        console.error("Error loading tasks:", err);
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'block';
+        if (badgeEl) badgeEl.innerText = 'erreur';
+        showToast("Erreur lors du chargement des tâches.", "error");
+    }
 }

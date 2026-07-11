@@ -1,191 +1,241 @@
-Bonjour D48 IBACH MOHAMED,
-
-Je te présente ton rapport de performance individuel pour la période en cours. L'objectif de ce rapport est de souligner tes réussites, d'identifier les domaines à améliorer et de te fournir des pistes concrètes pour maximiser ton potentiel de vente.
+Absolument ! Voici une analyse de performance détaillée et des recommandations pour D48 IBACH MOHAMED, en ma qualité d'analyste commercial senior et coach :
 
 ---
 
-### 1. Introduction : Analyse des Résultats de Chiffre d'Affaires
+## Rapport de Performance Individuel - D48 IBACH MOHAMED (Région AGADIR)
 
-Je souhaite te féliciter pour ton excellent travail cette période ! Tu as largement dépassé tes objectifs individuels de chiffre d'affaires, un signe très positif de ton engagement et de ton efficacité.
+**Période d'analyse :** En cours (9 jours écoulés sur 27 jours de travail)
 
-Ton **chiffre d'affaires réalisé s'élève à 209 075 DH (TTC)**, surpassant ton objectif de 204 000 DH (TTC). Cela se traduit par un **taux d'atteinte de 102.5%** et un **pourcentage d'écart positif de +2.5%**. C'est une performance remarquable qui mérite d'être soulignée.
+### 1. Introduction : Analyse des résultats de chiffre d'affaires
 
----
+Cher D48 IBACH MOHAMED,
 
-### 1.5. Positionnement par Rapport à l'Agence
+Félicitations pour votre excellente performance sur la période en cours ! Vous avez **largement dépassé vos objectifs individuels de chiffre d'affaires (CA)**. Votre CA réalisé s'élève à 124 967 DH (TTC) pour un objectif de 90 000 DH (TTC).
+
+Votre **taux d'atteinte est de 138.9%**, ce qui représente un **excellent écart positif de +38.9%** par rapport à votre objectif. C'est un résultat remarquable qui témoigne de votre dynamisme et de votre efficacité sur le terrain.
 
 > [!TIP]
-> Tu te positionnes solidement dans le classement de l'agence, démontrant une performance supérieure à la moyenne. L'objectif est de maintenir cette dynamique positive et de chercher à te rapprocher des meilleurs performers.
+> Maintenir ce niveau de performance est clé. Continuons à capitaliser sur cette dynamique positive pour assurer un excellent mois.
 
-Tu te classes actuellement **#10 sur 19 vendeurs** actifs de l'agence. C'est un positionnement honorable qui te place dans la première moitié de l'équipe.
+### 1.5. Positionnement du vendeur (comparaison agence)
 
-Ton taux d'écart objectif est de **+2.5%**, ce qui est nettement supérieur à la moyenne de l'agence qui est de **+0.6%**. Cet écart positif de **+1.9%** te positionne comme un contributeur en avance par rapport à tes pairs au sein de l'agence.
+Votre performance vous positionne comme un contributeur majeur au succès de l'agence :
 
-Le meilleur performer de l'agence est F78 GHOUSMI MOURAD avec un écart de +71.7%, tandis que le vendeur le plus en retard est T45 FAICAL GOUIZID avec un écart de -62.4%. Ton écart de +2.5% te place confortablement au-dessus de la moyenne, ce qui est très encourageant.
+*   **Classement :** Vous vous classez actuellement **#2 sur 19 vendeurs** actifs de l'agence. C'est une position très enviable, juste derrière le meilleur performer.
+*   **Écart objectif :** Votre taux d'écart objectif est de **+38.9%**.
+*   **Comparaison avec la moyenne de l'agence :** La moyenne de l'agence est de -0.1%. Vous surpassez donc cette moyenne avec un écart spectaculaire de **+39.0%**.
 
----
+Vous êtes clairement en **nette avance par rapport à vos pairs** et tirez la performance globale de l'agence vers le haut. Votre écart positif de +38.9% est significativement supérieur à la moyenne, ce qui souligne votre contribution exceptionnelle.
+
+> [!IMPORTANT]
+> Votre performance est un formidable exemple pour l'équipe. N'hésitez pas à partager vos meilleures pratiques avec vos collègues, notamment sur les familles de produits où vous excellez.
+
+**Classement détaillé de l'agence :**
+
+| Vendeur                 | Réalisé (DH TTC) | Objectif (DH TTC) | Écart (%) |
+| :---------------------- | ---------------: | ----------------: | --------: |
+| F78 GHOUSMI MOURAD      |          141 580 |            81 000 |   +74.8% |
+| **D48 IBACH MOHAMED**   | **124 967**      | **90 000**        | **+38.9%** |
+| 485 NAMOUSS ABDESSAMAD  |           92 798 |            67 500 |   +37.5% |
+| K60 ELHAOUZI RACHID     |          143 029 |           126 000 |   +13.5% |
+| K91 BAIZ MOHAMED        |           81 116 |            74 250 |    +9.2% |
+| J78 LASRI EL HOUCINE    |           66 576 |            63 000 |    +5.7% |
+| J23 ACHTOUK LAHOUCINE   |           93 467 |            90 000 |    +3.9% |
+| JJ2 EL ASERY YOUSSEF    |           75 614 |            76 500 |    -1.2% |
+| Y60 ATOUAOU AIMAD       |          110 339 |           112 500 |    -1.9% |
+| T45 FAICAL GOUIZID      |          115 416 |           126 000 |    -8.4% |
+| D86 ACHAOUI AZIZ        |           72 858 |            81 000 |   -10.1% |
+| O42 BENOUALLAD MY ZAKARIA |          110 801 |           126 000 |   -12.1% |
+| Y59 EL GHANMI MOHAMED   |           78 236 |            90 000 |   -13.1% |
+| T96 EL HADI BOUBAKER    |           76 882 |            90 000 |   -14.6% |
+| I03 EL OUAHMI ACHRAF    |           57 210 |            67 500 |   -15.2% |
+| O30 BOUDHOUR MBAREK     |          143 705 |           171 000 |   -16.0% |
+| D45 OUARSSASSA YASSINE  |           81 409 |           101 250 |   -19.6% |
+| E14 BOUMDIANE MOHAMED   |           58 463 |            73 350 |   -20.3% |
+| T89 AKNOUN MOHAMED      |           78 824 |            99 000 |   -20.4% |
+
+`agency_ranking_chart`
 
 ### 2. Analyse Quantitative (Performance des Ventes par Famille de Produits)
 
-Analysons maintenant ta performance sur les différentes familles de produits.
+Voici le détail de votre performance par famille de produits sur la période actuelle :
 
-| Famille        | Réalisé (DH TTC) | Parcial (DH TTC) | Taux de Réalisation (%) | Réal 2025 (DH TTC) | Obj Mois (DH TTC) | Reste à Faire (RAF) (DH TTC) |
-|:---------------|-----------------:|-----------------:|------------------------:|-------------------:|------------------:|-------------------------------:|
-| LEVURE         |        35 216 DH |        35 216 DH |                   -34.8 |         326 609 DH |         54 000 DH |                      0 DH      |
-| MOUSSES        |        11 459 DH |        11 459 DH |                   -20.4 |          75 484 DH |         14 400 DH |                      0 DH      |
-| BOUILLON       |         7 987 DH |         7 987 DH |                   -58.4 |         442 111 DH |         19 200 DH |                      0 DH      |
-| CONDIMENTS     |        49 441 DH |        49 441 DH |                    +3.0 |         397 602 DH |         48 000 DH |                      0 DH      |
-| CONFITURE      |        20 041 DH |        20 041 DH |                   +39.2 |         107 952 DH |         14 400 DH |                      0 DH      |
-| CONSERVES      |         9 553 DH |         9 553 DH |                   -20.4 |          88 196 DH |         12 000 DH |                      0 DH      |
-| MISWAK         |             0 DH |             0 DH |                  -100.0 |               0 DH |             0 DH |                      0 DH      |
-| **C.A (TTC)** |       **209 075 DH** |       **209 075 DH** |                   **+2.5** |       **2 100 481 DH** |       **204 000 DH** |                      **0 DH** |
+| Famille     | Réalisé (DH TTC) | Objectif (DH TTC) | Taux de Réalisation (%) | Réal. Mois 2025 (DH TTC) | Obj. Fin Mois (DH TTC) | Reste à Faire (RAF) (DH TTC) |
+| :---------- | ---------------: | ----------------: | ----------------------: | -----------------------: | -----------------------: | ---------------------------: |
+| LEVURE      |           19 084 |            18 000 |                   +6.0% |                  271 310 |                   48 000 |                         1 607 |
+| MOUSSES     |                0 |                 0 |                 -100.0% |                        0 |                        0 |                             0 |
+| BOUILLON    |            4 039 |             5 400 |                  -25.2% |                  447 268 |                   14 400 |                           576 |
+| CONDIMENTS  |           27 570 |            18 000 |                  +53.2% |                  446 702 |                   48 000 |                         1 135 |
+| CONFITURE   |                0 |                 0 |                 -100.0% |                        0 |                        0 |                             0 |
+| CONSERVES   |            6 127 |             4 500 |                  +36.2% |                   89 251 |                   12 000 |                           326 |
+| MISWAK      |                0 |                 0 |                 -100.0% |                        0 |                        0 |                             0 |
+| MGM         |           12 080 |            18 000 |                  -32.9% |                    7 076 |                   48 000 |                         1 996 |
+| SAUCES      |            8 190 |             4 500 |                   +82.0% |                    6 072 |                   12 000 |                           211 |
+| **C.A (TTC)** | **124 967**      | **90 000**        | **+38.9%**              | **2 226 181**            | **240 000**              | **6 391**                   |
 
-**Points Forts :**
+`families_performance_table`
 
-*   **CONFITURE :** Une performance exceptionnelle avec un taux de réalisation de **+39.2%**. C'est une famille où tu excelles et il est important de capitaliser sur ce succès.
-*   **CONDIMENTS :** Tu as dépassé ton objectif avec un taux de réalisation de **+3.0%**. C'est un bon signe de stabilité dans cette famille.
+**Points forts :**
 
-**Axes d'Amélioration et Opportunités de Croissance :**
+*   **SAUCES :** Une performance exceptionnelle avec un taux de réalisation de **+82.0%**, dépassant largement l'objectif. Bravo !
+*   **CONDIMENTS :** Très bon score avec un taux de réalisation de **+53.2%**. Vous démontrez une excellente maîtrise de cette famille de produits.
+*   **CONSERVES :** Une belle avance avec **+36.2%** d'atteinte, contribuant positivement à votre CA.
+*   **LEVURE :** Bien au-delà de l'objectif avec **+6.0%**.
 
-*   **BOUILLON :** C'est la famille la plus en difficulté avec un taux de réalisation de **-58.4%**. Il est crucial d'analyser les raisons de ce sous-performance. Est-ce un problème de référencement, de prospection, de compétitivité des produits, ou de connaissance produit ?
-*   **LEVURE :** Un écart significatif de **-34.8%** par rapport à l'objectif.
-*   **MOUSSES et CONSERVES :** Ces deux familles affichent également un retard important, respectivement de **-20.4%** et **-20.4%**.
-*   **MISWAK :** Aucun chiffre d'affaires n'a été réalisé sur cette famille (-100.0%), ce qui indique une opportunité non exploitée ou un besoin de compréhension de la stratégie autour de ce produit.
+**Axes d'amélioration et Opportunités de Croissance :**
+
+*   **Familles à 0% d'atteinte (MOUSSES, CONFITURE, MISWAK) :** Ces familles n'ont généré aucun CA. Bien qu'il n'y ait pas d'objectif spécifique pour cette période sur certaines de ces familles, il est crucial d'évaluer si un potentiel de vente existe ou si ces produits devraient être proposés.
+    *   **Action :** Vérifier si ces produits sont en stock et si des efforts peuvent être ciblés sur ces gammes, même avec un objectif à zéro. On ne doit jamais laisser un client sans proposition si le produit existe.
+*   **BOUILLON (-25.2%) et MGM (-32.9%) :** Ces deux familles sont en retard par rapport à leurs objectifs.
+    *   **Action :** Identifier les raisons de ce retard. S'agit-il d'un problème de stock, de prix, de promotion, ou d'une méconnaissance du produit par les clients ? Un ciblage plus agressif ou une démonstration de valeur de ces produits pourrait relancer les ventes.
 
 > [!WARNING]
-> La sous-performance sur les familles BOUILLON, LEVURE, MOUSSES, CONSERVES et MISWAK représente un risque pour ton objectif global si l'objectif actuel était resté en cours. Heureusement, tu as compensé ce retard grâce à tes excellentes performances sur d'autres familles. Cependant, il est vital de travailler à rééquilibrer ton portefeuille pour une croissance plus stable et diversifiée.
-
----
+> Les familles MOUSSES, CONFITURE et MISWAK affichent 0 DH (TTC) de réalisé. Même sans objectif assigné pour certaines familles, il est important de ne pas ignorer le potentiel de vente et de s'assurer qu'aucun client ne demande ces références sans réponse.
 
 ### 3. Analyse Qualitative (Suivi Clients)
 
-Examinons la qualité de ton suivi client.
+Le suivi de votre activité commerciale est primordial. Voici un aperçu de vos indicateurs qualitatifs :
 
 | Clients Programmés | Clients Facturés | ACM (%) | TSM (%) | LINE (%) | RAF TSM | RAF ACM |
-|:-------------------|:-----------------|:--------|:--------|:---------|:--------|:--------|
-| 501                | 433              | 86.6%   | 67.6%   | 114.6%   | 0       | 0       |
+| :----------------- | ---------------: | ------: | ------: | -------: | ------: | ------: |
+| 501                | 272              | 54.4%   | 24.4%   | 120.9%   | 21      | 12      |
 
-*   **Taux de Visites (ACM) :** Ton ACM est de **86.6%**. C'est un bon taux de couverture qui montre que tu visites une grande partie de tes clients programmés.
-*   **Taux de Transformation (TSM) :** Ton TSM s'élève à **67.6%**. Ce taux est solide, mais il existe toujours une marge d'amélioration pour convertir un plus grand pourcentage de tes visites en ventes concrètes.
-*   **Performance LINE :** Une performance de **114.6%** sur le LINE est excellente ! Cela signifie que tu vends en moyenne plus de lignes de produits par commande que l'objectif, ce qui témoigne de ta capacité à faire de la vente additionnelle et du cross-selling.
+`vendeur_qualitative_table`
 
-> [!IMPORTANT]
-> Ton excellent taux LINE (114.6%) est un atout majeur et une pratique à maintenir. Il est un levier puissant pour augmenter le panier moyen de tes clients.
-
-**Actions Correctives pour Améliorer la Couverture Terrain et la Transformation :**
-
-*   **Optimiser les visites :** Bien que ton ACM soit bon, une analyse plus fine des clients non visités pourrait révéler des opportunités. Y a-t-il des clients à fort potentiel que tu ne parviens pas à atteindre régulièrement ?
-*   **Stratégies de conversion (TSM) :** Pour les 32.4% de visites qui ne se transforment pas en commande, identifie les raisons. Est-ce lié au besoin du client, au prix, à la concurrence, ou à la disponibilité des produits ? Peux-tu affiner tes arguments de vente ou proposer des offres plus ciblées ?
-*   **Exploiter le LINE pour les familles en retard :** Étant donné ton excellente performance LINE, utilise cette force pour introduire les familles de produits en retard (BOUILLON, LEVURE, MOUSSES, CONSERVES, MISWAK) auprès de clients qui n'en achètent pas encore.
-
----
-
-### 4. Analyse des Focus Produits
-
-Les focus produits sont essentiels pour la stratégie de l'entreprise.
-
-*   **Focus VMM (Tomate Frito) pour la famille CONDIMENTS :**
-    *   Tu as un taux de réalisation de **-100.0%** sur ce focus, ce qui indique qu'aucun objectif n'a été atteint.
-*   **Focus SOM (Glace) :**
-    *   Avec un taux de réalisation de **-93.5%**, la performance sur ce focus est également très faible.
-
-> [!WARNING]
-> La non-réalisation des objectifs sur les deux focus produits ("Tomate Frito" et "Glace") est une faiblesse majeure et un point d'alerte. Il est impératif de prendre des mesures immédiates pour y remédier. L'objectif sur ces produits est de 0 DH (TTC) Reste à Faire.
-
-**Actions Spécifiques pour Relancer les Focus Produits :**
-
-*   **Comprendre les obstacles :** Pourquoi ces focus ne prennent-ils pas ? Manque de stock, absence de demande client, prix non compétitifs, connaissance produit insuffisante, ou absence de présentation active de ta part ?
-*   **Formation produit :** Si nécessaire, demande une formation complémentaire sur les avantages spécifiques de la Tomate Frito (VMM) et des produits Glace (SOM) pour renforcer tes arguments de vente.
-*   **Identification des clients cibles :** Travaille avec ton chef des ventes pour identifier les clients potentiels les plus enclins à acheter ces produits.
-*   **Mise en place d'offres spéciales :** Propose des promotions ou des offres groupées pour encourager l'essai et la première vente.
-*   **Priorisation des focus :** Fais des focus produits une priorité lors de tes prochaines visites, en les présentant systématiquement.
-
----
-
-### Plan d'Action Individuel et Coaching
+*   **Taux de Visites (ACM - Activité Commerciale du Mois) :** Votre ACM est de **54.4%**. Cela signifie que vous avez visité un peu plus de la moitié de vos clients programmés.
+*   **Taux de Transformation (TSM - Taux de Satisfaction Mensuel) :** Votre TSM est de **24.4%**. Cela indique que près d'un quart de vos clients visités ont été facturés.
+*   **Performance LINE :** Votre indicateur LINE est à **120.9%**, ce qui est excellent et montre que la valeur moyenne par commande est très bonne, ou que vous avez réussi à vendre un assortiment de produits intéressant.
+*   **Reste à Faire (RAF) :** Il vous reste 21 clients à facturer (RAF TSM) et 12 clients à visiter (RAF ACM) pour atteindre les objectifs sur ces indicateurs qualitatifs.
 
 > [!NOTE]
-> Félicitations encore pour ton dépassement d'objectif global ! Ton **Reste à Faire (RAF) est de 0 DH (TTC)**, ce qui signifie que tu as déjà atteint et dépassé ton objectif du mois, avec **0 jours restants** sur la période. C'est exceptionnel !
+> Votre performance LINE de 120.9% est un atout majeur. Cela suggère que lorsque vous parvenez à vendre, le panier moyen est élevé.
 
-Cependant, ne lève pas le pied. L'objectif est maintenant de consolider tes acquis et de préparer au mieux la prochaine période.
+**Actions correctives pour améliorer la couverture terrain :**
 
-Voici des conseils pour continuer sur cette lancée positive et améliorer les points faibles identifiés :
+*   **Améliorer l'ACM :** Avec 18 jours restants, il est essentiel d'augmenter votre taux de visites. Planifiez vos journées de manière à optimiser vos trajets et à couvrir un maximum de clients programmés. Chaque visite est une opportunité.
+*   **Optimiser le TSM :** Votre TSM de 24.4% laisse une marge d'amélioration. Analysez les raisons pour lesquelles certains clients visités ne sont pas facturés. Est-ce lié à la disponibilité des produits, aux promotions, à la concurrence, ou à la proposition commerciale ?
+*   **Focus sur le RAF :** Un effort ciblé sur les 12 clients restants à visiter et les 21 clients à facturer peut significativement impacter vos indicateurs qualitatifs. Ne les négligez pas.
 
-1.  **Capitaliser sur les points forts :**
-    *   **CONSERVE & DÉVELOPPE CONFITURE :** Poursuis tes efforts sur la famille CONFITURE (+39.2%). Peux-tu identifier de nouveaux clients pour ces produits ou proposer des assortiments plus larges aux clients existants ?
+### 4. Analyse des Focus Produits (Tomate Frito VMM et Glace SOM)
 
-2.  **Rééquilibrer le portefeuille (pour la prochaine période) :**
-    *   **Focus sur le BOUILLON :** C'est la priorité des priorités. Analyse en profondeur pourquoi cette famille est en si grand retard (-58.4%). Commence par identifier 5 clients par jour où tu t'engages à présenter l'ensemble de la gamme BOUILLON avec un argumentaire fort.
-    *   **Relance LEVURE, MOUSSES, CONSERVES :** Intègre ces familles dans tes arguments de vente croisée (cross-selling), en t'appuyant sur ton excellent taux LINE.
-    *   **Action sur MISWAK :** Prépare un plan d'action spécifique pour introduire et vendre les produits MISWAK. Il faut passer de 0 DH (TTC) à un minimum lors de la prochaine période.
+Voici votre performance sur les produits focus, essentiels pour la stratégie de l'entreprise :
 
-3.  **Amélioration Qualitative (TSM et LINE) :**
-    *   **Affiner la préparation des visites :** Pour augmenter encore ton TSM, prépare tes visites en amont : connais les besoins de tes clients, les stocks disponibles, et les offres promotionnelles du moment.
-    *   **Maintenir l'excellence LINE :** Continue à proposer des produits complémentaires et des assortiments. Cela témoigne d'une approche de vente conseil très efficace.
+**Focus Tomate Frito (VMM) :**
 
-4.  **Dédiaboliser et Relancer les Focus Produit VMM et SOM :**
-    *   **Investigation sur les freins :** Dès le début de la prochaine période, consacre du temps à comprendre pourquoi les focus VMM (Tomate Frito) et SOM (Glace) n'ont pas décollé. N'hésite pas à échanger avec tes collègues et ton chef des ventes.
-    *   **Offre découverte :** Si possible, propose des offres de "découverte" ou des échantillons pour ces produits lors de tes prochaines visites.
-    *   **Objectif SMART pour les focus :** Fixe-toi des objectifs clairs et mesurables pour la prochaine période sur ces familles, par exemple "vendre X unités de Tomate Frito à Y clients" ou "atteindre un CA de Z DH (TTC) sur les glaces".
+| Vendeur             | Secteur        | Objectif (DH TTC) | Réalisé (DH TTC) | Écart (%) | Reste à Faire (DH TTC) | RAF Quotidien (DH TTC) | Jours Restants |
+| :------------------ | :------------- | ----------------: | ---------------: | --------: | ---------------------: | ---------------------: | -------------: |
+| D48 IBACH MOHAMED | TAROUDANT SOM VMM |           5 400.0 |            693.8 |   -87.2% |               4 706.17 |                 261.45 |             18 |
 
-**Félicitations encore pour la réussite de cette période !** Continue à travailler avec la même détermination et intelligence. Les analyses de ce rapport sont là pour t'aider à structurer tes efforts et à transformer chaque lacune actuelle en opportunité future.
+`focus_vmm_summary_table`
 
-N'hésite pas à me solliciter si tu as besoin de conseils ou d'un soutien supplémentaire pour mettre en œuvre ce plan d'action.
+**Focus Glace (SOM) :**
 
-Cordialement,
+| Vendeur             | Secteur        | Objectif (DH TTC) | Réalisé (DH TTC) | Écart (%) | Reste à Faire (DH TTC) | RAF Quotidien (DH TTC) | Jours Restants |
+| :------------------ | :------------- | ----------------: | ---------------: | --------: | ---------------------: | ---------------------: | -------------: |
+| D48 IBACH MOHAMED | TAROUDANT SOM VMM |           2 400.0 |            117.2 |   -95.1% |               2 282.84 |                 126.82 |             18 |
 
-Ton Analyste Commercial Senior et Coach de Force de Vente.
+`focus_som_summary_table`
+
+> [!WARNING]
+> Les focus produits sont des zones de faiblesse claires pour vous sur cette période. La Tomate Frito VMM est à -87.2% de l'objectif et la Glace SOM est à -95.1%. Ces écarts sont très significatifs et nécessitent une attention immédiate.
+
+**Analyse des retards sur les focus :**
+
+*   **Tomate Frito VMM :** Un retard de **-87.2%** est très important. Le RAF quotidien est de 261.45 DH (TTC) sur 18 jours pour atteindre l'objectif.
+*   **Glace SOM :** Le retard est encore plus prononcé avec **-95.1%**. Le RAF quotidien est de 126.82 DH (TTC) sur 18 jours.
+
+Ces résultats indiquent que vous n'avez pas réussi à prioriser et à pousser ces produits stratégiques. Pour l'ensemble de l'agence, ces produits représentent des axes de développement cruciaux.
+
+**Actions spécifiques pour relancer les focus produits :**
+
+*   **Priorisation :** Mettez ces deux familles de produits en tête de votre argumentaire de vente lors de chaque visite.
+*   **Identification des freins :** Quels sont les obstacles à la vente de ces produits ? Y a-t-il un problème de stock, de visibilité en magasin, de prix, de date de péremption, ou de manque d'intérêt des clients ?
+*   **Argumentaire de vente spécifique :** Préparez un argumentaire solide et mettez en avant les bénéfices de ces produits pour le client (rentabilité, rotation, satisfaction du consommateur final).
+*   **Offres et promotions :** Utilisez les promotions en cours si elles existent. Sinon, discutez avec votre manager pour voir s'il y a des leviers commerciaux spécifiques à activer.
+*   **Ciblage :** Identifiez les clients qui n'ont pas encore acheté ces produits ou ceux qui en achètent peu, et concentrez vos efforts sur eux.
+
+### Plan d'Action & Coaching Individualisé
+
+D48 IBACH MOHAMED, votre performance globale est exceptionnelle et vous êtes un atout majeur pour l'équipe commercial. Nous allons capitaliser sur cette force tout en corrigeant les points faibles.
+
+**Objectif principal :** Maintenir votre excellente dynamique générale de CA et redresser significativement la performance des produits focus.
+
+**Objectif RAF global quotidien pour le CA :**
+Pour les 18 jours restants, votre objectif quotidien moyen de CA (TTC) est de **6 391 DH (TTC) / 18 jours = 355.06 DH (TTC)**. C'est un objectif très faible compte tenu de votre avance, et cela vous laisse une grande marge pour vous concentrer sur d'autres axes.
+
+**Plan d'action détaillé pour les 18 jours restants :**
+
+1.  **Consolider les points forts (30% de votre temps) :**
+    *   Continuez à exceller sur les familles **SAUCES (+82.0%), CONDIMENTS (+53.2%), CONSERVES (+36.2%) et LEVURE (+6.0%)**. Identifiez ce qui fonctionne bien et répliquez ces pratiques.
+    *   **Action :** Fixez-vous un objectif personnel de maintenir ou d'améliorer vos taux d'atteinte sur ces familles prometteuses, qui sont en pleine croissance.
+
+2.  **Relancer les familles en retard (40% de votre temps) :**
+    *   **Focus immédiat sur BOUILLON (-25.2%) et MGM (-32.9%) :**
+        *   **Action :** Analysez l'historique de vente de ces produits chez vos clients. Pour chaque client, identifiez s'il a déjà acheté ces produits par le passé.
+        *   **Action :** Préparez un argumentaire de vente ciblé : Offres de lancement ? Avantages du produit pour le client final ?
+        *   **Action :** Sollicitez l'aide de votre manager pour des sessions de co-aching ou des astuces pour relancer ces familles.
+    *   **Aborder les familles à 0% (MOUSSES, CONFITURE, MISWAK) :**
+        *   **Action :** Même sans objectif spécifique, assurez-vous de toujours proposer un assortiment complet lorsque c'est pertinent. Au moins un essai pourrait ouvrir de nouvelles opportunités.
+
+3.  **Redressement des Focus Produits (30% de votre temps) :**
+    *   **Priorité absolue à Tomate Frito VMM et Glace SOM :**
+        *   **RAF Tomate Frito (VMM) quotidien : 261.45 DH (TTC)**
+        *   **RAF Glace (SOM) quotidien : 126.82 DH (TTC)**
+        *   **Action :** Intégrez systématiquement la présentation de la Tomate Frito VMM et de la Glace SOM dans 100% de vos visites clients pertinentes.
+        *   **Action :** Mettez en place des objectifs personnels journaliers pour ces deux produits. Par exemple, "vendre X unités de Tomate Frito VMM et Y unités de Glace SOM par jour".
+        *   **Action :** Sollicitez des échantillons ou du matériel promotionnel pour ces produits si disponible.
+        *   **Action :** Participez activement aux briefings sur ces produits et partagez vos retours terrain pour mieux comprendre les freins.
+
+4.  **Optimisation de l'Activité Qualitative :**
+    *   **Gestion du RAF ACM et TSM :** Avec 18 jours restants, vous avez le temps de rattraper le retard sur les 12 clients programmés à visiter et les 21 clients à facturer.
+    *   **Action :** Réorganisez vos tournées pour maximiser le nombre de visites effectives (ACM).
+    *   **Action :** Analysez vos refus de facturation (TSM) pour mieux adapter votre approche commerciale.
+
+> [!NOTE]
+> Votre "reste à faire" par jour pour les focus produits est de 261.45 DH (TTC) pour la Tomate Frito et 126.82 DH (TTC) pour la Glace. Ciblez spécifiquement ces montants pour chaque journée.
+
+**Conseils de Coaching :**
+
+*   **Planification Rigoureuse :** Avec votre excellent CA global, vous avez une base solide. Utilisez les 18 jours restants pour affiner votre planification et vous concentrer sur les points d'amélioration identifiés, notamment les focus produits et les familles en retard.
+*   **Analyse du terrain :** Pour les produits en retard, recueillez activement les retours de vos clients. Leurs insights sont précieux pour comprendre les blocages et trouver des solutions.
+*   **Proactivité :** Ne soyez pas uniquement un preneur de commande, soyez un conseiller pour vos clients. Proposez-leur des solutions basées sur notre gamme de produits, y compris les focus.
+*   **Partage :** Votre position de #2 dans l'agence est une reconnaissance de votre expertise. Partagez vos réussites sur les familles où vous excellez avec vos collègues.
+
+D48 IBACH MOHAMED, vous êtes sur une excellente lancée avec votre CA général. Je suis confiant que, en vous concentrant sur les familles en retard et en mettant un effort soutenu sur les focus produits, vous terminerez la période avec un succès encore plus éclatant. Votre esprit d'analyse et votre capacité à performer seront vos meilleurs atouts. Bravo encore pour votre performance !
 
 ### Classement et Comparaison avec les autres vendeurs
 
 | Vendeur | Réalisé (DH) | Objectif (DH) | Taux de réalisation (%) |
 | :--- | :---: | :---: | :---: |
-| F78 GHOUSMI MOURAD | 288,420 | 168,000 | +71.7% |
-| I03 EL OUAHMI ACHRAF | 173,425 | 144,000 | +20.4% |
-| JJ2 EL ASERY YOUSSEF | 212,570 | 180,000 | +18.1% |
-| T89 AKNOUN MOHAMED | 204,786 | 174,000 | +17.7% |
-| O42 BENOUALLAD MY ZAKARIA | 238,206 | 216,000 | +10.3% |
-| K91 BAIZ MOHAMED | 158,114 | 150,000 | +5.4% |
-| D86 ACHAOUI AZIZ | 188,656 | 180,000 | +4.8% |
-| Y60 ATOUAOU AIMAD | 223,676 | 216,000 | +3.6% |
-| K60 ELHAOUZI RACHID | 320,995 | 312,000 | +2.9% |
-| **D48 IBACH MOHAMED (Sélectionné)** | 209,075 | 204,000 | +2.5% |
-| O30 BOUDHOUR MBAREK | 340,148 | 336,000 | +1.2% |
-| D45 OUARSSASSA YASSINE | 182,052 | 180,000 | +1.1% |
-| Y59 EL GHANMI MOHAMED | 181,667 | 180,000 | +0.9% |
-| E14 BOUMDIANE MOHAMED | 155,868 | 156,000 | -0.1% |
-| J23 ACHTOUK LAHOUCINE | 179,234 | 180,000 | -0.4% |
-| 485 NAMOUSS ABDESSAMAD | 165,595 | 168,000 | -1.4% |
-| J78 LASRI EL HOUCINE | 98,862 | 168,000 | -41.2% |
-| T96 EL HADI BOUBAKER | 84,119 | 147,600 | -43.0% |
-| T45 FAICAL GOUIZID | 75,296 | 200,400 | -62.4% |
+| F78 GHOUSMI MOURAD | 141,580 | 81,000 | +74.8% |
+| **D48 IBACH MOHAMED (Sélectionné)** | 124,967 | 90,000 | +38.9% |
+| 485 NAMOUSS ABDESSAMAD | 92,798 | 67,500 | +37.5% |
+| K60 ELHAOUZI RACHID | 143,029 | 126,000 | +13.5% |
+| K91 BAIZ MOHAMED | 81,116 | 74,250 | +9.2% |
+| J78 LASRI EL HOUCINE | 66,576 | 63,000 | +5.7% |
+| J23 ACHTOUK LAHOUCINE | 93,467 | 90,000 | +3.9% |
+| JJ2 EL ASERY YOUSSEF | 75,614 | 76,500 | -1.2% |
+| Y60 ATOUAOU AIMAD | 110,339 | 112,500 | -1.9% |
+| T45 FAICAL GOUIZID | 115,416 | 126,000 | -8.4% |
+| D86 ACHAOUI AZIZ | 72,858 | 81,000 | -10.1% |
+| O42 BENOUALLAD MY ZAKARIA | 110,801 | 126,000 | -12.1% |
+| Y59 EL GHANMI MOHAMED | 78,236 | 90,000 | -13.1% |
+| T96 EL HADI BOUBAKER | 76,882 | 90,000 | -14.6% |
+| I03 EL OUAHMI ACHRAF | 57,210 | 67,500 | -15.2% |
+| O30 BOUDHOUR MBAREK | 143,705 | 171,000 | -16.0% |
+| D45 OUARSSASSA YASSINE | 81,409 | 101,250 | -19.6% |
+| E14 BOUMDIANE MOHAMED | 58,463 | 73,350 | -20.3% |
+| T89 AKNOUN MOHAMED | 78,824 | 99,000 | -20.4% |
 
 
 ### Historique des Ventes Quotidiennes (Non cumulées)
 
 | Date | Ventes Réelles (DH) | Objectif du Jour (DH) |
 | :--- | :---: | :---: |
-| 02/06/2026 | 12,938 | 10,000 |
-| 03/06/2026 | 6,821 | 6,999 |
-| 04/06/2026 | 4,342 | 8,501 |
-| 05/06/2026 | 1,465 | 8,500 |
-| 06/06/2026 | 5,550 | 8,499 |
-| 07/06/2026 | 4,364 | 8,501 |
-| 08/06/2026 | 0 | 0 |
-| 09/06/2026 | 19,660 | 8,500 |
-| 10/06/2026 | 6,967 | 8,499 |
-| 11/06/2026 | 28,756 | 8,501 |
-| 12/06/2026 | 2,825 | 8,500 |
-| 13/06/2026 | 5,713 | 8,500 |
-| 15/06/2026 | 8,073 | 8,500 |
-| 16/06/2026 | 10,660 | 8,500 |
-| 17/06/2026 | 19,710 | 8,500 |
-| 18/06/2026 | 7,708 | 8,500 |
-| 19/06/2026 | 4,957 | 8,500 |
-| 20/06/2026 | 15,135 | 8,500 |
-| 22/06/2026 | 4,248 | 8,500 |
-| 23/06/2026 | 9,490 | 8,500 |
-| 25/06/2026 | 18,721 | 17,000 |
-| 26/06/2026 | 7,303 | 8,500 |
-| 27/06/2026 | 1,826 | 8,500 |
-| 28/06/2026 | 1,843 | 8,500 |
+| 04/07/2026 | 25,946 | 30,000 |
+| 05/07/2026 | 4,305 | 10,000 |
+| 06/07/2026 | 0 | 0 |
+| 07/07/2026 | 28,879 | 10,000 |
+| 09/07/2026 | 32,635 | 20,000 |
+| 10/07/2026 | 5,356 | 10,000 |
+| 11/07/2026 | 27,846 | 10,000 |

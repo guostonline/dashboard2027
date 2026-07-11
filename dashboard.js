@@ -757,21 +757,57 @@ function handleRefreshClick() {
     if (refreshIcon) refreshIcon.classList.add('fa-spin');
     if (refreshLabel) refreshLabel.innerText = 'RELOADING...';
     
+    // First, sync/refresh database from Excel
     fetch('/api/refresh', {
         method: 'POST'
     })
     .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            showToast("Données rafraîchies depuis Excel avec succès !", "success");
-            fetchDashboardData();
+            // Fetch updated list of dates from database
+            fetchSuiviDates(() => {
+                // Set the dropdown to the most recent (last) date
+                const dateSelect = document.getElementById('date-select');
+                if (dateSelect && availableDates.length > 0) {
+                    dateSelect.value = availableDates[0];
+                }
+                
+                fetchDashboardData();
+                
+                // Refresh Details trends
+                const familySelect = document.getElementById('details-family-select');
+                loadTrendsData(familySelect ? familySelect.value : 'C.A (TTC)');
+                
+                // Refresh anomalies
+                if (activeView === 'anomalis') {
+                    loadAnomalies();
+                }
+                
+                showToast("Données rafraîchies et synchronisées sur la dernière date !", "success");
+            });
         } else {
-            showToast("Erreur lors du rafraîchissement: " + data.message, "error");
+            // Fallback: reload dates and get the last data from database anyway
+            fetchSuiviDates(() => {
+                const dateSelect = document.getElementById('date-select');
+                if (dateSelect && availableDates.length > 0) {
+                    dateSelect.value = availableDates[0];
+                }
+                fetchDashboardData();
+            });
+            showToast("Erreur lors du rafraîchissement Excel: " + data.message + ". Affichage des dernières données en base.", "warning");
         }
     })
     .catch(err => {
         console.error(err);
-        showToast("Une erreur de communication est survenue lors de la synchronisation.", "error");
+        // Fallback on network/comm error: reload dates and get the last data from database anyway
+        fetchSuiviDates(() => {
+            const dateSelect = document.getElementById('date-select');
+            if (dateSelect && availableDates.length > 0) {
+                dateSelect.value = availableDates[0];
+            }
+            fetchDashboardData();
+        });
+        showToast("Erreur de communication. Affichage des dernières données en base.", "warning");
     })
     .finally(() => {
         // Re-enable button & restore labels
@@ -4222,14 +4258,18 @@ function renderPerDayQualiSections(vendeursList) {
     if (!container) return;
     container.innerHTML = '';
 
+    const card = container.closest('.cyber-card');
+    if (vendeursList.length === 1) {
+        if (card) card.style.display = 'none';
+        return;
+    } else {
+        if (card) card.style.display = 'block';
+    }
+
     // Update section title
     const titleEl = document.getElementById('per-day-quali-title');
     if (titleEl) {
-        if (vendeursList.length === 1) {
-            titleEl.innerHTML = `<i class="fa-solid fa-chart-line neon-text-green"></i> ÉVOLUTION QUALITATIVE — ${vendeursList[0]}`;
-        } else {
-            titleEl.innerHTML = `<i class="fa-solid fa-calendar-days neon-text-amber"></i> ANALYSE QUALITATIVE PAR JOUR`;
-        }
+        titleEl.innerHTML = `<i class="fa-solid fa-calendar-days neon-text-amber"></i> ANALYSE QUALITATIVE PAR JOUR`;
     }
 
     if (!trendsData || !trendsData.qualitative_trends) return;
@@ -4907,12 +4947,52 @@ function parseDateFromFilename(filename) {
         throw new Error("Aucun numéro de jour trouvé");
     }
     
+    let year = null;
+    let month = null;
     let day = null;
-    for (let m of matches) {
-        const val = parseInt(m, 10);
-        if (val >= 1 && val <= 31) {
-            day = val;
-            break;
+    
+    const isValidDay = (d) => d >= 1 && d <= 31;
+    const isValidMonth = (m) => m >= 1 && m <= 12;
+    const isValidYear = (y) => (y >= 2000 && y <= 2100) || (y >= 0 && y <= 99);
+    
+    if (matches.length >= 3) {
+        const first = parseInt(matches[0], 10);
+        const second = parseInt(matches[1], 10);
+        const third = parseInt(matches[2], 10);
+        
+        if (first > 1000 && isValidMonth(second) && isValidDay(third)) {
+            year = first;
+            month = second;
+            day = third;
+        } else if (isValidDay(first) && isValidMonth(second) && third > 1000) {
+            year = third;
+            month = second;
+            day = first;
+        } else if (isValidDay(first) && isValidMonth(second) && isValidYear(third)) {
+            year = third < 100 ? 2000 + third : third;
+            month = second;
+            day = first;
+        }
+    }
+    
+    if (day === null && matches.length >= 2) {
+        const first = parseInt(matches[0], 10);
+        const second = parseInt(matches[1], 10);
+        if (isValidDay(first) && isValidMonth(second)) {
+            day = first;
+            month = second;
+            const now = new Date();
+            year = now.getFullYear();
+        }
+    }
+    
+    if (day === null) {
+        for (let m of matches) {
+            const val = parseInt(m, 10);
+            if (isValidDay(val)) {
+                day = val;
+                break;
+            }
         }
     }
     
@@ -4920,12 +5000,38 @@ function parseDateFromFilename(filename) {
         throw new Error("Jour invalide (doit être entre 1 et 31)");
     }
     
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
+    if (year === null || month === null) {
+        const dateSelect = document.getElementById('date-select');
+        let refDate = new Date();
+        
+        if (dateSelect && dateSelect.value && dateSelect.value !== 'default') {
+            const parts = dateSelect.value.split('-');
+            if (parts.length === 3) {
+                const parsedRef = new Date(parts[0], parseInt(parts[1], 10) - 1, 1);
+                if (!isNaN(parsedRef.getTime())) {
+                    refDate = parsedRef;
+                }
+            }
+        }
+        
+        year = refDate.getFullYear();
+        month = refDate.getMonth() + 1;
+        
+        const now = new Date();
+        const testDate = new Date(year, month - 1, day);
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        if (testDate.getTime() - now.getTime() > oneDayMs) {
+            const prevMonthDate = new Date(year, month - 2, 1);
+            year = prevMonthDate.getFullYear();
+            month = prevMonthDate.getMonth() + 1;
+        }
+    }
+    
+    const yearStr = String(year);
+    const monthStr = String(month).padStart(2, '0');
     const dayStr = String(day).padStart(2, '0');
     
-    return `${year}-${month}-${dayStr}`;
+    return `${yearStr}-${monthStr}-${dayStr}`;
 }
 
 function handleMultiFileSelection(fileList) {
