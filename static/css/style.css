@@ -1336,6 +1336,10 @@ body.light-mode .bg-vignette {
 }
 
 /* Light Mode Specific Overrides */
+body.light-mode .progress-bar-container {
+    background: rgba(0, 0, 0, 0.08);
+}
+
 body.light-mode .cyber-grid {
     background-image: 
         linear-gradient(to right, var(--grid-color-1) 1px, transparent 1px),

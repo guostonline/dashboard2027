@@ -10293,6 +10293,14 @@ async function loadTasks() {
                         else progressPct = 0;
                     }
 
+                    // Determine progress bar color based on percentage
+                    let progressFillClass = 'blue-fill';
+                    if (progressPct >= 100) {
+                        progressFillClass = 'green-fill';
+                    } else if (progressPct >= 50) {
+                        progressFillClass = 'amber-fill';
+                    }
+
                     // Format dates to dd/MM/YYYY
                     const dParts = task.date.split('-');
                     const formattedDate = dParts.length === 3 ? `${dParts[2]}/${dParts[1]}/${dParts[0]}` : task.date;
@@ -10366,9 +10374,9 @@ async function loadTasks() {
                             <h4 style="color: var(--text-main); font-size: 0.95rem; line-height: 1.35; margin-bottom: 0.5rem; font-weight: 600;">${task.title}</h4>
                             
                             <div style="display: flex; flex-direction: column; gap: 0.25rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
-                                <div><span style="color: var(--neon-cyan);">Pour :</span> <strong>${task.assignee}</strong></div>
-                                <div><span style="color: var(--neon-cyan);">Créateur :</span> ${task.creator}</div>
-                                <div><span style="color: var(--neon-cyan);">Échéance :</span> ${formattedDate}</div>
+                                <div><span style="color: var(--neon-blue);">Pour :</span> <strong>${task.assignee}</strong></div>
+                                <div><span style="color: var(--neon-blue);">Créateur :</span> ${task.creator}</div>
+                                <div><span style="color: var(--neon-blue);">Échéance :</span> ${formattedDate}</div>
                             </div>
 
                             ${subtasksHtml}
@@ -10380,8 +10388,8 @@ async function loadTasks() {
                                 <span style="color: var(--text-muted);">Progression</span>
                                 <span style="color: var(--neon-blue); font-weight: bold;">${progressPct}%</span>
                             </div>
-                            <div class="progress-bar-container" style="width: 100%; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; border: 1px solid var(--border-color);">
-                                <div class="progress-bar-fill" style="width: ${progressPct}%; height: 100%; background: linear-gradient(to right, var(--neon-blue), var(--neon-cyan)); border-radius: 3px; transition: width 0.3s ease;"></div>
+                            <div class="progress-bar-container" style="border: 1px solid var(--border-color); overflow: hidden; margin-top: 0.25rem;">
+                                <div class="progress-bar-fill ${progressFillClass}" style="width: ${progressPct}%; height: 100%; transition: width 0.3s ease;"></div>
                             </div>
 
                             <!-- Actions -->
