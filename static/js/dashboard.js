@@ -1630,6 +1630,13 @@ function openSettingsModal() {
     
     infoTotalDays.innerText = dashboardData.workdays.total;
     infoElapsedDays.innerText = dashboardData.workdays.elapsed;
+
+    // Populate animations checkbox state
+    const configAnimCheckbox = document.getElementById('toggle-animations-config');
+    if (configAnimCheckbox) {
+        configAnimCheckbox.checked = localStorage.getItem('bgAnimationsEnabled') !== 'false';
+    }
+
     settingsModal.classList.add('open');
 }
 
@@ -1649,6 +1656,17 @@ function handleSettingsSubmit(e) {
         container.querySelectorAll('.family-toggle-pill.excluded').forEach(pill => {
             excludedFamilies.push(pill.querySelector('span').innerText.trim());
         });
+    }
+    
+    // Save background animation setting
+    const configAnimCheckbox = document.getElementById('toggle-animations-config');
+    if (configAnimCheckbox) {
+        const isAnimEnabled = configAnimCheckbox.checked;
+        const wasAnimEnabled = localStorage.getItem('bgAnimationsEnabled') !== 'false';
+        localStorage.setItem('bgAnimationsEnabled', isAnimEnabled ? 'true' : 'false');
+        if (isAnimEnabled !== wasAnimEnabled) {
+            window.dispatchEvent(new Event(isAnimEnabled ? 'startBgAnimation' : 'stopBgAnimation'));
+        }
     }
     
     // Explicitly apply theme selection from the modal selector on submission

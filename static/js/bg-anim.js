@@ -454,6 +454,10 @@
 
   // Override prefers-reduced-motion restriction to force play as explicitly requested by user
   function start() {
+    if (localStorage.getItem('bgAnimationsEnabled') === 'false') {
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      return;
+    }
     if (raf) return;
     loop();
   }
@@ -482,7 +486,19 @@
     else start();
   });
 
+  // Custom events to start/stop animation from settings
+  window.addEventListener('startBgAnimation', start);
+  window.addEventListener('stopBgAnimation', () => {
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    stop();
+  });
+
   // Boot
   resize();
-  start();
+  if (localStorage.getItem('bgAnimationsEnabled') !== 'false') {
+    start();
+  } else {
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    stop();
+  }
 })();
