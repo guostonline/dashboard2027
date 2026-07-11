@@ -10190,8 +10190,68 @@ function initTasksView() {
         }
     });
 
+    // View Mode Toggle Listeners
+    const gridBtn = document.getElementById('tasks-view-grid-btn');
+    const listBtn = document.getElementById('tasks-view-list-btn');
+    
+    if (gridBtn) {
+        gridBtn.addEventListener('click', () => {
+            localStorage.setItem('tasksViewMode', 'grid');
+            applyTasksViewMode('grid');
+        });
+    }
+    
+    if (listBtn) {
+        listBtn.addEventListener('click', () => {
+            localStorage.setItem('tasksViewMode', 'list');
+            applyTasksViewMode('list');
+        });
+    }
+
+    // Set initial view mode from localStorage
+    applyTasksViewMode(localStorage.getItem('tasksViewMode') || 'grid');
+
     if (window.location.pathname === '/tasks') {
         loadTasks();
+    }
+}
+
+function applyTasksViewMode(mode) {
+    const gridBtn = document.getElementById('tasks-view-grid-btn');
+    const listBtn = document.getElementById('tasks-view-list-btn');
+    const cardsGrid = document.getElementById('tasks-cards-grid');
+    if (!cardsGrid) return;
+    
+    if (mode === 'list') {
+        cardsGrid.style.display = 'flex';
+        cardsGrid.style.flexDirection = 'column';
+        cardsGrid.style.gridTemplateColumns = 'none';
+        
+        if (gridBtn) {
+            gridBtn.classList.remove('active');
+            gridBtn.style.borderColor = 'var(--border-color)';
+            gridBtn.style.color = 'var(--text-muted)';
+        }
+        if (listBtn) {
+            listBtn.classList.add('active');
+            listBtn.style.borderColor = 'var(--neon-blue)';
+            listBtn.style.color = 'var(--neon-blue)';
+        }
+    } else {
+        cardsGrid.style.display = 'grid';
+        cardsGrid.style.flexDirection = 'row';
+        cardsGrid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(320px, 1fr))';
+        
+        if (gridBtn) {
+            gridBtn.classList.add('active');
+            gridBtn.style.borderColor = 'var(--neon-blue)';
+            gridBtn.style.color = 'var(--neon-blue)';
+        }
+        if (listBtn) {
+            listBtn.classList.remove('active');
+            listBtn.style.borderColor = 'var(--border-color)';
+            listBtn.style.color = 'var(--text-muted)';
+        }
     }
 }
 
@@ -10474,6 +10534,9 @@ async function loadTasks() {
 
                 if (badgeEl) badgeEl.innerText = `${filtered.length} tâche${filtered.length > 1 ? 's' : ''}`;
                 if (tableCardEl) tableCardEl.style.display = '';
+                
+                // Re-apply saved Grid/List view mode
+                applyTasksViewMode(localStorage.getItem('tasksViewMode') || 'grid');
             } else {
                 if (emptyEl) emptyEl.style.display = 'block';
                 if (badgeEl) badgeEl.innerText = '0 tâches';
