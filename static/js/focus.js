@@ -4,8 +4,11 @@
 
 (function () {
     let currentFocusType = 'GLACE'; // 'GLACE' or 'TOMATE_FRITO'
+    let selectedVmmMode = 'CA'; // 'CA' or 'QUALI'
+    let selectedVmmEditMode = 'CA'; // 'CA' or 'QUALI'
     let focusChartInstance = null;
     let focusTrendChartInstance = null;
+    let focusDailyChartInstance = null;
     let focusData = null;
     let focusHistoryData = null;
     let selectedVendeurFilter = '';
@@ -29,8 +32,21 @@
         const focusContainer = document.getElementById('focus-container');
         if (focusContainer && focusData) {
             renderFocusView();
+            renderFocusDailySection();
         }
     });
+
+    const catSelect = document.getElementById('category-select');
+    if (catSelect) {
+        catSelect.addEventListener('change', function () {
+            const focusContainer = document.getElementById('focus-container');
+            if (focusContainer && focusData) {
+                renderFocusView();
+                renderFocusTrendChart();
+                renderFocusDailySection();
+            }
+        });
+    }
 
     function initFocusTab() {
         console.log("Initializing Focus Tab...");
@@ -92,7 +108,7 @@
 
                 fileInput.addEventListener('change', function () {
                     if (fileInput.files.length > 0) {
-                        selectUploadFile(fileInput.files[0]);
+                        selectUploadFile(fileInput.files);
                     }
                 });
 
@@ -117,19 +133,19 @@
                     const dt = e.dataTransfer;
                     const files = dt.files;
                     if (files.length > 0) {
-                        selectUploadFile(files[0]);
+                        selectUploadFile(files);
                     }
                 }, false);
             }
 
             // Confirm upload
             if (submitModalBtn) {
-                submitModalBtn.addEventListener('click', function () {
-                    if (!selectedUploadFile) {
+                submitModalBtn.addEventListener('click', async function () {
+                    if (!selectedUploadFiles || selectedUploadFiles.length === 0) {
                         if (window.showToast) {
-                            window.showToast("Veuillez sélectionner ou glisser un fichier Excel.", "error");
+                            window.showToast("Veuillez sélectionner au moins un fichier Excel.", "error");
                         } else {
-                            alert("Veuillez sélectionner un fichier Excel.");
+                            alert("Veuillez sélectionner au moins un fichier Excel.");
                         }
                         return;
                     }
@@ -141,7 +157,29 @@
                         }
                         return;
                     }
-                    handleExcelUpload(selectedUploadFile, dateInput.value, closeModal);
+
+                    submitModalBtn.disabled = true;
+                    let successCount = 0;
+
+                    for (let i = 0; i < selectedUploadFiles.length; i++) {
+                        submitModalBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> IMPORT ${i + 1}/${selectedUploadFiles.length}...`;
+                        await new Promise((resolve) => {
+                            handleExcelUpload(selectedUploadFiles[i], dateInput.value, () => {
+                                successCount++;
+                                resolve();
+                            });
+                        });
+                    }
+
+                    submitModalBtn.disabled = false;
+                    submitModalBtn.innerHTML = '<i class="fa-solid fa-check"></i> CONFIRMER';
+
+                    if (successCount > 0) {
+                        if (window.showToast) {
+                            window.showToast(`${successCount} fichier(s) focus importé(s) avec succès !`, "success");
+                        }
+                        closeModal();
+                    }
                 });
             }
         }
@@ -255,7 +293,42 @@
                 
                 renderFocusView();
                 renderFocusTrendChart();
+                renderFocusDailySection();
             });
+        }
+
+        // Bind VMM Mode buttons (CA vs Qualitatif)
+        const vmmModeCa = document.getElementById('vmm-mode-ca');
+        const vmmModeQuali = document.getElementById('vmm-mode-quali');
+        if (vmmModeCa && vmmModeQuali) {
+            const setVmmMode = function (mode) {
+                selectedVmmMode = mode;
+                if (mode === 'CA') {
+                    vmmModeCa.classList.add('active');
+                    vmmModeCa.style.borderColor = 'var(--neon-pink)';
+                    vmmModeCa.style.color = 'var(--neon-pink)';
+                    vmmModeCa.style.background = 'rgba(255, 45, 85, 0.1)';
+                    
+                    vmmModeQuali.classList.remove('active');
+                    vmmModeQuali.style.borderColor = 'transparent';
+                    vmmModeQuali.style.color = 'var(--text-muted)';
+                    vmmModeQuali.style.background = 'transparent';
+                } else {
+                    vmmModeQuali.classList.add('active');
+                    vmmModeQuali.style.borderColor = 'var(--neon-pink)';
+                    vmmModeQuali.style.color = 'var(--neon-pink)';
+                    vmmModeQuali.style.background = 'rgba(255, 45, 85, 0.1)';
+                    
+                    vmmModeCa.classList.remove('active');
+                    vmmModeCa.style.borderColor = 'transparent';
+                    vmmModeCa.style.color = 'var(--text-muted)';
+                    vmmModeCa.style.background = 'transparent';
+                }
+                renderFocusView();
+                renderFocusDailySection();
+            };
+            vmmModeCa.addEventListener('click', () => setVmmMode('CA'));
+            vmmModeQuali.addEventListener('click', () => setVmmMode('QUALI'));
         }
 
         // 5. Bind Objectives Edit Modal Triggers
@@ -327,6 +400,39 @@
                 });
             }
             
+            // Bind VMM Edit Mode buttons inside modal
+            const vmmEditModeCa = document.getElementById('vmm-edit-mode-ca');
+            const vmmEditModeQuali = document.getElementById('vmm-edit-mode-quali');
+            if (vmmEditModeCa && vmmEditModeQuali) {
+                const setVmmEditMode = function (mode) {
+                    selectedVmmEditMode = mode;
+                    if (mode === 'CA') {
+                        vmmEditModeCa.classList.add('active');
+                        vmmEditModeCa.style.borderColor = 'var(--neon-pink)';
+                        vmmEditModeCa.style.color = 'var(--neon-pink)';
+                        vmmEditModeCa.style.background = 'rgba(255, 45, 85, 0.1)';
+                        
+                        vmmEditModeQuali.classList.remove('active');
+                        vmmEditModeQuali.style.borderColor = 'transparent';
+                        vmmEditModeQuali.style.color = 'var(--text-muted)';
+                        vmmEditModeQuali.style.background = 'transparent';
+                    } else {
+                        vmmEditModeQuali.classList.add('active');
+                        vmmEditModeQuali.style.borderColor = 'var(--neon-pink)';
+                        vmmEditModeQuali.style.color = 'var(--neon-pink)';
+                        vmmEditModeQuali.style.background = 'rgba(255, 45, 85, 0.1)';
+                        
+                        vmmEditModeCa.classList.remove('active');
+                        vmmEditModeCa.style.borderColor = 'transparent';
+                        vmmEditModeCa.style.color = 'var(--text-muted)';
+                        vmmEditModeCa.style.background = 'transparent';
+                    }
+                    updateVmmEditHeadersAndRows();
+                };
+                vmmEditModeCa.addEventListener('click', () => setVmmEditMode('CA'));
+                vmmEditModeQuali.addEventListener('click', () => setVmmEditMode('QUALI'));
+            }
+
             // Submit trigger
             if (submitEditModalBtn) {
                 submitEditModalBtn.addEventListener('click', function () {
@@ -343,7 +449,7 @@
     function openObjectivesEditor() {
         const editModal = document.getElementById('focus-edit-objectifs-modal');
         if (!editModal) return;
-        
+
         const somNameEls = editModal.querySelectorAll('.som-focus-name');
         const vmmNameEls = editModal.querySelectorAll('.vmm-focus-name');
         
@@ -352,12 +458,30 @@
         
         somNameEls.forEach(el => el.innerText = somName);
         vmmNameEls.forEach(el => el.innerText = vmmName);
+
+        // Reset VMM edit mode to CA
+        selectedVmmEditMode = 'CA';
+        const vmmEditModeCa = document.getElementById('vmm-edit-mode-ca');
+        const vmmEditModeQuali = document.getElementById('vmm-edit-mode-quali');
+        if (vmmEditModeCa && vmmEditModeQuali) {
+            vmmEditModeCa.classList.add('active');
+            vmmEditModeCa.style.borderColor = 'var(--neon-pink)';
+            vmmEditModeCa.style.color = 'var(--neon-pink)';
+            vmmEditModeCa.style.background = 'rgba(255, 45, 85, 0.1)';
+            
+            vmmEditModeQuali.classList.remove('active');
+            vmmEditModeQuali.style.borderColor = 'transparent';
+            vmmEditModeQuali.style.color = 'var(--text-muted)';
+            vmmEditModeQuali.style.background = 'transparent';
+        }
+        updateVmmEditHeadersAndRows();
         
         fetch('/api/focus/objectives')
         .then(response => response.json())
         .then(res => {
             if (res.status === 'success') {
                 populateEditTables(res.objectives);
+                updateVmmEditHeadersAndRows();
                 editModal.classList.add('open');
             } else {
                 if (window.showToast) {
@@ -368,6 +492,50 @@
         .catch(err => {
             console.error("Fetch objectives failed:", err);
         });
+    }
+
+    function updateVmmEditHeadersAndRows() {
+        const vmmEditHeaders = document.getElementById('vmm-edit-headers');
+        if (vmmEditHeaders) {
+            if (selectedVmmEditMode === 'CA') {
+                vmmEditHeaders.innerHTML = `
+                    <th style="text-align: left; padding: 0.5rem;">Vendeur (Nom ou Code Vendeur)</th>
+                    <th style="text-align: left; padding: 0.5rem;">Secteur</th>
+                    <th style="text-align: right; padding: 0.5rem; width: 120px;"><span class="vmm-focus-name">TOMATE FRITO</span> HT</th>
+                    <th style="text-align: right; padding: 0.5rem; width: 120px;">TTC</th>
+                    <th style="text-align: center; padding: 0.5rem; width: 60px;">Action</th>
+                `;
+            } else {
+                vmmEditHeaders.innerHTML = `
+                    <th style="text-align: left; padding: 0.5rem;">Vendeur (Nom ou Code Vendeur)</th>
+                    <th style="text-align: left; padding: 0.5rem;">Secteur</th>
+                    <th style="text-align: right; padding: 0.5rem; width: 100px;">Nb Clients</th>
+                    <th style="text-align: right; padding: 0.5rem; width: 110px;">Obj ACM</th>
+                    <th style="text-align: right; padding: 0.5rem; width: 110px;">Obj Juin</th>
+                    <th style="text-align: center; padding: 0.5rem; width: 60px;">Action</th>
+                `;
+            }
+            const vmmNameEls = vmmEditHeaders.querySelectorAll('.vmm-focus-name');
+            const vmmName = focusNames.TOMATE_FRITO || "TOMATE FRITO";
+            vmmNameEls.forEach(el => el.innerText = vmmName);
+        }
+
+        const vmmTbody = document.getElementById('focus-edit-vmm-tbody');
+        if (vmmTbody) {
+            const rows = vmmTbody.querySelectorAll('tr');
+            rows.forEach(tr => {
+                const caCols = tr.querySelectorAll('.vmm-edit-col-ca');
+                const qualiCols = tr.querySelectorAll('.vmm-edit-col-quali');
+                
+                if (selectedVmmEditMode === 'CA') {
+                    caCols.forEach(col => col.style.display = '');
+                    qualiCols.forEach(col => col.style.display = 'none');
+                } else {
+                    caCols.forEach(col => col.style.display = 'none');
+                    qualiCols.forEach(col => col.style.display = '');
+                }
+            });
+        }
     }
 
     function populateEditTables(objectives) {
@@ -412,12 +580,25 @@
             const number_client = obj.number_client || 0;
             const obj_acm = obj.obj_acm || 0;
             const obj_juin = obj.obj_juin || 0;
+            const glace_ht = obj.glace_ht || 0;
+            const ttc = obj.ttc || 0;
+            
+            const caDisplay = selectedVmmEditMode === 'CA' ? '' : 'display: none;';
+            const qualiDisplay = selectedVmmEditMode === 'QUALI' ? '' : 'display: none;';
+            
             return `
                 <td style="padding: 0.5rem;"><input type="text" class="cyber-input edit-vendeur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${vendeur}" placeholder="ex: 03 ALAMI" required /></td>
                 <td style="padding: 0.5rem;"><input type="text" class="cyber-input edit-secteur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${secteur}" placeholder="ex: SECTEUR 1" required /></td>
-                <td style="padding: 0.5rem;"><input type="number" step="any" class="cyber-input edit-nb-clients" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${number_client}" /></td>
-                <td style="padding: 0.5rem;"><input type="number" step="any" class="cyber-input edit-obj-acm" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${obj_acm}" /></td>
-                <td style="padding: 0.5rem;"><input type="number" step="any" class="cyber-input edit-obj-juin" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${obj_juin}" /></td>
+                
+                <!-- CA fields -->
+                <td class="vmm-edit-col-ca" style="padding: 0.5rem; ${caDisplay}"><input type="number" step="any" class="cyber-input edit-glace-ht" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${glace_ht}" /></td>
+                <td class="vmm-edit-col-ca" style="padding: 0.5rem; ${caDisplay}"><input type="number" step="any" class="cyber-input edit-ttc" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${ttc}" /></td>
+                
+                <!-- Qualitatif fields -->
+                <td class="vmm-edit-col-quali" style="padding: 0.5rem; ${qualiDisplay}"><input type="number" step="any" class="cyber-input edit-nb-clients" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${number_client}" /></td>
+                <td class="vmm-edit-col-quali" style="padding: 0.5rem; ${qualiDisplay}"><input type="number" step="any" class="cyber-input edit-obj-acm" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${obj_acm}" /></td>
+                <td class="vmm-edit-col-quali" style="padding: 0.5rem; ${qualiDisplay}"><input type="number" step="any" class="cyber-input edit-obj-juin" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${obj_juin}" /></td>
+                
                 <td style="padding: 0.5rem; text-align: center;"><button type="button" class="cyber-btn edit-delete-row" style="border-color: var(--neon-red); color: var(--neon-red); padding: 0.2rem 0.5rem;"><i class="fa-solid fa-trash"></i></button></td>
             `;
         }
@@ -436,6 +617,19 @@
         });
         
         tbody.appendChild(tr);
+        
+        if (focusType === 'TOMATE_FRITO') {
+            const caCols = tr.querySelectorAll('.vmm-edit-col-ca');
+            const qualiCols = tr.querySelectorAll('.vmm-edit-col-quali');
+            if (selectedVmmEditMode === 'CA') {
+                caCols.forEach(col => col.style.display = '');
+                qualiCols.forEach(col => col.style.display = 'none');
+            } else {
+                caCols.forEach(col => col.style.display = 'none');
+                qualiCols.forEach(col => col.style.display = '');
+            }
+        }
+
         const modalBody = tbody.closest('.modal-body');
         if (modalBody) {
             modalBody.scrollTop = modalBody.scrollHeight;
@@ -478,13 +672,24 @@
                     const number_client = parseInt(row.querySelector('.edit-nb-clients')?.value || '0');
                     const obj_acm = parseFloat(row.querySelector('.edit-obj-acm')?.value || '0');
                     const obj_juin = parseFloat(row.querySelector('.edit-obj-juin')?.value || '0');
+                    const glace_ht = parseFloat(row.querySelector('.edit-glace-ht')?.value || '0');
+                    const ttc = parseFloat(row.querySelector('.edit-ttc')?.value || '0');
+                    
+                    // Fallback logic to sync missing values depending on what the user edited
+                    const finalAcm = obj_acm > 0 ? obj_acm : (glace_ht > 0 ? glace_ht : 0);
+                    const finalJuin = obj_juin > 0 ? obj_juin : (glace_ht > 0 ? glace_ht : 0);
+                    const finalHt = glace_ht > 0 ? glace_ht : finalJuin;
+                    const finalTtc = ttc > 0 ? ttc : finalAcm;
+
                     objectives.push({
                         focus_type: 'TOMATE_FRITO',
                         vendeur: vendeur,
                         secteur: secteur,
                         number_client: number_client,
-                        obj_acm: obj_acm,
-                        obj_juin: obj_juin
+                        obj_acm: finalAcm,
+                        obj_juin: finalJuin,
+                        glace_ht: finalHt,
+                        ttc: finalTtc
                     });
                 }
             });
@@ -539,8 +744,10 @@
         });
     }
 
+    let selectedUploadFiles = [];
+
     function resetUploadModalState() {
-        selectedUploadFile = null;
+        selectedUploadFiles = [];
         const dropzone = document.getElementById('focus-dropzone');
         const fileInput = document.getElementById('focus-modal-file-input');
         const submitModalBtn = document.getElementById('submit-focus-upload');
@@ -573,8 +780,9 @@
         }
     }
 
-    function selectUploadFile(file) {
-        if (!file.name.endsWith('.xlsx')) {
+    function selectUploadFile(fileList) {
+        const files = Array.from(fileList || []).filter(f => f.name.endsWith('.xlsx'));
+        if (files.length === 0) {
             if (window.showToast) {
                 window.showToast("Seuls les fichiers Excel (.xlsx) sont acceptés.", "error");
             } else {
@@ -582,7 +790,7 @@
             }
             return;
         }
-        selectedUploadFile = file;
+        selectedUploadFiles = files;
         const dropzone = document.getElementById('focus-dropzone');
         if (dropzone) {
             const textEl = dropzone.querySelector('.dropzone-text');
@@ -591,14 +799,16 @@
             if (textEl) textEl.style.display = 'none';
             if (fileEl) {
                 fileEl.style.display = 'block';
-                fileEl.innerText = `${file.name} (${formatBytes(file.size)})`;
+                fileEl.innerText = files.length === 1 ? `Fichier : ${files[0].name}` : `${files.length} fichiers : ${files.map(f => f.name).join(', ')}`;
             }
             if (iconEl) {
                 iconEl.className = 'fa-solid fa-file-excel neon-text-green';
             }
         }
-        
-        inspectExcelFile(file);
+
+        // Use the first selected workbook to populate the optional sheet mapping.
+        // Every selected workbook is still imported when the form is confirmed.
+        inspectExcelFile(files[0]);
     }
 
     function inspectExcelFile(file) {
@@ -716,7 +926,14 @@
             tabGlace.style.color = 'var(--text-muted)';
         }
 
+        const vmmModeSelector = document.getElementById('vmm-mode-selector');
+        if (vmmModeSelector) {
+            vmmModeSelector.style.display = type === 'GLACE' ? 'none' : 'flex';
+        }
+
         renderFocusView();
+        renderFocusTrendChart();
+        renderFocusDailySection();
     }
 
     function handleExcelUpload(file, dateStr, callback) {
@@ -981,6 +1198,7 @@
                 focusSettings = res.settings || null;
                 focusTotalDays = res.total_days || 24;
                 renderFocusTrendChart();
+                renderFocusDailySection();
             }
         })
         .catch(err => {
@@ -1005,26 +1223,44 @@
                     rank: idx + 1,
                     representative: o.vendeur,
                     secteur: o.secteur,
-                    obj_ttc: o.ttc,
-                    obj_ht: o.glace_ht,
+                    obj_ttc: o.ttc > 0 ? o.ttc : o.obj_acm,
+                    obj_ht: o.glace_ht > 0 ? o.glace_ht : o.obj_juin,
                     obj_acm: o.obj_acm,
                     nb_clients: o.number_client,
                     realised_ttc: 0,
                     realised_clients: 0,
                     deviation: 0.0,
-                    cdz: "N/A"
+                    cdz: o.cdz || "N/A"
                 };
             });
             
             // Sort by objective value descending
             reps.sort((a, b) => {
-                const valA = currentFocusType === 'GLACE' ? a.obj_ttc : a.obj_acm;
-                const valB = currentFocusType === 'GLACE' ? b.obj_ttc : b.obj_acm;
+                const valA = a.obj_ttc;
+                const valB = b.obj_ttc;
                 return valB - valA;
             });
             
             // Reset ranks
             reps.forEach((r, idx) => r.rank = idx + 1);
+        }
+
+        // Filter based on global category-select
+        const globalCategorySelect = document.getElementById('category-select');
+        const selectedCategory = globalCategorySelect ? globalCategorySelect.value : 'All';
+        
+        if (selectedCategory && selectedCategory !== 'All') {
+            const isChakib = selectedCategory.toUpperCase().includes('CHAKIB');
+            const isBoutmezguine = selectedCategory.toUpperCase().includes('BOUTMEZGUINE');
+            
+            if (isChakib || isBoutmezguine) {
+                reps = reps.filter(r => {
+                    const cdzUpper = (r.cdz || '').toUpperCase().replace(/\s+/g, '');
+                    if (isChakib) return cdzUpper.includes('CHAKIB');
+                    if (isBoutmezguine) return cdzUpper.includes('BOUTMEZGUINE');
+                    return false;
+                });
+            }
         }
         
         // Filter representatives based on vendedor selection
@@ -1103,8 +1339,8 @@
         repsCountBadge.innerText = `${reps.length} VENDEURS`;
         repsTbody.innerHTML = '';
 
+        const taxMode = localStorage.getItem('taxMode') || 'TTC';
         if (currentFocusType === 'GLACE') {
-            const taxMode = localStorage.getItem('taxMode') || 'TTC';
             tableTitle.innerHTML = `<i class="fa-solid fa-list-ol"></i> CLASSEMENT REPRÉSENTANTS ${focusNames.GLACE || "GLACE"} (SOM)`;
             repsHeaders.innerHTML = `
                 <th>Rang</th>
@@ -1112,76 +1348,106 @@
                 <th>Secteur</th>
                 <th>Objectif ${taxMode}</th>
                 <th>Réalisé ${taxMode}</th>
+                <th>RAF ${taxMode}</th>
+                <th>RAF / Jour</th>
                 <th>Écart (%)</th>
                 <th>Chef de Zone</th>
             `;
+        } else {
+            tableTitle.innerHTML = `<i class="fa-solid fa-list-ol"></i> CLASSEMENT REPRÉSENTANTS ${focusNames.TOMATE_FRITO || "TOMATE FRITO"} (VMM)`;
+            if (selectedVmmMode === 'CA') {
+                repsHeaders.innerHTML = `
+                    <th>Rang</th>
+                    <th>Vendeur</th>
+                    <th>Secteur</th>
+                    <th>Objectif ${taxMode}</th>
+                    <th>Réalisé ${taxMode}</th>
+                    <th>RAF ${taxMode}</th>
+                    <th>RAF / Jour</th>
+                    <th>Écart (%)</th>
+                    <th>Chef de Zone</th>
+                `;
+            } else {
+                repsHeaders.innerHTML = `
+                    <th>Rang</th>
+                    <th>Vendeur</th>
+                    <th>Secteur</th>
+                    <th>Total Clients</th>
+                    <th>Obj</th>
+                    <th>Réalisé</th>
+                    <th>Total Reste</th>
+                    <th>Reste / Jour</th>
+                    <th>Écart (%)</th>
+                    <th>Chef de Zone</th>
+                `;
+            }
+        }
 
-            reps.forEach(r => {
-                const tr = document.createElement('tr');
-                const devPct = r.deviation * 100;
-                
-                const devClass = devPct >= 0 ? 'neon-text-green' : (devPct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
-                const devSign = devPct > 0 ? '+' : '';
-                const deviationFormatted = devSign + devPct.toFixed(1) + '%';
-                
+        reps.forEach(r => {
+            const tr = document.createElement('tr');
+            const devPct = r.deviation * 100;
+            
+            const devClass = devPct >= 0 ? 'neon-text-green' : (devPct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
+            const devSign = devPct > 0 ? '+' : '';
+            const deviationFormatted = devSign + devPct.toFixed(1) + '%';
+            
+            let html = '';
+            if (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') {
                 const targetObj = taxMode === 'HT' ? r.obj_ht : r.obj_ttc;
                 const targetReal = taxMode === 'HT' ? (r.realised_ttc / 1.2) : r.realised_ttc;
+                
+                const restDays = (focusWorkdays && focusWorkdays.rest !== undefined) ? focusWorkdays.rest : 20;
+                const raf = Math.max(0, targetObj - targetReal);
+                const rafPerDay = restDays > 0 ? (raf / restDays) : 0;
 
                 const objVal = r.obj_ttc > 0 ? formatCurrency(targetObj) + ' DH' : 'N/A';
                 const realVal = r.obj_ttc > 0 ? formatCurrency(targetReal) + ' DH' : 'N/A';
+                const rafVal = r.obj_ttc > 0 ? formatCurrency(raf) + ' DH' : 'N/A';
+                const rafPerDayVal = r.obj_ttc > 0 ? formatCurrency(rafPerDay) + ' DH' : 'N/A';
                 
-                tr.innerHTML = `
+                html = `
                     <td><strong>${r.rank}</strong></td>
                     <td><strong>${r.representative}</strong></td>
                     <td>${r.secteur}</td>
                     <td>${objVal}</td>
                     <td>${realVal}</td>
+                    <td>${rafVal}</td>
+                    <td>${rafPerDayVal}</td>
                     <td class="${devClass}"><strong>${deviationFormatted}</strong></td>
                     <td>${r.cdz}</td>
                 `;
-                repsTbody.appendChild(tr);
-            });
-        } else {
-            tableTitle.innerHTML = `<i class="fa-solid fa-list-ol"></i> CLASSEMENT REPRÉSENTANTS ${focusNames.TOMATE_FRITO || "TOMATE FRITO"} (VMM)`;
-            repsHeaders.innerHTML = `
-                <th>Rang</th>
-                <th>Vendeur</th>
-                <th>Secteur</th>
-                <th>Clients Total</th>
-                <th>Objectif ACM</th>
-                <th>Réalisé ACM</th>
-                <th>Écart (%)</th>
-                <th>Chef de Zone</th>
-            `;
+            } else {
+                // VMM Qualitatif Mode
+                const restDays = (focusWorkdays && focusWorkdays.rest !== undefined) ? focusWorkdays.rest : 20;
+                const raf = Math.max(0, r.obj_acm - r.realised_clients);
+                const rafPerDay = restDays > 0 ? (raf / restDays) : 0;
 
-            reps.forEach(r => {
-                const tr = document.createElement('tr');
-                const devPct = r.deviation * 100;
-                
-                const devClass = devPct >= 0 ? 'neon-text-green' : (devPct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
-                const devSign = devPct > 0 ? '+' : '';
-                const deviationFormatted = devSign + devPct.toFixed(1) + '%';
-                
                 const nbClients = r.nb_clients > 0 ? r.nb_clients : 'N/A';
                 const objVal = r.obj_acm > 0 ? r.obj_acm.toFixed(0) : 'N/A';
                 const realVal = r.obj_acm > 0 ? r.realised_clients.toFixed(0) : 'N/A';
+                const rafVal = r.obj_acm > 0 ? Math.ceil(raf).toString() : 'N/A';
+                const rafPerDayVal = r.obj_acm > 0 ? Math.ceil(rafPerDay).toString() : 'N/A';
                 
-                tr.innerHTML = `
+                html = `
                     <td><strong>${r.rank}</strong></td>
                     <td><strong>${r.representative}</strong></td>
                     <td>${r.secteur}</td>
                     <td>${nbClients}</td>
                     <td>${objVal}</td>
                     <td>${realVal}</td>
+                    <td>${rafVal}</td>
+                    <td>${rafPerDayVal}</td>
                     <td class="${devClass}"><strong>${deviationFormatted}</strong></td>
                     <td>${r.cdz}</td>
                 `;
-                repsTbody.appendChild(tr);
-            });
-        }
+            }
+            
+            tr.innerHTML = html;
+            repsTbody.appendChild(tr);
+        });
 
         if (reps.length === 0) {
-            const colSpan = currentFocusType === 'GLACE' ? 7 : 8;
+            const colSpan = (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') ? 9 : 10;
             repsTbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align:center;">Aucune donnée disponible</td></tr>`;
         }
 
@@ -1679,6 +1945,255 @@
                             font: { family: 'JetBrains Mono', size: 9 },
                             callback: function (value) {
                                 return (value > 0 ? '+' : '') + value + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderFocusDailySection() {
+        const canvas = document.getElementById('focus-daily-chart');
+        const tbody = document.getElementById('focus-daily-tbody');
+        const dailySellerName = document.getElementById('focus-daily-seller-name');
+        const taxMode = localStorage.getItem('taxMode') || 'TTC';
+        
+        if (!canvas || !tbody || !focusHistoryData) return;
+        
+        const ctx = canvas.getContext('2d');
+        if (focusDailyChartInstance) {
+            focusDailyChartInstance.destroy();
+        }
+        
+        const isWhiteMode = document.body.classList.contains('light-mode');
+        const styles = getComputedStyle(document.body);
+        const neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
+        const neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
+        const neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
+        const neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
+        const gridColor = isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+        const textColor = isWhiteMode ? '#334155' : '#e2e8f0';
+        
+        const history = currentFocusType === 'GLACE' ? focusHistoryData.glace : focusHistoryData.tomate;
+        const reps = history.reps || [];
+        const dates = [...new Set(reps.map(r => r.upload_date.substring(0, 10)))].sort();
+        
+        const formatShortDate = (dateStr) => {
+            const parts = dateStr.split('-');
+            if (parts.length !== 3) return dateStr;
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        };
+        
+        const dateLabels = dates.map(formatShortDate);
+        
+        // Define seller display badge
+        let displayBadgeName = "AGENCE AGADIR";
+        if (selectedVendeurFilter) {
+            const sampleRep = reps.find(r => r.representative.startsWith(selectedVendeurFilter));
+            displayBadgeName = sampleRep ? sampleRep.representative : selectedVendeurFilter;
+        }
+        if (dailySellerName) dailySellerName.innerText = displayBadgeName;
+        
+        const tableRows = [];
+        const chartDataPoints = [];
+        
+        dates.forEach(d => {
+            // Find settings rest days for this date
+            const restDays = (focusSettings && focusSettings[d] !== undefined) ? focusSettings[d] : 20;
+            
+            // Update daily headers dynamically
+            const dailyHeaders = document.getElementById('focus-daily-headers');
+            if (dailyHeaders) {
+                const isCa = currentFocusType === 'GLACE' || selectedVmmMode === 'CA';
+                const suffix = isCa ? ` (${taxMode})` : '';
+                dailyHeaders.innerHTML = `
+                    <th>Date</th>
+                    <th>Objectif${suffix}</th>
+                    <th>Réalisé${suffix}</th>
+                    <th>Reste (RAF)${suffix}</th>
+                    <th>RAF / Jour${suffix}</th>
+                    <th>Taux Réalisation (%)</th>
+                `;
+            }
+
+            if (selectedVendeurFilter) {
+                // Single Seller Mode
+                const record = reps.find(r => r.upload_date.startsWith(d) && r.representative.startsWith(selectedVendeurFilter));
+                if (record) {
+                    const dev = record.deviation || 0.0;
+                    const achievementPct = Math.round((1.0 + dev) * 100);
+                    
+                    let obj = 0, real = 0;
+                    if (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') {
+                        const taxMode = localStorage.getItem('taxMode') || 'TTC';
+                        obj = taxMode === 'HT' ? record.obj_ht : record.obj_ttc;
+                        real = taxMode === 'HT' ? (record.realised_ttc / 1.2) : record.realised_ttc;
+                    } else {
+                        obj = record.obj_acm;
+                        real = record.realised_clients;
+                    }
+                    
+                    const raf = Math.max(0, obj - real);
+                    const rafPerDay = restDays > 0 ? (raf / restDays) : 0.0;
+                    
+                    tableRows.push({
+                        date: formatShortDate(d),
+                        obj: obj,
+                        real: real,
+                        raf: raf,
+                        rafPerDay: rafPerDay,
+                        pct: achievementPct
+                    });
+                    chartDataPoints.push(achievementPct);
+                } else {
+                    chartDataPoints.push(null);
+                }
+            } else {
+                // Agency Global Mode
+                const dayReps = reps.filter(r => r.upload_date.startsWith(d));
+                if (dayReps.length > 0) {
+                    let sumObj = 0, sumReal = 0;
+                    dayReps.forEach(r => {
+                        let o = 0, re = 0;
+                        if (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') {
+                            const taxMode = localStorage.getItem('taxMode') || 'TTC';
+                            o = taxMode === 'HT' ? r.obj_ht : r.obj_ttc;
+                            re = taxMode === 'HT' ? (r.realised_ttc / 1.2) : r.realised_ttc;
+                        } else {
+                            o = r.obj_acm;
+                            re = r.realised_clients;
+                        }
+                        sumObj += o;
+                        sumReal += re;
+                    });
+                    
+                    const achievementPct = sumObj > 0 ? Math.round((sumReal / sumObj) * 100) : 0;
+                    const raf = Math.max(0, sumObj - sumReal);
+                    const rafPerDay = restDays > 0 ? (raf / restDays) : 0.0;
+                    
+                    tableRows.push({
+                        date: formatShortDate(d),
+                        obj: sumObj,
+                        real: sumReal,
+                        raf: raf,
+                        rafPerDay: rafPerDay,
+                        pct: achievementPct
+                    });
+                    chartDataPoints.push(achievementPct);
+                } else {
+                    chartDataPoints.push(null);
+                }
+            }
+        });
+        
+        // Build table body
+        tbody.innerHTML = '';
+        tableRows.forEach(r => {
+            const tr = document.createElement('tr');
+            
+            // Format suffix (always DH since VMM is also like SOM now, except VMM Quali mode)
+            const isCaMode = currentFocusType === 'GLACE' || selectedVmmMode === 'CA';
+            const unit = isCaMode ? ' DH' : '';
+            const valObj = isCaMode ? formatCurrency(r.obj) + unit : r.obj.toFixed(0);
+            const valReal = isCaMode ? formatCurrency(r.real) + unit : r.real.toFixed(0);
+            const valRaf = isCaMode ? formatCurrency(r.raf) + unit : Math.ceil(r.raf);
+            const valRafPerDay = isCaMode ? formatCurrency(r.rafPerDay) + unit : Math.ceil(r.rafPerDay);
+            
+            const pctClass = r.pct >= 100 ? 'neon-text-green' : (r.pct >= 80 ? 'neon-text-amber' : 'neon-text-pink');
+            
+            tr.innerHTML = `
+                <td><strong>${r.date}</strong></td>
+                <td>${valObj}</td>
+                <td class="neon-text-blue">${valReal}</td>
+                <td class="neon-text-pink">${valRaf}</td>
+                <td class="neon-text-amber">${valRafPerDay}</td>
+                <td class="${pctClass}"><strong>${r.pct}%</strong></td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        if (tableRows.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">Aucune donnée disponible</td></tr>`;
+        }
+        
+        // Render chart
+        const mainColor = currentFocusType === 'GLACE' ? neonBlue : neonPink;
+        const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+        gradient.addColorStop(0, mainColor + '30');
+        gradient.addColorStop(1, mainColor + '00');
+        
+        const datasets = [
+            {
+                label: 'Taux de Réalisation (%)',
+                data: chartDataPoints,
+                borderColor: mainColor,
+                backgroundColor: gradient,
+                borderWidth: 3,
+                pointBackgroundColor: mainColor,
+                pointBorderColor: '#fff',
+                pointBorderWidth: 1.5,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                fill: true,
+                tension: 0.15
+            },
+            {
+                label: 'Objectif (100%)',
+                data: dates.map(() => 100),
+                borderColor: isWhiteMode ? '#f43f5e' : '#f43f5e',
+                borderWidth: 1.5,
+                borderDash: [4, 4],
+                pointRadius: 0,
+                fill: false,
+                tension: 0
+            }
+        ];
+        
+        focusDailyChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: dateLabels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: textColor,
+                            font: { family: 'JetBrains Mono', size: 10 }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                const val = context.raw;
+                                if (val === null) return ` N/A`;
+                                return ` ${context.dataset.label}: ${val}%`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: gridColor },
+                        ticks: {
+                            color: textColor,
+                            font: { family: 'JetBrains Mono', size: 9 }
+                        }
+                    },
+                    y: {
+                        grid: { color: gridColor },
+                        min: 0,
+                        ticks: {
+                            color: textColor,
+                            font: { family: 'JetBrains Mono', size: 9 },
+                            callback: function(value) {
+                                return value + '%';
                             }
                         }
                     }

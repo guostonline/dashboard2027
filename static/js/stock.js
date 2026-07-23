@@ -819,7 +819,7 @@
         els.uploadFileInput.onchange = () => {
             const files = els.uploadFileInput.files;
             if (files.length > 0) {
-                showFileSelected(files[0].name);
+                showFileSelected(files);
             }
         };
 
@@ -846,17 +846,22 @@
             const files = dt.files;
             if (files.length > 0) {
                 els.uploadFileInput.files = files;
-                showFileSelected(files[0].name);
+                showFileSelected(files);
             }
         }, false);
     }
 
-    function showFileSelected(fileName) {
+    function showFileSelected(files) {
         const nameEl = els.dropzone.querySelector('.dropzone-file-name');
         const textEl = els.dropzone.querySelector('.dropzone-text');
         
         if (nameEl && textEl) {
-            nameEl.textContent = fileName;
+            const list = Array.from(files || []);
+            if (list.length === 1) {
+                nameEl.textContent = list[0].name;
+            } else {
+                nameEl.textContent = `${list.length} fichiers : ${list.map(f => f.name).join(', ')}`;
+            }
             nameEl.style.display = 'block';
             textEl.style.display = 'none';
         }
@@ -1075,47 +1080,58 @@
                     toast("Veuillez sélectionner la date du stock.", "warning");
                     return;
                 }
-                if (files.length === 0) {
-                    toast("Veuillez choisir un fichier Excel stock2.xlsx à importer.", "warning");
+                if (!files || files.length === 0) {
+                    toast("Veuillez choisir au moins un fichier Excel à importer.", "warning");
                     return;
                 }
 
                 els.uploadModalSubmit.disabled = true;
-                els.uploadModalSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ENVOI EN COURS...';
+                let successCount = 0;
+                let failCount = 0;
 
-                try {
+                for (let i = 0; i < files.length; i++) {
+                    els.uploadModalSubmit.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ENVOI ${i + 1}/${files.length}...`;
                     const formData = new FormData();
-                    formData.append('file', files[0]);
+                    formData.append('file', files[i]);
                     formData.append('date', date);
 
-                    const response = await fetch('/api/stock/upload', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const res = await response.json();
+                    try {
+                        const response = await fetch('/api/stock/upload', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const res = await response.json();
 
-                    if (res.status === 'success') {
-                        toast(res.message || "Importation réussie.", "success");
-                        closeModal();
-                        
-                        state.date = date;
-                        loadStockData();
-
-                        // Auto-trigger Google Sheet sync after upload
-                        setTimeout(() => {
-                            if (els.syncGoogleSheet) {
-                                els.syncGoogleSheet.click();
-                            }
-                        }, 500);
-                    } else {
-                        toast(res.message || "Erreur d'importation.", "error");
+                        if (res.status === 'success') {
+                            successCount++;
+                        } else {
+                            failCount++;
+                            toast(`Erreur sur ${files[i].name}: ${res.message}`, "error");
+                        }
+                    } catch (e) {
+                        console.error("Stock upload error:", files[i].name, e);
+                        failCount++;
                     }
-                } catch (e) {
-                    console.error("Upload error:", e);
+                }
+
+                els.uploadModalSubmit.disabled = false;
+                els.uploadModalSubmit.innerHTML = '<i class="fa-solid fa-check"></i> CONFIRMER';
+
+                if (successCount > 0) {
+                    toast(`${successCount} fichier(s) de stock importé(s) avec succès.`, "success");
+                    closeModal();
+                    
+                    state.date = date;
+                    loadStockData();
+
+                    // Auto-trigger Google Sheet sync after upload
+                    setTimeout(() => {
+                        if (els.syncGoogleSheet) {
+                            els.syncGoogleSheet.click();
+                        }
+                    }, 500);
+                } else {
                     toast("Erreur lors de la communication avec le serveur.", "error");
-                } finally {
-                    els.uploadModalSubmit.disabled = false;
-                    els.uploadModalSubmit.innerHTML = '<i class="fa-solid fa-check"></i> CONFIRMER';
                 }
             };
         }

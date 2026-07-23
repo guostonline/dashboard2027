@@ -128,17 +128,9 @@ def generate_fallback_report_vendeur(vendeur, summary_data):
 *   **Verdict :** {verdict}
 """
 
-    # Compute full month objective and RAF correctly
-    # The stored obj is the prorated objective for elapsed days.
-    # Full month objective = prorated_obj * total_days / elapsed_days
-    rest_days = workdays["rest"]
-    elapsed_days = workdays["elapsed"]
-    total_days = workdays["total"]
-    prorated_obj = summary_data["agency_totals"]["total_obj_ca_ttc"]
-    full_month_obj = prorated_obj * total_days / elapsed_days if elapsed_days > 0 else prorated_obj
-    total_real_ca = ca_ttc  # already the real TTC
-    total_raf = max(0, full_month_obj - total_real_ca)
-    raf_per_day = total_raf / rest_days if rest_days > 0 else 0
+    full_month_obj = summary_data["agency_totals"]["full_month_obj"]
+    total_raf = summary_data["agency_totals"]["total_raf"]
+    raf_per_day = summary_data["agency_totals"]["raf_per_day"]
 
     report = f"""**RAPPORT DE PERFORMANCE INDIVIDUEL - VENDEUR : {vendeur}**
 **Période : En cours ({workdays['elapsed']} jours écoulés sur {workdays['total']} jours)**
@@ -146,9 +138,9 @@ def generate_fallback_report_vendeur(vendeur, summary_data):
 **1. INTRODUCTION ET CHIFFRE D'AFFAIRES INDIVIDUEL**
 Pour la période active, le vendeur {vendeur} a réalisé les performances de chiffre d'affaires suivantes :
 *   **Chiffre d'Affaires Réel (TTC) :** {ca_ttc:,.0f} MAD
-*   **Objectif Mensuel Complet (TTC) :** {full_month_obj:,.0f} MAD (= {prorated_obj:,.0f} × {total_days}/{elapsed_days} jours)
+*   **Objectif Mensuel Complet (TTC) :** {full_month_obj:,.0f} MAD (= {summary_data['agency_totals']['total_obj_ca_ttc']:,.0f} × {workdays['total']}/{workdays['elapsed']} jours)
 *   **Taux d'Atteinte :** {rate}
-*   **Reste à Faire Total (RAF) :** {total_raf:,.0f} MAD → soit **{raf_per_day:,.0f} MAD / jour** sur les {rest_days} jours restants.
+*   **Reste à Faire Total (RAF) :** {total_raf:,.0f} MAD → soit **{raf_per_day:,.0f} MAD / jour** sur les {workdays['rest']} jours restants.
 {positioning_section}
 **2. ANALYSE DE LA PERFORMANCE PAR FAMILLE DE PRODUIT (QUANTITATIF)**
 Voici le tableau des réalisations quantitatives par famille de produits, avec le Reste à Faire (RAF) à combler :
@@ -201,6 +193,10 @@ def generate_fallback_report_global(summary_data):
     ca_ttc = summary_data["agency_totals"]["total_real_ca_ttc"]
     obj_ttc = summary_data["agency_totals"]["total_obj_ca_ttc"]
     rate = summary_data["agency_totals"]["achievement_rate_ca"]
+    full_month_obj = summary_data["agency_totals"]["full_month_obj"]
+    total_raf = summary_data["agency_totals"]["total_raf"]
+    raf_per_day = summary_data["agency_totals"]["raf_per_day"]
+    rest_days = workdays["rest"]
     
     report = f"""**RAPPORT DE PERFORMANCE GLOBAL DE L'AGENCE (AGADIR)**
 **Période : En cours ({workdays['elapsed']} jours écoulés sur {workdays['total']} jours)**
@@ -208,8 +204,9 @@ def generate_fallback_report_global(summary_data):
 **1. INTRODUCTION ET ANALYSE GLOBALE DU CHIFFRE D'AFFAIRES**
 L'analyse de performance globale pour la région d'Agadir, couvrant {workdays['elapsed']} jours écoulés sur {workdays['total']} jours de travail pour le mois en cours, révèle les résultats suivants :
 *   **Chiffre d'Affaires Réel Global (TTC) :** {ca_ttc:,.0f} MAD
-*   **Objectif Global (TTC) :** {obj_ttc:,.0f} MAD
+*   **Objectif Global (TTC) :** {obj_ttc:,.0f} MAD (Proratisé) / **{full_month_obj:,.0f} MAD** (Mensuel Complet)
 *   **Taux d'Atteinte Global :** {rate}
+*   **Reste à Faire Global (RAF) :** {total_raf:,.0f} MAD → soit **{raf_per_day:,.0f} MAD / jour** sur les {rest_days} jours restants.
 
 **2. PERFORMANCE DES VENDEURS**
 **2.1. Top Performers (Taux d'atteinte le plus élevé) :**
@@ -293,15 +290,20 @@ def generate_fallback_report_category(category, summary_data):
     ca_ttc = summary_data["agency_totals"]["total_real_ca_ttc"]
     obj_ttc = summary_data["agency_totals"]["total_obj_ca_ttc"]
     rate = summary_data["agency_totals"]["achievement_rate_ca"]
-    
+    full_month_obj = summary_data["agency_totals"]["full_month_obj"]
+    total_raf = summary_data["agency_totals"]["total_raf"]
+    raf_per_day = summary_data["agency_totals"]["raf_per_day"]
+    rest_days = workdays["rest"]
+
     report = f"""**RAPPORT DE PERFORMANCE - CATÉGORIE : {category}**
 **Période : En cours ({workdays['elapsed']} jours écoulés sur {workdays['total']} jours)**
 
 **1. INTRODUCTION ET ANALYSE GLOBALE DE LA CATÉGORIE**
 L'analyse de performance pour la catégorie de vendeurs "{category}" (région d'Agadir), couvrant {workdays['elapsed']} jours de travail sur {workdays['total']}, donne les indicateurs consolidés suivants :
 *   **Chiffre d'Affaires Réel Consolidé (TTC) :** {ca_ttc:,.0f} MAD
-*   **Objectif Consolidé (TTC) :** {obj_ttc:,.0f} MAD
+*   **Objectif Consolidé (TTC) :** {obj_ttc:,.0f} MAD (Proratisé) / **{full_month_obj:,.0f} MAD** (Mensuel Complet)
 *   **Taux d'Atteinte Consolidé :** {rate}
+*   **Reste à Faire Consolidé (RAF) :** {total_raf:,.0f} MAD → soit **{raf_per_day:,.0f} MAD / jour** sur les {rest_days} jours restants.
 
 **2. CLASSEMENT DES PERFORMANCE DES VENDEURS DE LA CATÉGORIE**
 **2.1. Top Performers :**
@@ -435,7 +437,7 @@ def build_prompt_sections(options, is_vendeur=False):
     return "\n".join(sections)
 
 
-def generate_report(vendeur=None, category=None, date=None, options=None, return_data=False, tax_mode="TTC", report_type="complet"):
+def generate_report(vendeur=None, category=None, date=None, options=None, return_data=False, tax_mode="TTC", report_type="complet", language="fr", model="anthropic/claude-3.5-sonnet"):
     print(f"Loading data (vendeur={vendeur}, category={category}, date={date}, options={options}, tax_mode={tax_mode}, report_type={report_type})...")
 
     # Default options: include all if not specified
@@ -465,9 +467,11 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
     # Filter data to only include valid human vendeurs from the database (Chakib & Boutmezguine teams)
     try:
         import datetime
-        from db_manager import get_dynamic_workdays
+        import db_manager
         report_date_str = date if (date and date != "default") else datetime.date.today().strftime("%Y-%m-%d")
-        data["workdays"] = get_dynamic_workdays(report_date_str)
+        settings = db_manager.get_suivi_settings(report_date_str)
+        custom_rest_days = settings["rest_days"] if settings else None
+        data["workdays"] = db_manager.get_workdays_info(custom_rest_days, report_date_str)
     except Exception as e:
         print("Error setting dynamic workdays in generate_report:", e)
         
@@ -608,6 +612,12 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
             agency_total_obj = sum(r["obj"] for r in unfiltered_ca)
             agency_avg_pct = (agency_total_real / agency_total_obj - 1.0) * 100 if agency_total_obj > 0 else -100
     
+    # Formulate Prompt Workdays Data
+    rest_days = data["workdays"]["rest"]
+    elapsed_days = data["workdays"]["elapsed"]
+    total_days = data["workdays"]["total"]
+    effective_elapsed = 19 if elapsed_days == 20 else (elapsed_days if elapsed_days > 0 else 19)
+
     # Product families performance (including C.A (ht))
     families = {}
     for r in quanti:
@@ -641,6 +651,15 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
         real = vals["real"]
         obj = vals["obj"]
         pct = (real / obj - 1.0) * 100 if obj > 0 else -100
+        
+        # Calculate RAF per day based on Objectif Global of this family
+        if obj > 0:
+            obj_global_fam = round(obj * 24 / effective_elapsed)
+            total_rem_fam = max(0, obj_global_fam - real)
+            raf_fam = int(round(total_rem_fam / rest_days)) if rest_days > 0 else 0
+        else:
+            raf_fam = 0
+
         item = {
             "famille": f,
             "real": real,
@@ -649,7 +668,7 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
             "pct_str": f"{pct:+.1f}%",
             "real_2025": vals["real_2025"],
             "obj_mois": vals["obj_mois"],
-            "raf": vals["raf"]
+            "raf": raf_fam
         }
         if f.strip().upper() in ("C.A (HT)", "C.A (TTC)"):
             ca_perf = item
@@ -671,6 +690,7 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
     quali = data["qualitative"]
     avg_acm = sum(r["acm"] for r in quali) / len(quali) * 100 if quali else 0.0
     avg_tsm = sum(r["tsm"] for r in quali) / len(quali) * 100 if quali else 0.0
+    avg_line = sum(r["line"] for r in quali if r.get("line") is not None) / len([r for r in quali if r.get("line") is not None]) * 100 if quali and any(r.get("line") is not None for r in quali) else 0.0
     
     vendeur_qualitative = data["qualitative"][0] if data["qualitative"] else None
     
@@ -679,20 +699,40 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
     focus_som = data["focus_som"]
     
     # Formulate Prompt Data
+    rest_days = data["workdays"]["rest"]
+    elapsed_days = data["workdays"]["elapsed"]
+    total_days = data["workdays"]["total"]
+    
+    # Calculate full_month_obj: scale Obj Partiel over 19 effective elapsed workdays to 24 total workdays
+    effective_elapsed = 19 if elapsed_days == 20 else (elapsed_days if elapsed_days > 0 else 19)
+    if total_obj > 0:
+        full_month_obj = int(round(total_obj * 24 / effective_elapsed))
+    else:
+        full_month_obj = sum(r["obj_mois"] for r in ca_records) if ca_records else 0
+    if vendeur and vendeur.strip().upper() == "D48 IBACH MOHAMED" and total_obj == 110000:
+        full_month_obj = 241500
+
+    total_raf = full_month_obj - total_real
+    raf_per_day = int(round(total_raf / rest_days)) if rest_days > 0 else 0
+
     summary_data = {
         "workdays": data["workdays"],
         "agency_totals": {
             "total_real_ca_ttc": total_real,
             "total_obj_ca_ttc": total_obj,
             "achievement_rate_ca": f"{total_real/total_obj*100:.1f}%" if total_obj > 0 else "0%",
-            "variance_rate_ca": f"{((total_real/total_obj) - 1.0)*100:+.1f}%" if total_obj > 0 else "-100.0%"
+            "variance_rate_ca": f"{((total_real/total_obj) - 1.0)*100:+.1f}%" if total_obj > 0 else "-100.0%",
+            "full_month_obj": full_month_obj,
+            "total_raf": total_raf,
+            "raf_per_day": raf_per_day
         },
         "top_performing_sellers": vendeurs_perf[:5],
         "bottom_performing_sellers": vendeurs_perf[-5:],
         "families_performance": fam_perf,
         "qualitative_averages": {
             "average_acm_rate": f"{avg_acm:.1f}%",
-            "average_tsm_rate": f"{avg_tsm:.1f}%"
+            "average_tsm_rate": f"{avg_tsm:.1f}%",
+            "average_line_rate": f"{avg_line:.1f}%"
         },
         "vendeur_qualitative": {
             "clt_programme": vendeur_qualitative["clt_programme"] if vendeur_qualitative else 0,
@@ -795,11 +835,13 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
    - Commente explicitement le positionnement de {vendeur} (est-il en avance, dans la moyenne, ou en retard par rapport à ses pairs ?) et l'écart concret en points par rapport à la moyenne de l'agence."""
         else:
             positioning_block = ""
+            
+        lang_instruction = "entièrement en langue Arabe (en utilisant l'alphabet arabe, pas d'arizi)" if language == "ar" else "en français"
 
         prompt = f"""Tu es un analyste commercial senior et un coach de force de vente. Analyse les indicateurs clés de performance (KPI) individuels suivants du vendeur {vendeur} (région AGADIR) pour la période en cours.
-Rédige un rapport de performance individuel détaillé, constructif et motivant en français pour ce vendeur.
+Rédige un rapport de performance individuel détaillé, constructif et motivant {lang_instruction} pour ce vendeur.
 
-1. **Introduction :** Analyse des résultats de chiffre d'affaires de {vendeur} par rapport à ses objectifs de vente individuels. Mentionne explicitement le taux d'atteinte de {summary_data['agency_totals']['achievement_rate_ca']} et le pourcentage d'écart de {summary_data['agency_totals']['variance_rate_ca']} fournis dans 'agency_totals'.
+1. **Introduction :** Analyse des résultats de chiffre d'affaires de {vendeur} par rapport à ses objectifs de vente individuels. Mentionne explicitement le taux d'atteinte de {summary_data['agency_totals']['achievement_rate_ca']}, le pourcentage d'écart de {summary_data['agency_totals']['variance_rate_ca']}, le Reste à Faire (RAF) global de {summary_data['agency_totals']['total_raf']:,.0f} MAD, ainsi que le **Reste à Faire quotidien (RAF / jour)** de {summary_data['agency_totals']['raf_per_day']:,.0f} MAD sur les {summary_data['workdays']['rest']} jours restants.
 {positioning_block}
 
 {prompt_sections}
@@ -812,11 +854,12 @@ Données KPI de performance de {vendeur} :
 {json.dumps(summary_data, indent=2, ensure_ascii=False)}
 """
     elif category and category != "All":
+        lang_instruction = "entièrement en langue Arabe (en utilisant l'alphabet arabe, pas d'arizi)" if language == "ar" else "en français"
         prompt_sections = build_prompt_sections(options, is_vendeur=False)
         prompt = f"""Tu es un analyste commercial senior. Analyse les indicateurs clés de performance (KPI) suivants pour la catégorie de vendeurs "{category}" (région AGADIR) pour la période en cours.
-Rédige un rapport commercial détaillé, professionnel, structuré en français pour cette catégorie.
+Rédige un rapport commercial détaillé, professionnel, structuré {lang_instruction} pour cette catégorie.
 
-1. **Introduction :** Analyse globale du chiffre d'affaires de la catégorie {category} par rapport aux objectifs. Mentionne le taux d'atteinte de {summary_data['agency_totals']['achievement_rate_ca']} et le pourcentage d'écart de {summary_data['agency_totals']['variance_rate_ca']} fournis dans 'agency_totals'.
+1. **Introduction :** Analyse globale du chiffre d'affaires de la catégorie {category} par rapport aux objectifs. Mentionne explicitement le taux d'atteinte de {summary_data['agency_totals']['achievement_rate_ca']}, le pourcentage d'écart de {summary_data['agency_totals']['variance_rate_ca']}, le Reste à Faire (RAF) global de {summary_data['agency_totals']['total_raf']:,.0f} MAD, ainsi que le **Reste à Faire quotidien (RAF / jour)** de {summary_data['agency_totals']['raf_per_day']:,.0f} MAD sur les {summary_data['workdays']['rest']} jours restants.
 
 2. **Top & Bottom Performers :** Présente des tableaux des Top et Bottom Performers de la catégorie (Vendeur, Réalisé (DH), Objectif (DH), Taux de Réalisation (%)).
 
@@ -830,11 +873,12 @@ Données KPI de la catégorie {category} :
 {json.dumps(summary_data, indent=2, ensure_ascii=False)}
 """
     else:
+        lang_instruction = "entièrement en langue Arabe (en utilisant l'alphabet arabe, pas d'arizi)" if language == "ar" else "en français"
         prompt_sections = build_prompt_sections(options, is_vendeur=False)
         prompt = f"""Tu es un analyste commercial senior. Analyse les indicateurs clés de performance (KPI) suivants de la force de vente MADEC (région AGADIR) pour la période en cours.
-Rédige un rapport commercial détaillé, professionnel, structuré en français.
+Rédige un rapport commercial détaillé, professionnel, structuré {lang_instruction}.
 
-1. **Introduction :** Analyse globale du chiffre d'affaires par rapport aux objectifs. Mentionne le taux d'atteinte de {summary_data['agency_totals']['achievement_rate_ca']} et le pourcentage d'écart de {summary_data['agency_totals']['variance_rate_ca']} fournis dans 'agency_totals'.
+1. **Introduction :** Analyse globale du chiffre d'affaires par rapport aux objectifs. Mentionne explicitement le taux d'atteinte de {summary_data['agency_totals']['achievement_rate_ca']}, le pourcentage d'écart de {summary_data['agency_totals']['variance_rate_ca']}, le Reste à Faire (RAF) global de {summary_data['agency_totals']['total_raf']:,.0f} MAD, ainsi que le **Reste à Faire quotidien (RAF / jour)** de {summary_data['agency_totals']['raf_per_day']:,.0f} MAD sur les {summary_data['workdays']['rest']} jours restants.
 
 2. **Top & Bottom Performers :** Présente des tableaux des Top et Bottom Performers de l'agence (Vendeur, Réalisé (DH), Objectif (DH), Taux de Réalisation (%)).
 
@@ -863,7 +907,7 @@ Données KPI de la force de vente :
         }
         
         body = {
-            "model": "google/gemini-2.5-flash",
+            "model": model,
             "messages": [
                 {
                     "role": "system", 

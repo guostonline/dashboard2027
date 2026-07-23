@@ -28,7 +28,7 @@ def get_dynamic_workdays(date_str):
         elapsed_workdays = 0
     else:
         elapsed_workdays = 0
-        for d in range(1, today.day):
+        for d in range(1, today.day + 1):
             curr_date = datetime.date(year, month, d)
             if curr_date.weekday() != 6:
                 elapsed_workdays += 1
@@ -416,6 +416,28 @@ def init_db():
     )
     """)
 
+    # 16. Visites Rapports details table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS visites_rapports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_name TEXT,
+        vendeur TEXT NOT NULL,
+        date_visite TEXT NOT NULL,
+        tournee TEXT,
+        agence TEXT,
+        client_code TEXT NOT NULL,
+        client_nom TEXT,
+        heure TEXT,
+        distance INTEGER DEFAULT 0,
+        motif TEXT,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_visites_vendeur ON visites_rapports(vendeur)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_visites_date ON visites_rapports(date_visite)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_visites_client ON visites_rapports(client_code)")
+
     conn.commit()
     conn.close()
     print("[OK] Database tables created successfully!")
@@ -620,7 +642,7 @@ def get_focus_vmm_data(date, exclude_families=None):
 
     # Query objectives
     cursor.execute("""
-        SELECT vendeur, secteur, obj_acm, number_client as nb_clients, obj_juin
+        SELECT vendeur, secteur, obj_acm, number_client as nb_clients, obj_juin, glace_ht, ttc
         FROM focus_objectives
         WHERE focus_type = 'TOMATE_FRITO'
     """)
@@ -655,9 +677,12 @@ def get_focus_vmm_data(date, exclude_families=None):
 
         # Calculate realise and rest
         obj_acm = obj['obj_acm'] if obj else 0.0
+        ttc = obj['ttc'] if (obj and obj['ttc'] > 0.0) else obj_acm
+        glace_ht = obj['glace_ht'] if (obj and obj['glace_ht'] > 0.0) else (obj['obj_juin'] if obj else 0.0)
+        
         dev = r['percent'] or 0.0
-        realise = (1.0 + dev) * obj_acm if obj_acm > 0 else 0.0
-        rest = obj_acm - realise
+        realise = (1.0 + dev) * ttc if ttc > 0 else 0.0
+        rest = ttc - realise
 
         merged_list.append({
             "vendeur": v_name,
@@ -666,6 +691,8 @@ def get_focus_vmm_data(date, exclude_families=None):
             "obj_juin": obj["obj_juin"] if obj else 0.0,
             "nb_clients": obj["nb_clients"] if obj else 0,
             "obj_acm": obj_acm,
+            "glace_ht": glace_ht,
+            "ttc": ttc,
             "percent": dev,
             "realise": realise,
             "rest": rest,
@@ -682,6 +709,8 @@ def get_focus_vmm_data(date, exclude_families=None):
             "obj_juin": sum(x["obj_juin"] for x in merged_list) / len(merged_list),
             "nb_clients": int(sum(x["nb_clients"] for x in merged_list) / len(merged_list)),
             "obj_acm": sum(x["obj_acm"] for x in merged_list) / len(merged_list),
+            "glace_ht": sum(x["glace_ht"] for x in merged_list) / len(merged_list),
+            "ttc": sum(x["ttc"] for x in merged_list) / len(merged_list),
             "percent": sum(x["percent"] for x in merged_list) / len(merged_list),
             "realise": sum(x["realise"] for x in merged_list) / len(merged_list),
             "rest": sum(x["rest"] for x in merged_list) / len(merged_list),
@@ -1834,6 +1863,70 @@ def build_whatsapp_url(phone, message, default_country="212"):
     return url
 
 
+def get_vendeur_phone_from_fdv(vendeur_name):
+    """Lookup the WhatsApp or telephone number for a given vendeur name from the FDV database table.
+    
+    First tries exact match on `vendeur` in the `fdv` table.
+    If not found, tries partial match (case-insensitive) on `vendeur`.
+    If found, prefers `whatsapp` column if non-empty, otherwise `telephone`.
+    Returns normalized phone string suitable for wa.me link.
+    """
+    if not vendeur_name:
+        return None
+        
+    v_str = str(vendeur_name).strip()
+    if not v_str:
+        return None
+        
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. Exact match on vendeur
+        cursor.execute("SELECT whatsapp, telephone FROM fdv WHERE UPPER(vendeur) = ?", (v_str.upper(),))
+        row = cursor.fetchone()
+        
+        # 2. Partial match if exact match not found
+        if not row:
+            cursor.execute(
+                "SELECT whatsapp, telephone FROM fdv WHERE "
+                "UPPER(vendeur) LIKE ? OR ? LIKE '%' || UPPER(vendeur) || '%'",
+                (f"%{v_str.upper()}%", v_str.upper())
+            )
+            row = cursor.fetchone()
+            
+        conn.close()
+        
+        if row:
+            raw_phone = row["whatsapp"] if (row["whatsapp"] and str(row["whatsapp"]).strip()) else row["telephone"]
+            if raw_phone and str(raw_phone).strip():
+                # Normalize digits for WhatsApp wa.me
+                digits = "".join(ch for ch in str(raw_phone) if ch.isdigit())
+                if digits.startswith("0") and len(digits) == 10:
+                    digits = "212" + digits[1:]
+                elif not digits.startswith("212") and len(digits) == 9:
+                    digits = "212" + digits
+                return digits
+    except Exception as e:
+        print(f"Error querying FDV table for vendeur phone: {e}")
+        
+    # Fallback to static dictionary from vendeur_phones if available
+    try:
+        from vendeur_phones import vendedor_number_phone, normalize_phone_for_wa
+        raw = vendeur_number_phone.get(v_str, "")
+        if not raw:
+            for k, ph in vendeur_number_phone.items():
+                if k.lower() in v_str.lower() or v_str.lower() in k.lower():
+                    raw = ph
+                    break
+        if raw:
+            return normalize_phone_for_wa(raw)
+    except Exception:
+        pass
+        
+    return None
+
+
 # ------------------------------------------------------------------
 # Focus Rankings and Objectives functions
 # ------------------------------------------------------------------
@@ -2006,9 +2099,14 @@ def get_focus_data(upload_date, agence='AGADIR'):
             merged['realised_ttc'] = round((1 + dev) * obj['ttc'], 2) if obj else 0.0
             glace_reps.append(merged)
         elif ft == 'TOMATE_FRITO':
+            merged['obj_ttc'] = obj['ttc'] if obj else 0.0
+            merged['obj_ht'] = obj['glace_ht'] if obj else 0.0
+            dev = r['deviation'] or 0.0
+            merged['realised_ttc'] = round((1 + dev) * obj['ttc'], 2) if (obj and obj['ttc'] > 0.0) else (round((1 + dev) * obj['obj_acm'], 2) if obj else 0.0)
+            
+            # Keep client counts for compatibility
             merged['obj_acm'] = obj['obj_acm'] if obj else 0.0
             merged['nb_clients'] = obj['number_client'] if obj else 0
-            dev = r['deviation'] or 0.0
             merged['realised_clients'] = round((1 + dev) * obj['obj_acm'], 2) if obj else 0.0
             tomate_reps.append(merged)
             
@@ -2092,9 +2190,14 @@ def get_focus_history(agence='AGADIR'):
             merged['realised_ttc'] = round((1 + dev) * obj['ttc'], 2) if obj else 0.0
             glace_reps.append(merged)
         elif ft == 'TOMATE_FRITO':
+            merged['obj_ttc'] = obj['ttc'] if obj else 0.0
+            merged['obj_ht'] = obj['glace_ht'] if obj else 0.0
+            dev = r['deviation'] or 0.0
+            merged['realised_ttc'] = round((1 + dev) * obj['ttc'], 2) if (obj and obj['ttc'] > 0.0) else (round((1 + dev) * obj['obj_acm'], 2) if obj else 0.0)
+            
+            # Keep client counts for compatibility
             merged['obj_acm'] = obj['obj_acm'] if obj else 0.0
             merged['nb_clients'] = obj['number_client'] if obj else 0
-            dev = r['deviation'] or 0.0
             merged['realised_clients'] = round((1 + dev) * obj['obj_acm'], 2) if obj else 0.0
             tomate_reps.append(merged)
             
@@ -2485,6 +2588,53 @@ def toggle_subtask_completed(subsub_id, completed):
         return True
     except Exception as e:
         print(f"Error toggling subtask {subsub_id}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, records):
+    """Save raw visit report details to database, overwriting previous entries for the same date and vendeur."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Clean previous records for this seller on this date
+        cursor.execute("""
+            DELETE FROM visites_rapports
+            WHERE vendeur = ? AND date_visite = ?
+        """, (vendeur, date_visite))
+        
+        # Insert new records
+        for r in records:
+            # Parse distance safely
+            dist_str = str(r.get("distance", "0")).replace("m", "").replace(" ", "").strip()
+            try:
+                dist = int(dist_str)
+            except:
+                dist = 0
+                
+            cursor.execute("""
+                INSERT INTO visites_rapports
+                (file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                file_name,
+                vendeur,
+                date_visite,
+                tournee,
+                agence,
+                r.get("code", ""),
+                r.get("name", ""),
+                r.get("time", ""),
+                dist,
+                r.get("motif", ""),
+                r.get("note", "")
+            ))
+            
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error saving visits rapport: {e}")
         return False
     finally:
         conn.close()

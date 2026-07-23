@@ -27,8 +27,15 @@ tmp/
 node_modules/
 
 # OS files
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-token.json
+# Downloads & Archives
+Downloads/
+*.exe
+*.rar
+*.pdf
+*.zip
+*.webp
+*.vcf
+*.png
+*.xlsx
+
 

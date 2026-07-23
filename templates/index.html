@@ -39,8 +39,11 @@
             
             <nav class="sidebar-nav">
                 <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' and active_tab != 'anomalis' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
-                <a href="/details" class="nav-item {% if active_tab == 'details' %}active{% endif %}" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
-                <a href="/clients" class="nav-item {% if active_tab == 'clients' %}active{% endif %}" id="nav-clients"><i class="fa-solid fa-address-book"></i> <span>Client</span></a>
+                <a href="/details" class="nav-item {% if active_tab == 'details' and active_sub_tab != 'vendeur360' %}active{% endif %}" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
+                <a href="/vendeur360" class="nav-item {% if active_tab == 'details' and active_sub_tab == 'vendeur360' %}active{% endif %}" id="nav-vendeur-360" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'details' %}display: none;{% endif %}"><i class="fa-solid fa-id-card neon-text-blue"></i> <span>Vendeur</span></a>
+                <a href="/clients" class="nav-item {% if active_tab == 'clients' and active_sub_tab != 'facturation' %}active{% endif %}" id="nav-clients"><i class="fa-solid fa-address-book"></i> <span>Client</span></a>
+                <a href="/clients?view=facturation" class="nav-item {% if active_tab == 'clients' and active_sub_tab == 'facturation' %}active{% endif %}" id="nav-clients-facturation" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'clients' %}display: none;{% endif %}"><i class="fa-solid fa-file-invoice"></i> <span>Facturation</span></a>
+                <a href="/clients?view=afacturer" class="nav-item {% if active_tab == 'clients' and active_sub_tab == 'afacturer' %}active{% endif %}" id="nav-clients-afacturer" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'clients' %}display: none;{% endif %}"><i class="fa-solid fa-file-invoice-dollar"></i> <span>Client à facturer</span></a>
                 <a href="/fdv" class="nav-item {% if active_tab == 'fdv' %}active{% endif %}" id="nav-fdv"><i class="fa-solid fa-people-group"></i> <span>FDV</span></a>
                 <a href="/terrain" class="nav-item {% if active_tab == 'terrain' %}active{% endif %}" id="nav-terrain"><i class="fa-solid fa-file-invoice-dollar"></i> <span>Suivi Terrain</span></a>
                 <a href="/focus" class="nav-item {% if active_tab == 'focus' %}active{% endif %}" id="nav-focus"><i class="fa-solid fa-bullseye"></i> <span>Focus</span></a>
@@ -60,6 +63,12 @@
                         <option value="Chakib Equipe" selected>Chakib Equipe</option>
                         <option value="Boutmezguine Equipe">Boutmezguine Equipe</option>
                     </select>
+                </div>
+                
+                <div style="margin-bottom: 0.5rem;">
+                    <button id="global-sidebar-whatsapp-bulk-btn" class="sidebar-bulk-wa-btn" type="button">
+                        <i class="fa-brands fa-whatsapp" style="font-size: 1rem;"></i> WhatsApp en Masse
+                    </button>
                 </div>
                 
                 <div class="sidebar-theme-wrapper">
@@ -520,6 +529,18 @@
 
     <!-- DETAILS VIEW CONTAINER -->
     <main class="dashboard-container" id="details-container" style="{% if active_tab != 'details' %}display: none;{% endif %}; position: relative; z-index: 10;">
+        <!-- SUB-TAB SWITCHER FOR DETAILS VIEW -->
+        <div class="sub-tab-group" style="display: flex; gap: 0.75rem; margin-bottom: 1.25rem;">
+            <button id="details-subtab-analytics" class="cyber-btn {% if active_sub_tab != 'vendeur360' %}active{% endif %}" style="font-size: 0.85rem;">
+                <i class="fa-solid fa-chart-column neon-text-amber"></i> <span>DÉTAILS ANALYTIQUES</span>
+            </button>
+            <button id="details-subtab-vendeur360" class="cyber-btn {% if active_sub_tab == 'vendeur360' %}active{% endif %}" style="font-size: 0.85rem;">
+                <i class="fa-solid fa-user-gear neon-text-blue"></i> <span>VENDEUR</span>
+            </button>
+        </div>
+
+        <!-- DETAILS ANALYTICS SECTION -->
+        <div id="details-analytics-section" style="{% if active_sub_tab == 'vendeur360' %}display: none;{% endif %}">
         <!-- Section Header / Controls -->
         <section class="filter-section cyber-card" style="margin-bottom: 1.5rem;">
             <div class="card-edge"></div>
@@ -657,10 +678,531 @@
                 <!-- Populated dynamically per date -->
             </div>
         </section>
+        </div>
+
+        <!-- VENDEUR 360 SECTION -->
+        <div id="vendeur-360-section" style="{% if active_sub_tab != 'vendeur360' %}display: none;{% endif %} flex-direction: column; gap: 1.5rem;">
+            <!-- VENDEUR 360 HEADER CARD -->
+            <div class="cyber-card glow-blue" style="padding: 1.25rem;">
+                <div class="card-edge"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 1.25rem;">
+                        <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(0, 243, 255, 0.1); border: 2px solid var(--neon-blue); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: var(--neon-blue);">
+                            <i class="fa-solid fa-user-tie"></i>
+                        </div>
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <h2 id="v360-name" style="margin: 0; font-size: 1.4rem; color: var(--text-main);">CHARGEMENT...</h2>
+                                <span id="v360-role-badge" class="badge-blue">VENDEUR GMS</span>
+                            </div>
+                            <div style="display: flex; gap: 1.5rem; margin-top: 0.35rem; font-size: 0.82rem; color: var(--text-sub);">
+                                <span><i class="fa-solid fa-id-badge"></i> CDZ: <strong id="v360-cdz" style="color: var(--text-main);">N/A</strong></span>
+                                <span><i class="fa-solid fa-location-dot"></i> Secteur: <strong id="v360-secteur" style="color: var(--text-main);">N/A</strong></span>
+                                <span><i class="fa-solid fa-layer-group"></i> Activité: <strong id="v360-activite" style="color: var(--text-main);">GMS</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+                        <!-- SCORE BADGE -->
+                        <div style="text-align: center; background: rgba(0,0,0,0.3); padding: 0.6rem 1.25rem; border-radius: 8px; border: 1px solid var(--neon-blue);">
+                            <span style="font-size: 0.7rem; color: var(--text-sub); display: block; text-transform: uppercase;">SCORE GLOBAL</span>
+                            <h2 id="v360-score-val" class="neon-text-green" style="margin: 0; font-size: 1.8rem; font-weight: 800;">0/100</h2>
+                            <span id="v360-grade" style="font-size: 0.75rem; color: var(--neon-amber); font-weight: 600;">EXCELLENT</span>
+                        </div>
+                        
+                        <!-- VENDEUR SELECTOR -->
+                        <div style="min-width: 220px;">
+                            <label class="tech-label"><i class="fa-solid fa-user"></i> SÉLECTIONNER VENDEUR</label>
+                            <select id="v360-vendeur-select" class="cyber-select" style="width: 100%; border-color: var(--neon-blue); text-transform: uppercase; color: var(--text-main); font-weight: bold;">
+                                {% if all_vendeurs %}
+                                    {% for v in all_vendeurs %}
+                                        <option value="{{ v }}" style="color: #000000; background-color: #ffffff;">{{ v }}</option>
+                                    {% endfor %}
+                                {% else %}
+                                    <option value="">AUCUN VENDEUR DANS LA BASE (FDV)</option>
+                                {% endif %}
+                            </select>
+                        </div>
+                        
+                        <button id="v360-whatsapp-btn" class="cyber-btn glow-green" style="height: 42px;">
+                            <i class="fa-brands fa-whatsapp"></i> <span>WHATSAPP VENDEUR</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 4 EXECUTIVE KPI SUMMARY CARDS -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+                <div class="cyber-card glow-green">
+                    <div class="card-edge"></div>
+                    <span class="summary-label">CLIENTS FACTURÉS (AVEC OK)</span>
+                    <h2 id="v360-kpi-ok" class="summary-value neon-text-green">0</h2>
+                    <span class="summary-sub" id="v360-kpi-ok-sub">sur 0 clients total (0%)</span>
+                </div>
+                <div class="cyber-card glow-pink">
+                    <div class="card-edge"></div>
+                    <span class="summary-label">CLIENTS NON FACTURÉS (SANS OK)</span>
+                    <h2 id="v360-kpi-sans-ok" class="summary-value neon-text-pink">0</h2>
+                    <span class="summary-sub">À relancer par WhatsApp</span>
+                </div>
+                <div class="cyber-card glow-blue">
+                    <div class="card-edge"></div>
+                    <span class="summary-label">TOTAL VISITES ENREGISTRÉES</span>
+                    <h2 id="v360-kpi-visites" class="summary-value neon-text-blue">0</h2>
+                    <span class="summary-sub">Dans les rapports de tournée</span>
+                </div>
+                <div class="cyber-card glow-amber">
+                    <div class="card-edge"></div>
+                    <span class="summary-label">ANOMALIES & DISTANCE (>100m)</span>
+                    <h2 id="v360-kpi-anomalies" class="summary-value neon-text-amber">0</h2>
+                    <span class="summary-sub">Visites hors zone</span>
+                </div>
+            </div>
+
+            <!-- MAIN DASHBOARD CONTENT GRID -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.5rem;">
+                <!-- LEFT: TOURNÉES BREAKDOWN TABLE -->
+                <div class="cyber-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="tech-label"><i class="fa-solid fa-route neon-text-blue"></i> TOURNÉES & TAUX DE FACTURATION</span>
+                    </div>
+                    <div style="overflow-x: auto; max-height: 340px;">
+                        <table class="cyber-table" id="v360-tournees-table">
+                            <thead>
+                                <tr>
+                                    <th>TOURNÉE</th>
+                                    <th>TOTAL</th>
+                                    <th>AVEC OK</th>
+                                    <th>SANS OK</th>
+                                    <th>TAUX %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- RIGHT: VENDEUR SCORE RADAR / BAR CHART -->
+                <div class="cyber-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header">
+                        <span class="tech-label"><i class="fa-solid fa-chart-pie neon-text-amber"></i> ANALYSE RADAR DE PERFORMANCE</span>
+                    </div>
+                    <div style="position: relative; height: 300px;">
+                        <canvas id="v360-radar-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- QUANTI & QUALI CHARTS ROW -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 1.5rem;">
+
+                <!-- QUANTITATIVE: SUIVI PAR FAMILLE & CA -->
+                <div class="cyber-card chart-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="tech-label"><i class="fa-solid fa-chart-bar neon-text-blue"></i> SUIVI QUANTITATIF PAR FAMILLE &amp; CA</span>
+                        <span id="v360-quanti-vendeur-label" style="font-size: 0.75rem; color: var(--text-sub); font-family: var(--font-mono);"></span>
+                    </div>
+                    <div style="position: relative; height: 320px; padding: 0.5rem 0;">
+                        <canvas id="v360-quanti-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- QUALITATIVE: ACM / TSM / LINE -->
+                <div class="cyber-card chart-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="tech-label"><i class="fa-solid fa-chart-line neon-text-green"></i> SUIVI QUALITATIF (ACM / TSM / LINE)</span>
+                        <span id="v360-quali-vendeur-label" style="font-size: 0.75rem; color: var(--text-sub); font-family: var(--font-mono);"></span>
+                    </div>
+                    <div style="position: relative; height: 320px; padding: 0.5rem 0;">
+                        <canvas id="v360-quali-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- CLIENTS VIEW CONTAINER -->
     <main class="dashboard-container" id="clients-container" style="{% if active_tab != 'clients' %}display: none;{% endif %}; position: relative; z-index: 10;">
+        {% if active_sub_tab == 'facturation' %}
+        <!-- CLIENTS FACTURATION VIEW -->
+        <section class="summary-section" style="margin-bottom: 1.5rem;">
+            <div class="cyber-card" style="padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; width: 100%;">
+                <div class="card-edge"></div>
+                <span class="tech-label" style="font-size: 1rem; color: var(--text-main); font-weight: bold;">
+                    <i class="fa-solid fa-file-invoice neon-text-blue"></i> SUIVI DE FACTURATION CLIENTS
+                </span>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <button id="cf-import-visites-btn" class="cyber-btn" title="Analyser un rapport de visites Excel (6.xlsx)" style="height: 38px; border-color: var(--neon-blue);">
+                        <i class="fa-solid fa-file-excel"></i>
+                        <span>ANALYSER VISITES</span>
+                    </button>
+                    <button id="cf-compare-visites-btn" class="cyber-btn" title="Comparer plusieurs passages de visites" style="height: 38px; border-color: var(--neon-pink); color: var(--neon-pink);">
+                        <i class="fa-solid fa-code-compare"></i>
+                        <span>COMPARER PASSAGES</span>
+                    </button>
+                    <label class="tech-label" style="margin: 0; white-space: nowrap;"><i class="fa-solid fa-calendar-day"></i> CHOISIR DATE :</label>
+                    <select id="cf-facturation-date" class="cyber-select" style="width: 160px; text-transform: uppercase; border-color: var(--neon-blue);"></select>
+                </div>
+            </div>
+        </section>
+
+        <!-- KPI SUMMARY ROW -->
+        <section class="summary-section" id="cf-facturation-summary">
+            <div class="cyber-card summary-card glow-blue">
+                <div class="card-edge"></div>
+                <div class="summary-icon"><i class="fa-solid fa-calendar-check"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">CLIENTS PROGRAMMÉS</span>
+                    <h2 class="summary-value neon-text-blue" id="cf-fact-prog">0</h2>
+                    <span class="summary-sub">Visites prévues</span>
+                </div>
+            </div>
+            <div class="cyber-card summary-card glow-green">
+                <div class="card-edge"></div>
+                <div class="summary-icon"><i class="fa-solid fa-file-circle-check"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">CLIENTS FACTURÉS</span>
+                    <h2 class="summary-value neon-text-green" id="cf-fact-real">0</h2>
+                    <span class="summary-sub">Achats réels</span>
+                </div>
+            </div>
+            <div class="cyber-card summary-card glow-pink">
+                <div class="card-edge"></div>
+                <div class="summary-icon"><i class="fa-solid fa-file-circle-xmark" style="color: var(--neon-pink);"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">CLIENTS NON FACTURÉS</span>
+                    <h2 class="summary-value neon-text-pink" id="cf-fact-fail">0</h2>
+                    <span class="summary-sub">Visites sans commande</span>
+                </div>
+            </div>
+            <div class="cyber-card summary-card glow-pink">
+                <div class="card-edge"></div>
+                <div class="summary-icon"><i class="fa-solid fa-chart-pie"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">TAUX ACM MOYEN</span>
+                    <h2 class="summary-value neon-text-pink" id="cf-fact-acm">0%</h2>
+                    <span class="summary-sub">Efficacité de commande</span>
+                </div>
+            </div>
+            <div class="cyber-card summary-card glow-amber">
+                <div class="card-edge"></div>
+                <div class="summary-icon"><i class="fa-solid fa-truck-fast"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">TAUX TSM MOYEN</span>
+                    <h2 class="summary-value neon-text-amber" id="cf-fact-tsm">0%</h2>
+                    <span class="summary-sub">Taux de service</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- CHART PANEL -->
+        <section class="cyber-card chart-card" style="margin-bottom: 1.5rem; min-height: 380px;">
+            <div class="card-edge"></div>
+            <div class="card-header">
+                <span class="tech-label"><i class="fa-solid fa-chart-bar neon-text-blue"></i> CLIENTS PROGRAMMÉS vs CLIENTS FACTURÉS PAR VENDEUR</span>
+            </div>
+            <div class="chart-wrapper" style="height: 320px; padding: 1rem 0; position: relative;">
+                <canvas id="cf-facturation-chart"></canvas>
+            </div>
+        </section>
+
+        <!-- DETAIL DATA TABLE -->
+        <section class="cyber-card table-card">
+            <div class="card-edge"></div>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <span class="tech-label">
+                    <i class="fa-solid fa-list-check neon-text-blue"></i>
+                    DÉTAIL PAR VENDEUR (PERFORMANCE QUALITATIVE)
+                </span>
+            </div>
+            <div class="table-container">
+                <table class="cyber-table" id="cf-facturation-table">
+                    <thead>
+                        <tr>
+                            <th>Vendeur</th>
+                            <th>Clients Programmés</th>
+                            <th>Clients Facturés</th>
+                            <th>ACM (%)</th>
+                            <th>TSM (%)</th>
+                            <th>LINE (%)</th>
+                            <th>RAF TSM</th>
+                            <th>RAF ACM</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cf-facturation-tbody">
+                        <tr>
+                            <td colspan="8" style="text-align: center; color: var(--text-muted);">Chargement des données...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- DETAILED VISITS REPORT PANEL (HIDDEN BY DEFAULT) -->
+        <section class="cyber-card detail-visits-card animate-glow" id="cf-details-visites-section" style="margin-top: 1.5rem; display: none;">
+            <div class="card-edge"></div>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <span class="tech-label" id="cf-details-visites-title" style="font-size: 1rem; color: var(--text-main); font-weight: bold;">
+                    <i class="fa-solid fa-square-poll-vertical neon-text-pink"></i>
+                    RAPPORT DE VISITES SUR LE TERRAIN : <strong id="cf-details-vendeur-name" style="color: var(--text-main);"></strong>
+                </span>
+                <button class="cyber-btn-text" id="cf-hide-details-visites" style="color: var(--neon-pink); text-transform: uppercase;"><i class="fa-solid fa-circle-xmark"></i> MASQUER</button>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-top: 1rem; margin-bottom: 1.5rem;">
+                <div class="cyber-card" style="padding: 1rem; box-sizing: border-box;">
+                    <div class="card-edge"></div>
+                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-list-ol"></i> Motifs de Non-Facturation</span>
+                    <div id="cf-details-motifs-list" style="display: flex; flex-direction: column; gap: 0.4rem; font-family: var(--font-mono); font-size: 0.8rem;">
+                        <!-- populated by JS -->
+                    </div>
+                </div>
+                <div class="cyber-card" style="padding: 1rem; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 0.5rem;">
+                    <div class="card-edge"></div>
+                    <div><span class="tech-label">Visites Effectuées :</span> <strong id="cf-details-total" style="color: var(--text-main);">0</strong></div>
+                    <div><span class="tech-label">Visites Validées (OK) :</span> <strong id="cf-details-ok" style="color: var(--neon-green);">0</strong></div>
+                    <div><span class="tech-label">Non Validées (No OK) :</span> <strong id="cf-details-no-ok" style="color: var(--neon-pink);">0</strong></div>
+                    <div><span class="tech-label">ACM (Taux Facturation) :</span> <strong id="cf-details-acm-val" style="color: var(--neon-amber);">0%</strong></div>
+                    <div style="border-top: 1px dashed rgba(255, 255, 255, 0.1); margin-top: 0.25rem; padding-top: 0.25rem;">
+                        <div><span class="tech-label">Distance Moyenne :</span> <strong id="cf-details-dist-avg" style="color: var(--text-main);">0 m</strong></div>
+                        <div style="margin-top: 0.15rem;"><span class="tech-label">Hors-Zone (> 100m) :</span> <strong id="cf-details-dist-anom" style="color: var(--neon-pink);">0 anomalie(s)</strong></div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="cf-view-toggle" role="tablist" style="display: inline-flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 38px; margin-bottom: 0.75rem;">
+                    <button type="button" class="cf-view-btn is-active" id="cf-details-toggle-ok" style="font-size: 0.75rem; background: var(--bg-color); border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.35rem; padding: 0 1.25rem;">
+                        <i class="fa-solid fa-circle-check" style="color: var(--neon-green);"></i> <span>Facturés (OK)</span>
+                        <span class="badge-blue" id="cf-details-badge-count-ok" style="margin-left: 0.25rem; font-size: 0.7rem; padding: 1px 5px;">0</span>
+                    </button>
+                    <button type="button" class="cf-view-btn" id="cf-details-toggle-no-ok" style="font-size: 0.75rem; background: var(--bg-color); border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.35rem; padding: 0 1.25rem;">
+                        <i class="fa-solid fa-circle-xmark" style="color: var(--neon-pink);"></i> <span>Non Facturés</span>
+                        <span class="badge-blue" id="cf-details-badge-count-no-ok" style="margin-left: 0.25rem; font-size: 0.7rem; padding: 1px 5px; background: rgba(255,45,85,0.15); color: var(--neon-pink); border-color: rgba(255,45,85,0.3);">0</span>
+                    </button>
+                </div>
+
+                <div class="table-container" style="max-height: 350px; overflow-y: auto;">
+                    <table class="cyber-table">
+                        <thead>
+                            <tr>
+                                <th>Code Client</th>
+                                <th>Nom Client</th>
+                                <th>Heure</th>
+                                <th>Distance</th>
+                                <th>Motif / Note</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cf-details-tbody-content">
+                            <!-- populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        {% elif active_sub_tab == 'afacturer' %}
+        <!-- CLIENTS A FACTURER VIEW -->
+        <section class="summary-section" style="margin-bottom: 1.5rem;">
+            <div class="cyber-card" style="padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; width: 100%;">
+                <div class="card-edge"></div>
+                <span class="tech-label" style="font-size: 1rem; color: var(--text-main); font-weight: bold;">
+                    <i class="fa-solid fa-file-invoice-dollar neon-text-pink"></i> CLIENTS À FACTURER (HISTORIQUE PAR TOURNÉE)
+                </span>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <button id="af-import-visites-btn" class="cyber-btn" title="Télécharger et enregistrer un rapport de visites Excel dans la base" style="height: 38px; border-color: var(--neon-blue);">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                        <span>UPLOAD EXCEL</span>
+                    </button>
+                    <button id="af-reload-btn" class="cyber-btn" title="Recharger les tournées et dates de la base de données" style="height: 38px; border-color: var(--neon-amber); color: var(--neon-amber);">
+                        <i class="fa-solid fa-rotate"></i>
+                        <span>RECHARGER</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- MAIN SPLIT WORKSPACE -->
+        <div style="display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; align-items: start;">
+            
+            <!-- LEFT PANEL: FILTERS AND SELECTION -->
+            <section class="cyber-card" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem; min-height: 500px;">
+                <div class="card-edge"></div>
+                
+                <!-- Filter type selector -->
+                <div>
+                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-filter"></i> TYPE DE FILTRE</span>
+                    <div style="display: flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 36px; background: var(--bg-color);">
+                        <button type="button" id="af-filter-type-tournee" class="cyber-btn-text is-active" style="flex: 1; font-size: 0.75rem; border: none; font-weight: bold; cursor: pointer;">PAR TOURNÉE</button>
+                        <button type="button" id="af-filter-type-vendeur" class="cyber-btn-text" style="flex: 1; font-size: 0.75rem; border: none; font-weight: bold; cursor: pointer; border-left: 1px solid var(--border-color);">PAR VENDEUR</button>
+                    </div>
+                </div>
+
+                <!-- Entity selector -->
+                <div>
+                    <span class="tech-label" id="af-entity-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-route"></i> SÉLECTIONNER TOURNÉE</span>
+                    <select id="af-select-entity" class="cyber-select" style="width: 100%; text-transform: uppercase;">
+                        <option value="">Chargement...</option>
+                    </select>
+                </div>
+
+                <!-- Checkboxes Container -->
+                <div style="flex-grow: 1; display: flex; flex-direction: column;">
+                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-calendar-check"></i> CHOISIR PASSAGES (1 À 3 DATES)</span>
+                    <div id="af-dates-container" style="border: 1px solid var(--border-color); border-radius: 4px; padding: 0.75rem; max-height: 280px; overflow-y: auto; background: rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 0.5rem; min-height: 150px;">
+                        <span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Veuillez d'abord sélectionner une tournée ou un vendeur.</span>
+                    </div>
+                </div>
+
+                <!-- Analyze Button -->
+                <button id="af-btn-analyze" class="cyber-btn" style="width: 100%; border-color: var(--neon-pink); color: var(--neon-pink); font-weight: bold; justify-content: center; height: 42px; margin-top: auto;">
+                    <i class="fa-solid fa-chart-pie"></i> ANALYSER PASSAGES
+                </button>
+            </section>
+
+            <!-- RIGHT PANEL: COMPARATIVE RESULTS -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                
+                <!-- Welcome card / placeholder when no comparison is run yet -->
+                <section class="cyber-card" id="af-results-placeholder" style="padding: 3rem; text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 1rem; min-height: 500px;">
+                    <div class="card-edge"></div>
+                    <i class="fa-solid fa-chart-line" style="font-size: 3.5rem; color: var(--border-color); animation: pulse 2s infinite;"></i>
+                    <h3 style="margin: 0; color: var(--text-muted); font-weight: normal;">Aucune analyse en cours</h3>
+                    <p style="margin: 0; color: var(--text-muted); font-size: 0.85rem; max-width: 450px;">
+                        Sélectionnez une tournée ou un vendeur sur la gauche, cochez entre 1 et 3 passages (dates), puis cliquez sur <strong>ANALYSER PASSAGES</strong> pour afficher les résultats comparatifs.
+                    </p>
+                </section>
+
+                <!-- Comparison Result workspace (initially hidden) -->
+                <div id="af-results-workspace" style="display: none; flex-direction: column; gap: 1.5rem;">
+                    
+                    <!-- KPI Cards row -->
+                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; width: 100%;">
+                        <div class="cyber-card summary-card glow-green" style="padding: 0.85rem 1rem;">
+                            <div class="card-edge"></div>
+                            <div class="summary-content">
+                                <span class="summary-label" style="font-size: 0.62rem;"><i class="fa-solid fa-file-circle-check"></i> AU MOINS 1 FACTURE</span>
+                                <h3 class="summary-value neon-text-green" id="af-kpi-atleastone" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                            </div>
+                        </div>
+                        <div class="cyber-card summary-card glow-green" style="padding: 0.85rem 1rem;">
+                            <div class="card-edge"></div>
+                            <div class="summary-content">
+                                <span class="summary-label" style="font-size: 0.62rem;">TOUJOURS FACTURÉ</span>
+                                <h3 class="summary-value neon-text-green" id="af-kpi-always" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                            </div>
+                        </div>
+                        <div class="cyber-card summary-card glow-pink" style="padding: 0.85rem 1rem;">
+                            <div class="card-edge"></div>
+                            <div class="summary-content">
+                                <span class="summary-label" style="font-size: 0.62rem;">PERTES DE FACTURATION</span>
+                                <h3 class="summary-value neon-text-pink" id="af-kpi-loss" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                            </div>
+                        </div>
+                        <div class="cyber-card summary-card glow-blue" style="padding: 0.85rem 1rem;">
+                            <div class="card-edge"></div>
+                            <div class="summary-content">
+                                <span class="summary-label" style="font-size: 0.62rem;">GAINS DE FACTURATION</span>
+                                <h3 class="summary-value neon-text-blue" id="af-kpi-gain" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                            </div>
+                        </div>
+                        <div class="cyber-card summary-card glow-amber" style="padding: 0.85rem 1rem;">
+                            <div class="card-edge"></div>
+                            <div class="summary-content">
+                                <span class="summary-label" style="font-size: 0.62rem;">JAMAIS FACTURÉ (0)</span>
+                                <h3 class="summary-value neon-text-amber" id="af-kpi-never" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Comparison Table Card -->
+                    <section class="cyber-card table-card" style="padding: 1.25rem;">
+                        <div class="card-edge"></div>
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 1rem;">
+                            <span class="tech-label" style="font-size: 0.85rem;"><i class="fa-solid fa-list-check"></i> RÉSULTATS COMPARATIFS : <strong id="af-vendeur-display"></strong></span>
+                            
+                            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                                <!-- Client search box -->
+                                <div class="search-input-wrapper" style="width: 170px; height: 32px;">
+                                    <input type="text" id="af-search-client" placeholder="Rechercher client..." style="font-size: 0.75rem; padding: 0.25rem 0.5rem; height: 32px; border-radius: 4px;">
+                                </div>
+
+                                <!-- WhatsApp Button -->
+                                <button type="button" id="af-btn-wa-vendeur" class="cyber-btn" style="border-color: #25D366; color: #25D366; height: 32px; font-size: 0.72rem; padding: 0 0.75rem; font-weight: bold; display: flex; align-items: center; gap: 0.35rem;" title="Envoyer uniquement Code Client et Nom Client au vendeur par WhatsApp">
+                                    <i class="fa-brands fa-whatsapp" style="font-size: 0.95rem;"></i>
+                                    <span>ENVOYER VENDEUR</span>
+                                </button>
+
+                                <!-- Filters -->
+                                <div class="cf-view-toggle" role="tablist" style="display: inline-flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 32px;">
+                                    <button type="button" class="cf-view-btn is-active" id="af-btn-all" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer;">TOUS</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-atleastone" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-green); font-weight: bold;" title="Clients ayant au moins 1 facture dans cette période">FACTURÉ (≥1)</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-nofacture" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-amber); font-weight: bold;" title="Clients n'ayant aucune facture dans cette période">AUCUNE FACTURE</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-always" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-green);">TOUJOURS</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-loss" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-pink);">PERTES</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-gain" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-blue);">GAINS</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-never" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-amber);">JAMAIS</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                            <table class="cyber-table">
+                                <thead id="af-table-headers">
+                                    <!-- Dynamic dates headers populated by JS -->
+                                </thead>
+                                <tbody id="af-details-tbody">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+
+        <!-- WhatsApp Modal for Vendeur -->
+        <div id="af-wa-modal" class="cyber-modal-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
+            <div class="cyber-card" style="width: 540px; max-width: 92vw; padding: 1.5rem; background: var(--card-bg, #121824); border: 1px solid #25D366; box-shadow: 0 0 25px rgba(37,211,102,0.25);">
+                <div class="card-edge"></div>
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+                    <h3 style="margin: 0; font-size: 1.05rem; color: #25D366; display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fa-brands fa-whatsapp" style="font-size: 1.25rem;"></i> ENVOYER LISTE CLIENTS AU VENDEUR
+                    </h3>
+                    <button type="button" id="af-wa-modal-close" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.3rem;">&times;</button>
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+                    <div>
+                        <span class="tech-label" style="font-size: 0.75rem; display: block; margin-bottom: 0.35rem;"><i class="fa-solid fa-user-tie"></i> VENDEUR &amp; TÉLÉPHONE</span>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="text" id="af-wa-vendeur-name" readonly style="flex: 1; padding: 0.45rem 0.6rem; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: var(--text-main); font-weight: bold; border-radius: 4px; font-size: 0.85rem;">
+                            <input type="text" id="af-wa-vendeur-phone" placeholder="Format: 212661000000" style="flex: 1; padding: 0.45rem 0.6rem; background: var(--bg-color); border: 1px solid #25D366; color: #25D366; font-family: var(--font-mono); border-radius: 4px; font-size: 0.85rem;">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <span class="tech-label" style="font-size: 0.75rem; display: block; margin-bottom: 0.35rem;"><i class="fa-solid fa-message"></i> MESSAGE (CODE, NOM &amp; LOCALITÉ)</span>
+                        <textarea id="af-wa-message-text" rows="11" style="width: 100%; padding: 0.65rem; background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 0.82rem; resize: vertical; border-radius: 4px; line-height: 1.45;" readonly></textarea>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.25rem;">
+                        <button type="button" id="af-wa-copy-btn" class="cyber-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); height: 38px;">
+                            <i class="fa-solid fa-copy"></i> Copier
+                        </button>
+                        <button type="button" id="af-wa-send-btn" class="cyber-btn" style="border-color: #25D366; color: #25D366; background: rgba(37,211,102,0.15); font-weight: bold; height: 38px;">
+                            <i class="fa-brands fa-whatsapp"></i> Ouvrir WhatsApp
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
 
         <!-- KPI SUMMARY ROW -->
         <section class="summary-section" id="clients-summary-section">
@@ -859,6 +1401,7 @@
             <h3 style="color: var(--text-main);">Aucun client trouvé</h3>
             <p style="color: var(--text-muted);">Essayez de modifier vos filtres ou votre recherche.</p>
         </div>
+        {% endif %}
     </main>
 
     <!-- FDV VIEW CONTAINER -->
@@ -1255,11 +1798,15 @@
             <!-- LEFT PANEL: REPRESENTATIVES TABLE -->
             <section class="cyber-card table-card" style="margin: 0; padding: 1.25rem;">
                 <div class="card-edge"></div>
-                <div class="table-header" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+                <div class="table-header" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                     <span class="tech-label" id="focus-table-title"><i class="fa-solid fa-list-ol"></i> CLASSEMENT REPRÉSENTANTS</span>
+                    <div id="vmm-mode-selector" style="display: none; align-items: center; gap: 0.5rem; border: 1px solid var(--border-color); border-radius: 4px; padding: 2px;">
+                        <button type="button" class="cyber-btn active" id="vmm-mode-ca" style="height: 26px; padding: 0 0.75rem; font-size: 0.75rem; font-family: var(--font-mono); font-weight: bold; border: 1px solid var(--neon-pink); color: var(--neon-pink); background: rgba(255, 45, 85, 0.1); cursor: pointer; transition: all 0.2s;">CA</button>
+                        <button type="button" class="cyber-btn" id="vmm-mode-quali" style="height: 26px; padding: 0 0.75rem; font-size: 0.75rem; font-family: var(--font-mono); font-weight: bold; border: 1px solid transparent; color: var(--text-muted); background: transparent; cursor: pointer; transition: all 0.2s;">Qualitatif</button>
+                    </div>
                     <span class="badge-blue" id="focus-reps-count">0 REPS</span>
                 </div>
-                <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                <div class="table-container" style="max-height: none; overflow-y: visible;">
                     <table class="cyber-table" id="focus-reps-table">
                         <thead>
                             <tr id="focus-reps-headers">
@@ -1280,7 +1827,7 @@
                     <span class="tech-label"><i class="fa-solid fa-people-group"></i> CLASSEMENT CDZ</span>
                     <span class="badge-pink" id="focus-cdz-count">0 CDZ</span>
                 </div>
-                <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                <div class="table-container" style="max-height: none; overflow-y: visible;">
                     <table class="cyber-table" id="focus-cdz-table">
                         <thead>
                             <tr>
@@ -1321,6 +1868,56 @@
             </div>
         </section>
 
+        <!-- DAILY FOCUS PERFORMANCE (TABLE & CHART) -->
+        <style>
+            .focus-daily-grid {
+                display: grid;
+                grid-template-columns: 1.2fr 1fr;
+                gap: 1.5rem;
+                margin-top: 1rem;
+            }
+            @media (max-width: 1200px) {
+                .focus-daily-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+        </style>
+        <section class="cyber-card" id="focus-daily-card" style="margin-bottom: 2rem; padding: 1.25rem 1.5rem;">
+            <div class="card-edge"></div>
+            <div class="chart-header" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+                <span class="tech-label" id="focus-daily-title">
+                    <i class="fa-solid fa-calendar-days neon-text-green"></i>
+                    ANALYSE JOURNALIÈRE DU TAUX DE RÉALISATION (%)
+                </span>
+                <span class="badge-blue" id="focus-daily-seller-name">AGENCE AGADIR</span>
+            </div>
+            
+            <div class="focus-daily-grid">
+                <!-- Chart Container -->
+                <div class="chart-wrapper" style="height: 350px; position: relative;">
+                    <canvas id="focus-daily-chart"></canvas>
+                </div>
+                <!-- Table Container -->
+                <div class="table-container" style="overflow-x: auto; max-height: 350px;">
+                    <table class="cyber-table" id="focus-daily-table" style="font-size: 0.85rem;">
+                        <thead>
+                            <tr id="focus-daily-headers">
+                                <th>Date</th>
+                                <th>Objectif</th>
+                                <th>Réalisé</th>
+                                <th>Reste (RAF)</th>
+                                <th>RAF / Jour</th>
+                                <th>Taux Réalisation (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="focus-daily-tbody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
     </main>
 
     <main class="rp-page" id="rapport-container" style="{% if active_tab != 'rapport' %}display: none;{% endif %}">
@@ -1343,132 +1940,184 @@
             </div>
         </div>
 
-        <!-- ══ BENTO CONTROL GRID ═══════════════════════════════════════════ -->
-        <div class="rp-bento">
+        <!-- ══ WORKSPACE LAYOUT ═════════════════════════════════════════════ -->
+        <div class="rp-workspace-layout">
 
-            <!-- CELL 1 — Vendeur selector -->
-            <div class="rp-bento-cell rp-cell-vendeur" style="position: relative; z-index: 200;">
-                <div class="rp-cell-label"><i class="fa-solid fa-user-tie"></i> Cible</div>
-                <div class="rp-cell-title">Choisir un Vendeur</div>
-                <div class="rp-cell-sub">Laissez vide pour un rapport agence global</div>
+            <!-- LEFT COLUMN: SIDEBAR -->
+            <div class="rp-sidebar-panel">
+                <div class="rp-sidebar-card cyber-card">
+                    <div class="card-edge"></div>
 
-                <div class="dropdown-container rp-dropdown-wrap" id="vendeur-dropdown-container">
-                    <button class="rp-dropdown-btn" id="vendeur-dropdown-toggle" type="button">
-                        <span class="rp-dropdown-icon"><i class="fa-solid fa-user-tie"></i></span>
-                        <span class="rp-dropdown-text" id="dropdown-selected-text">Tous les vendeurs</span>
-                        <i class="fa-solid fa-chevron-down rp-dropdown-chevron dropdown-chevron"></i>
-                    </button>
-                    <div class="dropdown-menu" id="vendeur-dropdown-menu">
-                        <div class="dropdown-search-wrapper">
-                            <i class="fa-solid fa-search search-icon"></i>
-                            <input type="text" id="vendeur-dropdown-search" class="dropdown-search-input" placeholder="Rechercher...">
+                    <!-- SECTION 1: CIBLE -->
+                    <div class="sidebar-section" style="position: relative; z-index: 200;">
+                        <h4 class="sidebar-section-title"><i class="fa-solid fa-user-tie"></i> CIBLE</h4>
+                        
+                        <div class="dropdown-container rp-dropdown-wrap" id="vendeur-dropdown-container">
+                            <button class="rp-dropdown-btn" id="vendeur-dropdown-toggle" type="button">
+                                <span class="rp-dropdown-icon"><i class="fa-solid fa-user-tie"></i></span>
+                                <span class="rp-dropdown-text" id="dropdown-selected-text">Tous les vendeurs</span>
+                                <i class="fa-solid fa-chevron-down rp-dropdown-chevron dropdown-chevron"></i>
+                            </button>
+                            <div class="dropdown-menu" id="vendeur-dropdown-menu">
+                                <div class="dropdown-search-wrapper">
+                                    <i class="fa-solid fa-search search-icon"></i>
+                                    <input type="text" id="vendeur-dropdown-search" class="dropdown-search-input" placeholder="Rechercher...">
+                                </div>
+                                <div class="dropdown-list vendeur-dropdown-list" id="vendeur-dropdown-list">
+                                    <div class="dropdown-loading">
+                                        <i class="fa-solid fa-circle-notch fa-spin"></i>
+                                        <span>Chargement...</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="dropdown-list vendeur-dropdown-list" id="vendeur-dropdown-list">
-                            <div class="dropdown-loading">
-                                <i class="fa-solid fa-circle-notch fa-spin"></i>
-                                <span>Chargement...</span>
+
+                        <div id="selected-vendeur-display-container" class="rp-selected-badge-wrap" style="margin-top: 0.5rem;">
+                            <div id="selected-vendeur-display" class="rp-selected-badge">
+                                <i class="fa-solid fa-globe"></i>
+                                <span>Agence globale</span>
+                            </div>
+                            <button id="reset-vendeur-selection-btn" class="rp-reset-btn" style="display:none;">
+                                <i class="fa-solid fa-xmark"></i> Effacer
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 2: FORMAT & LANGUE -->
+                    <div class="sidebar-section">
+                        <h4 class="sidebar-section-title"><i class="fa-solid fa-sliders"></i> FORMAT &amp; LANGUE</h4>
+                        
+                        <div class="form-group" style="margin-top: 0.25rem;">
+                            <label class="tech-label" style="display: block; margin-bottom: 0.4rem; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-file-invoice"></i> Format du Rapport</label>
+                            <div style="display: flex; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px; gap: 4px;">
+                                <button type="button" class="report-format-btn active" data-format="complet" style="flex: 1; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 0.72rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                                    <i class="fa-solid fa-file-lines" style="color: var(--neon-blue);"></i> Complet
+                                </button>
+                                <button type="button" class="report-format-btn" data-format="mini" style="flex: 1; background: transparent; border: 1px solid transparent; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.72rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                                    <i class="fa-solid fa-compress"></i> Mini
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 0.5rem;">
+                            <label class="tech-label" style="display: block; margin-bottom: 0.4rem; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-language"></i> Langue</label>
+                            <div style="display: flex; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px; gap: 4px;">
+                                <button type="button" class="report-lang-btn active" data-lang="fr" style="flex: 1; background: var(--bg-card); border: 1px solid var(--neon-blue); color: var(--text-main); font-family: var(--font-mono); font-size: 0.72rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                                    <i class="fa-solid fa-flag" style="color: var(--neon-blue);"></i> Français
+                                </button>
+                                <button type="button" class="report-lang-btn" data-lang="ar" style="flex: 1; background: transparent; border: 1px solid transparent; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.72rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                                    <i class="fa-solid fa-earth-africa"></i> Arabe
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 3: MODULES D'ANALYSE -->
+                    <div class="sidebar-section">
+                        <h4 class="sidebar-section-title"><i class="fa-solid fa-chart-pie"></i> MODULES D'ANALYSE</h4>
+                        
+                        <div class="rp-toggles" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label class="rp-toggle" data-option="quanti">
+                                <input type="checkbox" id="check-quanti" checked>
+                                <span class="rp-toggle-track">
+                                    <span class="rp-toggle-icon"><i class="fa-solid fa-chart-bar"></i></span>
+                                    <span class="rp-toggle-label">Quantitatif</span>
+                                </span>
+                            </label>
+                            <label class="rp-toggle" data-option="quali">
+                                <input type="checkbox" id="check-quali" checked>
+                                <span class="rp-toggle-track">
+                                    <span class="rp-toggle-icon"><i class="fa-solid fa-comments"></i></span>
+                                    <span class="rp-toggle-label">Qualitatif</span>
+                                </span>
+                            </label>
+                            <label class="rp-toggle" data-option="focus">
+                                <input type="checkbox" id="check-focus" checked>
+                                <span class="rp-toggle-track">
+                                    <span class="rp-toggle-icon"><i class="fa-solid fa-bullseye"></i></span>
+                                    <span class="rp-toggle-label">Focus</span>
+                                </span>
+                            </label>
+                            <label class="rp-toggle" data-option="anomali">
+                                <input type="checkbox" id="check-anomali">
+                                <span class="rp-toggle-track">
+                                    <span class="rp-toggle-icon"><i class="fa-solid fa-triangle-exclamation"></i></span>
+                                    <span class="rp-toggle-label">Anomalies</span>
+                                </span>
+                            </label>
+                            <label class="rp-toggle" data-option="rappel">
+                                <input type="checkbox" id="check-rappel">
+                                <span class="rp-toggle-track">
+                                    <span class="rp-toggle-icon"><i class="fa-solid fa-bell"></i></span>
+                                    <span class="rp-toggle-label">Rappels</span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 4: ACTIONS -->
+                    <div class="sidebar-section" style="border-bottom: none; padding-bottom: 0;">
+                        <h4 class="sidebar-section-title"><i class="fa-solid fa-wand-magic-sparkles"></i> ACTIONS</h4>
+                        
+                        <!-- Tax Mode -->
+                        <div class="rp-toggles" style="margin-bottom: 0.5rem; width: 100%;">
+                            <label class="rp-toggle" data-option="ttc" style="width: 100%;">
+                                <input type="radio" name="report-tax-mode" id="report-tax-mode-ttc" value="TTC" checked style="position: absolute; opacity: 0; width: 0; height: 0;">
+                                <span class="rp-toggle-track" style="width: 100%;">
+                                    <span class="rp-toggle-icon"><i class="fa-solid fa-receipt"></i></span>
+                                    <span class="rp-toggle-label">Données en TTC</span>
+                                </span>
+                            </label>
+                            <label class="rp-toggle" data-option="ht" style="width: 100%;">
+                                <input type="radio" name="report-tax-mode" id="report-tax-mode-ht" value="HT" style="position: absolute; opacity: 0; width: 0; height: 0;">
+                                <span class="rp-toggle-track" style="width: 100%;">
+                                    <span class="rp-toggle-icon"><i class="fa-solid fa-receipt"></i></span>
+                                    <span class="rp-toggle-label">Données en HT</span>
+                                </span>
+                            </label>
+                        </div>
+
+                        <!-- Generate button -->
+                        <button id="generate-vendeur-report-btn" class="rp-generate-btn" style="margin-bottom: 0.5rem;">
+                            <span class="rp-generate-btn-glow"></span>
+                            <i class="fa-solid fa-brain"></i>
+                            <span>Générer le Rapport</span>
+                        </button>
+
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: MAIN WORKSPACE -->
+            <div class="rp-main-content-panel">
+                
+                <!-- EMPTY STATE -->
+                <div class="rp-empty-state cyber-card" id="rp-empty-state-panel">
+                    <div class="card-edge"></div>
+                    <div class="empty-state-content">
+                        <div class="empty-state-icon">
+                            <i class="fa-solid fa-brain fa-pulse"></i>
+                        </div>
+                        <h3>Prêt pour l'Analyse IA</h3>
+                        <p>Sélectionnez un vendeur ou laissez vide pour un rapport global, puis cliquez sur <strong>Générer le Rapport</strong> pour démarrer l'analyse sémantique et prédictive.</p>
+                        
+                        <div class="empty-state-steps">
+                            <div class="step-item">
+                                <span class="step-num">1</span>
+                                <span>Définir la cible et les options</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-num">2</span>
+                                <span>Lancer l'extraction des données</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-num">3</span>
+                                <span>Consulter les performances &amp; recommandations IA</span>
                             </div>
                         </div>
                     </div>
                 </div>
-
-                <div id="selected-vendeur-display-container" class="rp-selected-badge-wrap">
-                    <div id="selected-vendeur-display" class="rp-selected-badge">
-                        <i class="fa-solid fa-globe"></i>
-                        <span>Agence globale</span>
-                    </div>
-                    <button id="reset-vendeur-selection-btn" class="rp-reset-btn" style="display:none;">
-                        <i class="fa-solid fa-xmark"></i> Effacer
-                    </button>
-                </div>
-
-                <div class="form-group" style="margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 0.75rem;">
-                    <label class="tech-label" style="display: block; margin-bottom: 0.4rem; font-size: 0.75rem; color: var(--text-muted);"><i class="fa-solid fa-file-invoice"></i> Format du Rapport</label>
-                    <div style="display: flex; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px; gap: 4px;">
-                        <button type="button" class="report-format-btn active" data-format="complet" style="flex: 1; background: var(--bg-card); border: 1px solid var(--neon-blue); color: var(--text-main); font-family: var(--font-mono); font-size: 0.75rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                            <i class="fa-solid fa-file-lines" style="color: var(--neon-blue);"></i> Complet
-                        </button>
-                        <button type="button" class="report-format-btn" data-format="mini" style="flex: 1; background: transparent; border: 1px solid transparent; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.75rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                            <i class="fa-solid fa-compress"></i> Mini
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- CELL 2 — Analysis toggles -->
-            <div class="rp-bento-cell rp-cell-options">
-                <div class="rp-cell-label"><i class="fa-solid fa-sliders"></i> Configuration</div>
-                <div class="rp-cell-title">Modules d'Analyse</div>
-                <div class="rp-toggles">
-                    <label class="rp-toggle" data-option="quanti">
-                        <input type="checkbox" id="check-quanti" checked>
-                        <span class="rp-toggle-track">
-                            <span class="rp-toggle-icon"><i class="fa-solid fa-chart-bar"></i></span>
-                            <span class="rp-toggle-label">Quantitatif</span>
-                        </span>
-                    </label>
-                    <label class="rp-toggle" data-option="quali">
-                        <input type="checkbox" id="check-quali" checked>
-                        <span class="rp-toggle-track">
-                            <span class="rp-toggle-icon"><i class="fa-solid fa-comments"></i></span>
-                            <span class="rp-toggle-label">Qualitatif</span>
-                        </span>
-                    </label>
-                    <label class="rp-toggle" data-option="focus">
-                        <input type="checkbox" id="check-focus" checked>
-                        <span class="rp-toggle-track">
-                            <span class="rp-toggle-icon"><i class="fa-solid fa-bullseye"></i></span>
-                            <span class="rp-toggle-label">Focus</span>
-                        </span>
-                    </label>
-                    <label class="rp-toggle" data-option="anomali">
-                        <input type="checkbox" id="check-anomali">
-                        <span class="rp-toggle-track">
-                            <span class="rp-toggle-icon"><i class="fa-solid fa-triangle-exclamation"></i></span>
-                            <span class="rp-toggle-label">Anomalies</span>
-                        </span>
-                    </label>
-                    <label class="rp-toggle" data-option="rappel">
-                        <input type="checkbox" id="check-rappel">
-                        <span class="rp-toggle-track">
-                            <span class="rp-toggle-icon"><i class="fa-solid fa-bell"></i></span>
-                            <span class="rp-toggle-label">Rappels</span>
-                        </span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- CELL 3 — Generate CTA -->
-            <div class="rp-bento-cell rp-cell-generate">
-                <div class="rp-generate-orb"></div>
-                <div class="rp-cell-label"><i class="fa-solid fa-wand-magic-sparkles"></i> Action</div>
-                <div class="rp-cell-title">Lancer l'IA</div>
-                <div class="rp-cell-sub">Génération sémantique complète</div>
-                <!-- TTC / HT Selection Options -->
-                <div class="rp-toggles" style="margin-bottom: 1rem; width: 100%;">
-                    <label class="rp-toggle" data-option="ttc">
-                        <input type="radio" name="report-tax-mode" id="report-tax-mode-ttc" value="TTC" checked style="position: absolute; opacity: 0; width: 0; height: 0;">
-                        <span class="rp-toggle-track" style="width: 100%;">
-                            <span class="rp-toggle-icon"><i class="fa-solid fa-receipt"></i></span>
-                            <span class="rp-toggle-label">Données en TTC</span>
-                        </span>
-                    </label>
-                    <label class="rp-toggle" data-option="ht">
-                        <input type="radio" name="report-tax-mode" id="report-tax-mode-ht" value="HT" style="position: absolute; opacity: 0; width: 0; height: 0;">
-                        <span class="rp-toggle-track" style="width: 100%;">
-                            <span class="rp-toggle-icon"><i class="fa-solid fa-receipt"></i></span>
-                            <span class="rp-toggle-label">Données en HT</span>
-                        </span>
-                    </label>
-                </div>
-                <button id="generate-vendeur-report-btn" class="rp-generate-btn">
-                    <span class="rp-generate-btn-glow"></span>
-                    <i class="fa-solid fa-brain"></i>
-                    <span>Générer le Rapport</span>
-                </button>
-            </div>
-
-        </div><!-- /rp-bento -->
 
         <!-- ══ RESULT PANEL ═════════════════════════════════════════════════ -->
         <div class="rp-result-panel" id="rp-result-panel" style="display:none;">
@@ -1537,50 +2186,70 @@
             </div>
 
             <!-- WhatsApp Mini Image Template (Only populated/shown in Mini mode) -->
-            <div id="whatsapp-mini-image-template" style="display:none; margin: 2rem auto; max-width: 750px; background: #ffffff; color: #1e293b; font-family: 'Outfit', 'Inter', sans-serif; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02); overflow: hidden;">
+            <!-- Zoom toolbar -->
+            <div id="wa-zoom-toolbar" style="display:none; align-items:center; justify-content:center; gap:8px; margin: 1rem auto 0; max-width:520px;">
+                <button id="wa-zoom-out-btn" title="Dézoomer" style="background:var(--card-bg); border:1px solid var(--border-color); color:var(--text-main); width:34px; height:34px; border-radius:6px; cursor:pointer; font-size:1rem; display:flex; align-items:center; justify-content:center; transition:all .2s;">
+                    <i class="fa-solid fa-magnifying-glass-minus"></i>
+                </button>
+                <span id="wa-zoom-label" style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); min-width:42px; text-align:center;">100%</span>
+                <button id="wa-zoom-in-btn" title="Zoomer" style="background:var(--card-bg); border:1px solid var(--border-color); color:var(--text-main); width:34px; height:34px; border-radius:6px; cursor:pointer; font-size:1rem; display:flex; align-items:center; justify-content:center; transition:all .2s;">
+                    <i class="fa-solid fa-magnifying-glass-plus"></i>
+                </button>
+                <button id="wa-zoom-reset-btn" title="Taille réelle (100%)" style="background:var(--card-bg); border:1px solid var(--border-color); color:var(--text-muted); height:34px; padding:0 10px; border-radius:6px; cursor:pointer; font-size:0.7rem; font-family:var(--font-mono); display:flex; align-items:center; gap:5px; transition:all .2s;">
+                    <i class="fa-solid fa-expand"></i> RESET
+                </button>
+            </div>
+            <!-- Card wrapper for zoom transform -->
+            <div id="wa-zoom-wrapper" style="margin: 0.5rem auto 2rem; display:none; transform-origin: top center; transition: transform 0.2s ease;">
+            <div id="whatsapp-mini-image-template" style="max-width: 520px; background: #ffffff; color: #1e293b; font-family: 'Outfit', 'Inter', sans-serif; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02); overflow: hidden;">
                 <!-- Header -->
-                <div style="background: linear-gradient(135deg, #f8fafc, #f1f5f9); padding: 1.75rem; text-align: center; border-bottom: 1px solid #e2e8f0; position: relative;">
-                    <div style="color: #2563eb; font-size: 1.05rem; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 0.35rem;"><i class="fa-solid fa-chart-line"></i> MADEC - SUIVI DE PERFORMANCE</div>
-                    <div id="wa-card-vendeur" style="font-size: 2.0rem; font-weight: 800; color: #0f172a;">AGENCE GLOBALE</div>
-                    <div id="wa-card-date" style="font-size: 1.1rem; color: #64748b; margin-top: 0.35rem; font-family: var(--font-mono);">Date: --/--/----</div>
+                <div style="background: linear-gradient(135deg, #f8fafc, #f1f5f9); padding: 1rem 1.25rem; text-align: center; border-bottom: 1px solid #e2e8f0; position: relative;">
+                    <div style="color: #2563eb; font-size: 0.8rem; font-weight: bold; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="fa-solid fa-chart-line"></i> MADEC - SUIVI DE PERFORMANCE</div>
+                    <div id="wa-card-vendeur" style="font-size: 1.35rem; font-weight: 800; color: #0f172a;">AGENCE GLOBALE</div>
+                    <div id="wa-card-date" style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem; font-family: var(--font-mono);">Date: --/--/----</div>
+                    <div id="wa-card-days" style="font-size: 0.82rem; color: #64748b; margin-top: 0.2rem; font-family: var(--font-mono); font-weight: bold;">Jours: --/-- (Restant: -- j)</div>
                 </div>
 
-                <div style="padding: 1.75rem; display: flex; flex-direction: column; gap: 1.5rem;">
+                <div style="padding: 1rem; display: flex; flex-direction: column; gap: 0.85rem;">
                     <!-- 1. Quantitatif Section -->
-                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.4rem;">
-                        <h4 style="margin: 0 0 1rem 0; color: #2563eb; font-size: 1.2rem; text-transform: uppercase; border-bottom: 1px dashed #cbd5e1; padding-bottom: 0.5rem; display: flex; align-items: center; gap: 8px;">
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.85rem;">
+                        <h4 style="margin: 0 0 0.65rem 0; color: #2563eb; font-size: 0.9rem; text-transform: uppercase; border-bottom: 1px dashed #cbd5e1; padding-bottom: 0.35rem; display: flex; align-items: center; gap: 6px;">
                              <i class="fa-solid fa-sack-dollar"></i> PERFORMANCE QUANTITATIVE (CA)
                         </h4>
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.25rem;">
-                            <div style="background: #ffffff; border: 1px solid #f1f5f9; padding: 0.6rem; border-radius: 6px;">
-                                <div style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; white-space: nowrap;">CA Réalisé</div>
-                                <div id="wa-ca-real" style="font-size: 1.35rem; font-weight: bold; color: #10b981; font-family: var(--font-mono); margin-top: 4px;">0 DH</div>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; margin-bottom: 0.65rem;">
+                            <div style="background: #ffffff; border: 1px solid #f1f5f9; padding: 0.45rem 0.35rem; border-radius: 6px;">
+                                <div style="font-size: 0.62rem; color: #64748b; text-transform: uppercase; white-space: nowrap;">CA Réalisé</div>
+                                <div id="wa-ca-real" style="font-size: 0.95rem; font-weight: bold; color: #10b981; font-family: var(--font-mono); margin-top: 2px;">0 DH</div>
                             </div>
-                            <div style="background: #ffffff; border: 1px solid #f1f5f9; padding: 0.6rem; border-radius: 6px;">
-                                <div style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; white-space: nowrap;">Objectif</div>
-                                <div id="wa-ca-obj" style="font-size: 1.35rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono); margin-top: 4px;">0 DH</div>
+                            <div style="background: #ffffff; border: 1px solid #f1f5f9; padding: 0.45rem 0.35rem; border-radius: 6px;">
+                                <div style="font-size: 0.62rem; color: #64748b; text-transform: uppercase; white-space: nowrap;">Obj. Partiel</div>
+                                <div id="wa-ca-obj" style="font-size: 0.95rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono); margin-top: 2px;">0 DH</div>
                             </div>
-                            <div style="background: #ffffff; border: 1px solid #f1f5f9; padding: 0.6rem; border-radius: 6px;">
-                                <div style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; white-space: nowrap;">Reste à Faire</div>
-                                <div id="wa-ca-raf" style="font-size: 1.35rem; font-weight: bold; color: #d97706; font-family: var(--font-mono); margin-top: 4px;">0 DH</div>
+                            <div style="background: #ffffff; border: 1px solid #f1f5f9; padding: 0.45rem 0.35rem; border-radius: 6px;">
+                                <div style="font-size: 0.62rem; color: #64748b; text-transform: uppercase; white-space: nowrap;">Obj. Global</div>
+                                <div id="wa-ca-obj-global" style="font-size: 0.95rem; font-weight: bold; color: #2563eb; font-family: var(--font-mono); margin-top: 2px;">0 DH</div>
+                            </div>
+                            <div style="background: #ffffff; border: 1px solid #f1f5f9; padding: 0.45rem 0.35rem; border-radius: 6px;">
+                                <div style="font-size: 0.62rem; color: #64748b; text-transform: uppercase; white-space: nowrap;">Reste / Jour</div>
+                                <div id="wa-ca-raf" style="font-size: 0.95rem; font-weight: bold; color: #d97706; font-family: var(--font-mono); margin-top: 2px;">0 DH</div>
                             </div>
                         </div>
                         
-                        <div style="display: flex; justify-content: space-between; align-items: center; background: #eff6ff; padding: 0.85rem; border-radius: 6px; border: 1px solid #bfdbfe; margin-bottom: 1.25rem;">
-                            <span style="font-size: 1.05rem; font-weight: bold; color: #1e3a8a;">Taux de Réalisation</span>
-                            <span id="wa-ca-rate" style="font-size: 1.55rem; font-weight: 800; color: #2563eb; font-family: var(--font-mono);">0.0%</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center; background: #eff6ff; padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid #bfdbfe; margin-bottom: 0.65rem;">
+                            <span style="font-size: 0.85rem; font-weight: bold; color: #1e3a8a;">Taux de Réalisation</span>
+                            <span id="wa-ca-rate" style="font-size: 1.15rem; font-weight: 800; color: #2563eb; font-family: var(--font-mono);">0.0%</span>
                         </div>
 
                         <!-- Product Families Details -->
-                        <div style="margin-top: 1.25rem; border-top: 1px dashed #cbd5e1; padding-top: 1rem;">
-                            <div style="font-size: 0.9rem; color: #64748b; font-weight: bold; margin-bottom: 0.75rem; text-transform: uppercase;"><i class="fa-solid fa-tags"></i> Détail par Famille de Produits</div>
-                            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem; text-align: left;">
+                        <div style="margin-top: 0.65rem; border-top: 1px dashed #cbd5e1; padding-top: 0.5rem;">
+                            <div style="font-size: 0.75rem; color: #64748b; font-weight: bold; margin-bottom: 0.4rem; text-transform: uppercase;"><i class="fa-solid fa-tags"></i> Détail par Famille de Produits</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.78rem; text-align: left;">
                                 <thead>
                                     <tr style="color: #64748b; border-bottom: 1px solid #e2e8f0;">
-                                        <th style="padding: 6px 0;">Famille</th>
-                                        <th style="padding: 6px 0; text-align: right;">Réalisé</th>
-                                        <th style="padding: 6px 0; text-align: right;">Taux</th>
-                                        <th style="padding: 6px 0; text-align: right;">RAF</th>
+                                        <th style="padding: 4px 0;">Famille</th>
+                                        <th style="padding: 4px 0; text-align: right;">Réalisé</th>
+                                        <th style="padding: 4px 0; text-align: right;">Taux</th>
+                                        <th style="padding: 4px 0; text-align: right;">RAF</th>
                                     </tr>
                                 </thead>
                                 <tbody id="wa-families-tbody" style="color: #0f172a;">
@@ -1591,79 +2260,89 @@
                     </div>
 
                     <!-- 2. Qualitatif Section -->
-                    <div style="background: #faf5ff; border: 1px solid #f3e8ff; border-radius: 8px; padding: 1.4rem;">
-                        <h4 style="margin: 0 0 1rem 0; color: #db2777; font-size: 1.2rem; text-transform: uppercase; border-bottom: 1px dashed #f5d0fe; padding-bottom: 0.5rem; display: flex; align-items: center; gap: 8px;">
+                    <div style="background: #faf5ff; border: 1px solid #f3e8ff; border-radius: 8px; padding: 0.85rem;">
+                        <h4 style="margin: 0 0 0.65rem 0; color: #db2777; font-size: 0.9rem; text-transform: uppercase; border-bottom: 1px dashed #f5d0fe; padding-bottom: 0.35rem; display: flex; align-items: center; gap: 6px;">
                             <i class="fa-solid fa-chart-bar"></i> INDICATEURS QUALITATIFS
                         </h4>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                            <div style="background: #ffffff; border: 1px solid #f3e8ff; padding: 0.75rem; border-radius: 6px; display: flex; flex-direction: column; gap: 4px;">
-                                <span style="font-size: 0.9rem; color: #64748b; text-transform: uppercase;">ACM (Visites)</span>
+                        <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.5rem;">
+                            <div style="grid-column: span 2; background: #ffffff; border: 1px solid #f3e8ff; padding: 0.45rem 0.5rem; border-radius: 6px; display: flex; flex-direction: column; gap: 2px;">
+                                <span style="font-size: 0.68rem; color: #64748b; text-transform: uppercase;">ACM (Visites)</span>
                                 <div style="display: flex; justify-content: space-between; align-items: baseline;">
-                                    <span id="wa-quali-acm" style="font-size: 1.35rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0.0%</span>
-                                    <span style="font-size: 0.9rem; color: #64748b;">RAF: <span id="wa-quali-acm-raf" style="color: #0f172a; font-weight: bold;">0</span></span>
+                                    <span id="wa-quali-acm" style="font-size: 1.05rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0.0%</span>
+                                    <span style="font-size: 0.72rem; color: #64748b;">RAF: <span id="wa-quali-acm-raf" style="color: #0f172a; font-weight: bold;">0</span></span>
                                 </div>
                             </div>
-                            <div style="background: #ffffff; border: 1px solid #f3e8ff; padding: 0.75rem; border-radius: 6px; display: flex; flex-direction: column; gap: 4px;">
-                                <span style="font-size: 0.9rem; color: #64748b; text-transform: uppercase;">TSM (Succès)</span>
+                            <div style="grid-column: span 2; background: #ffffff; border: 1px solid #f3e8ff; padding: 0.45rem 0.5rem; border-radius: 6px; display: flex; flex-direction: column; gap: 2px;">
+                                <span style="font-size: 0.68rem; color: #64748b; text-transform: uppercase;">TSM (Succès)</span>
                                 <div style="display: flex; justify-content: space-between; align-items: baseline;">
-                                    <span id="wa-quali-tsm" style="font-size: 1.35rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0.0%</span>
-                                    <span style="font-size: 0.9rem; color: #64748b;">RAF: <span id="wa-quali-tsm-raf" style="color: #0f172a; font-weight: bold;">0</span></span>
+                                    <span id="wa-quali-tsm" style="font-size: 1.05rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0.0%</span>
+                                    <span style="font-size: 0.72rem; color: #64748b;">RAF: <span id="wa-quali-tsm-raf" style="color: #0f172a; font-weight: bold;">0</span></span>
                                 </div>
                             </div>
-                            <div style="background: #ffffff; border: 1px solid #f3e8ff; padding: 0.75rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 0.95rem; color: #64748b;">Prog. Clients</span>
-                                <span id="wa-quali-prog" style="font-size: 1.2rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0</span>
+                            <div style="grid-column: span 2; background: #ffffff; border: 1px solid #f3e8ff; padding: 0.45rem 0.5rem; border-radius: 6px; display: flex; flex-direction: column; gap: 2px;">
+                                <span style="font-size: 0.68rem; color: #64748b; text-transform: uppercase;">LINE / BL</span>
+                                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                                    <span id="wa-quali-line" style="font-size: 1.05rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">-</span>
+                                </div>
                             </div>
-                            <div style="background: #ffffff; border: 1px solid #f3e8ff; padding: 0.75rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 0.95rem; color: #64748b;">Clt Facturés</span>
-                                <span id="wa-quali-fact" style="font-size: 1.2rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0</span>
+                            <div style="grid-column: span 3; background: #ffffff; border: 1px solid #f3e8ff; padding: 0.45rem 0.5rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 0.75rem; color: #64748b;">Prog. Clients</span>
+                                <span id="wa-quali-prog" style="font-size: 0.95rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0</span>
+                            </div>
+                            <div style="grid-column: span 3; background: #ffffff; border: 1px solid #f3e8ff; padding: 0.45rem 0.5rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 0.75rem; color: #64748b;">Clt Facturés</span>
+                                <span id="wa-quali-fact" style="font-size: 0.95rem; font-weight: bold; color: #0f172a; font-family: var(--font-mono);">0</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- 3. Focus Section -->
-                    <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 1.4rem;">
-                        <h4 style="margin: 0 0 1rem 0; color: #16a34a; font-size: 1.2rem; text-transform: uppercase; border-bottom: 1px dashed #bbf7d0; padding-bottom: 0.5rem; display: flex; align-items: center; gap: 8px;">
+                    <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 0.85rem;">
+                        <h4 style="margin: 0 0 0.65rem 0; color: #16a34a; font-size: 0.9rem; text-transform: uppercase; border-bottom: 1px dashed #bbf7d0; padding-bottom: 0.35rem; display: flex; align-items: center; gap: 6px;">
                             <i class="fa-solid fa-star"></i> PERFORMANCE D'ALIGNEMENT FOCUS
                         </h4>
                         
-                        <div style="margin-bottom: 1.25rem;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 1.05rem; margin-bottom: 0.35rem;">
+                        <div style="margin-bottom: 0.65rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; margin-bottom: 0.2rem;">
                                 <span style="font-weight: bold; color: #2563eb;"><i class="fa-solid fa-ice-cream"></i> SOM (<span id="wa-focus-som-name">GLACE</span>)</span>
-                                <span id="wa-focus-som-pct" style="font-weight: bold; color: #0f172a; font-family: var(--font-mono); font-size: 1.2rem;">0.0%</span>
+                                <span id="wa-focus-som-pct" style="font-weight: bold; color: #0f172a; font-family: var(--font-mono); font-size: 0.95rem;">0.0%</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #64748b; margin-bottom: 0.35rem;">
                                 <span>Globale RAF: <span id="wa-focus-som-raf" style="color: #0f172a; font-weight: bold; font-family: var(--font-mono);">0 DH</span></span>
                                 <span>RAF/Jour: <span id="wa-focus-som-raf-jour" style="color: #0f172a; font-weight: bold; font-family: var(--font-mono);">0 DH/j</span></span>
                             </div>
-                            <div style="height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
-                                <div id="wa-focus-som-bar" style="height: 100%; width: 0%; background: #2563eb; border-radius: 4px;"></div>
+                            <div style="height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;">
+                                <div id="wa-focus-som-bar" style="height: 100%; width: 0%; background: #2563eb; border-radius: 3px;"></div>
                             </div>
                         </div>
 
                         <div>
-                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 1.05rem; margin-bottom: 0.35rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; margin-bottom: 0.2rem;">
                                 <span style="font-weight: bold; color: #db2777;"><i class="fa-solid fa-tomato"></i> VMM (<span id="wa-focus-vmm-name">TOMATE FRITO</span>)</span>
-                                <span id="wa-focus-vmm-pct" style="font-weight: bold; color: #0f172a; font-family: var(--font-mono); font-size: 1.2rem;">0.0%</span>
+                                <span id="wa-focus-vmm-pct" style="font-weight: bold; color: #0f172a; font-family: var(--font-mono); font-size: 0.95rem;">0.0%</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #64748b; margin-bottom: 0.35rem;">
                                 <span>Globale RAF: <span id="wa-focus-vmm-raf" style="color: #0f172a; font-weight: bold; font-family: var(--font-mono);">0</span></span>
                                 <span>RAF/Jour: <span id="wa-focus-vmm-raf-jour" style="color: #0f172a; font-weight: bold; font-family: var(--font-mono);">0/j</span></span>
                             </div>
-                            <div style="height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
-                                <div id="wa-focus-vmm-bar" style="height: 100%; width: 0%; background: #db2777; border-radius: 4px;"></div>
+                            <div style="height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;">
+                                <div id="wa-focus-vmm-bar" style="height: 100%; width: 0%; background: #db2777; border-radius: 3px;"></div>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Footer logo/stamp -->
-                <div style="background: #f8fafc; padding: 1rem; text-align: center; font-size: 0.9rem; color: #94a3b8; border-top: 1px solid #e2e8f0; font-family: var(--font-mono);">
+                <div style="background: #f8fafc; padding: 0.65rem; text-align: center; font-size: 0.75rem; color: #94a3b8; border-top: 1px solid #e2e8f0; font-family: var(--font-mono);">
                     Généré automatiquement par l'IA MADEC Dashboard 2027
                 </div>
-            </div>
+            </div><!-- /whatsapp-mini-image-template -->
+            </div><!-- /wa-zoom-wrapper -->
 
         </div><!-- /rp-result-panel -->
+        
+            </div><!-- /rp-main-content-panel -->
+        </div><!-- /rp-workspace-layout -->
 
     </main>
 
@@ -2512,6 +3191,23 @@
                                 <!-- Container for excluded dates badges -->
                                 <div id="excluded-dates-badges" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem;"></div>
                             </div>
+                            <div class="form-group" style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                                <label class="tech-label"><i class="fa-solid fa-microchip"></i> MODÈLE OPENROUTER</label>
+                                <select id="openrouter-model-select" class="cyber-select" style="width: 100%; margin-top: 0.5rem;">
+                                    <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet (Anthropic)</option>
+                                    <option value="openai/gpt-4o">GPT-4o (OpenAI)</option>
+                                    <option value="openai/gpt-4o-mini">GPT-4o Mini (OpenAI)</option>
+                                    <option value="google/gemini-3.5-flash">Gemini 3.5 Flash (Google)</option>
+                                    <option value="google/gemini-1.5-pro">Gemini 1.5 Pro (Google)</option>
+                                    <option value="google/gemini-1.5-flash">Gemini 1.5 Flash (Google)</option>
+                                    <option value="meta-llama/llama-3.1-70b-instruct">Llama 3.1 70B (Meta)</option>
+                                    <option value="meta-llama/llama-3.1-8b-instruct">Llama 3.1 8B (Meta)</option>
+                                    <option value="mistralai/mixtral-8x7b-instruct">Mixtral 8x7B (Mistral)</option>
+                                    <option value="anthropic/claude-3-haiku">Claude 3 Haiku (Anthropic)</option>
+                                    <option value="nousresearch/hermes-3-llama-3.1-405b">Hermes 3 405B (NousResearch)</option>
+                                </select>
+                                <span class="input-help">Ce modèle sera utilisé pour la génération des rapports IA.</span>
+                            </div>
                             <div class="methodology-section" style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
                                 <div class="tech-label" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; color: var(--text-main);" id="toggle-methodology-btn">
                                     <span><i class="fa-solid fa-circle-info"></i> MÉTHODOLOGIE DES CALCULS</span>
@@ -2553,7 +3249,7 @@
                         <span class="dropzone-text">Glissez-déposez le fichier Excel ici ou cliquez pour choisir</span>
                         <span class="dropzone-file-name" style="display: none; font-weight: bold; color: var(--neon-green);"></span>
                     </div>
-                    <input type="file" id="focus-modal-file-input" style="display: none;" accept=".xlsx" />
+                    <input type="file" id="focus-modal-file-input" style="display: none;" accept=".xlsx" multiple />
                 </div>
                 
                 <!-- Sheet Mapping Section (initially hidden) -->
@@ -2613,7 +3309,7 @@
                         <span class="dropzone-text">Glissez-déposez le fichier Excel ici ou cliquez pour choisir</span>
                         <span class="dropzone-file-name" style="display: none; font-weight: bold; color: var(--neon-green);"></span>
                     </div>
-                    <input type="file" id="focus-objectifs-modal-file-input" style="display: none;" accept=".xlsx" />
+                    <input type="file" id="focus-objectifs-modal-file-input" style="display: none;" accept=".xlsx" multiple />
                 </div>
                 <div class="form-group" id="focus-objectifs-names-group" style="display: none; margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 1rem;">
                     <label class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-pen-to-square"></i> MODIFIER LES NOMS DÉTECTÉS (OPTIONNEL)</label>
@@ -2676,19 +3372,20 @@
 
                 <!-- VMM Tab Table -->
                 <div id="focus-edit-vmm-container" style="display: none;">
-                    <button type="button" class="cyber-btn" id="focus-edit-add-row-vmm" style="border-color: var(--neon-pink); margin-bottom: 1rem; font-size: 0.8rem; padding: 0.25rem 0.75rem;">
-                        <i class="fa-solid fa-plus"></i> AJOUTER VENDEUR
-                    </button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <button type="button" class="cyber-btn" id="focus-edit-add-row-vmm" style="border-color: var(--neon-pink); font-size: 0.8rem; padding: 0.25rem 0.75rem;">
+                            <i class="fa-solid fa-plus"></i> AJOUTER VENDEUR
+                        </button>
+                        <div id="vmm-edit-mode-selector" style="display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--border-color); border-radius: 4px; padding: 2px;">
+                            <button type="button" class="cyber-btn active" id="vmm-edit-mode-ca" style="height: 26px; padding: 0 0.75rem; font-size: 0.75rem; font-family: var(--font-mono); font-weight: bold; border: 1px solid var(--neon-pink); color: var(--neon-pink); background: rgba(255, 45, 85, 0.1); cursor: pointer; transition: all 0.2s;">CA</button>
+                            <button type="button" class="cyber-btn" id="vmm-edit-mode-quali" style="height: 26px; padding: 0 0.75rem; font-size: 0.75rem; font-family: var(--font-mono); font-weight: bold; border: 1px solid transparent; color: var(--text-muted); background: transparent; cursor: pointer; transition: all 0.2s;">Qualitatif</button>
+                        </div>
+                    </div>
                     <div style="overflow-x: auto;">
-                        <table class="cyber-table" style="width: 100%; border-collapse: collapse; min-width: 700px;">
+                        <table class="cyber-table" style="width: 100%; border-collapse: collapse; min-width: 600px;">
                             <thead>
-                                <tr>
-                                    <th style="text-align: left; padding: 0.5rem;">Vendeur (Nom ou Code Vendeur)</th>
-                                    <th style="text-align: left; padding: 0.5rem;">Secteur</th>
-                                    <th style="text-align: right; padding: 0.5rem; width: 100px;">Nb Clients</th>
-                                    <th style="text-align: right; padding: 0.5rem; width: 110px;">Obj ACM</th>
-                                    <th style="text-align: right; padding: 0.5rem; width: 110px;">Obj Juin</th>
-                                    <th style="text-align: center; padding: 0.5rem; width: 60px;">Action</th>
+                                <tr id="vmm-edit-headers">
+                                    <!-- Populated dynamically -->
                                 </tr>
                             </thead>
                             <tbody id="focus-edit-vmm-tbody"></tbody>
@@ -2724,7 +3421,7 @@
                         <span class="dropzone-text">Glissez-déposez le fichier Excel ici ou cliquez pour choisir</span>
                         <span class="dropzone-file-name" style="display: none; font-weight: bold; color: var(--neon-green);"></span>
                     </div>
-                    <input type="file" id="stock-modal-file-input" style="display: none;" accept=".xlsx" />
+                    <input type="file" id="stock-modal-file-input" style="display: none;" accept=".xlsx" multiple />
                 </div>
             </div>
             <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
@@ -2891,13 +3588,298 @@
         </div>
     </div>
 
+    <!-- ===== VISITES COMPARE UPLOAD MODAL ===== -->
+    <div class="modal-backdrop" id="visites-compare-upload-modal">
+        <div class="cyber-modal" style="max-width: 600px; width: 95%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-code-compare neon-text-pink"></i> COMPARAISON DE PASSAGES</h3>
+                <button class="close-btn" id="close-visites-compare-upload-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                <p style="margin: 0; color: var(--text-muted); font-size: 0.85rem;">
+                    Sélectionnez les rapports Excel des visites (jusqu'à 3) d'une même tournée pour analyser l'historique et maximiser la facturation.
+                </p>
+                
+                <!-- Zone 1: Passage 1 -->
+                <div class="cyber-card" style="padding: 0.75rem 1rem; position: relative;">
+                    <div class="card-edge"></div>
+                    <span class="tech-label" style="display: block; margin-bottom: 0.25rem; color: var(--neon-blue); font-size: 0.75rem;"><i class="fa-solid fa-1"></i> PREMIER PASSAGE (DÉBUT)</span>
+                    <div style="display: flex; gap: 0.75rem; align-items: center;">
+                        <input type="file" id="compare-file-input-1" accept=".xlsx, .xls" style="display: none;">
+                        <button class="cyber-btn" onclick="document.getElementById('compare-file-input-1').click()" style="padding: 0.25rem 0.75rem; font-size: 0.75rem; border-color: var(--neon-blue);"><i class="fa-solid fa-file-excel"></i> CHOISIR</button>
+                        <span id="compare-file-name-1" style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Aucun fichier</span>
+                    </div>
+                </div>
+
+                <!-- Zone 2: Passage 2 -->
+                <div class="cyber-card" style="padding: 0.75rem 1rem; position: relative;">
+                    <div class="card-edge"></div>
+                    <span class="tech-label" style="display: block; margin-bottom: 0.25rem; color: var(--neon-blue); font-size: 0.75rem;"><i class="fa-solid fa-2"></i> DEUXIÈME PASSAGE (MILIEU)</span>
+                    <div style="display: flex; gap: 0.75rem; align-items: center;">
+                        <input type="file" id="compare-file-input-2" accept=".xlsx, .xls" style="display: none;">
+                        <button class="cyber-btn" onclick="document.getElementById('compare-file-input-2').click()" style="padding: 0.25rem 0.75rem; font-size: 0.75rem; border-color: var(--neon-blue);"><i class="fa-solid fa-file-excel"></i> CHOISIR</button>
+                        <span id="compare-file-name-2" style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Aucun fichier</span>
+                    </div>
+                </div>
+
+                <!-- Zone 3: Passage 3 -->
+                <div class="cyber-card" style="padding: 0.75rem 1rem; position: relative;">
+                    <div class="card-edge"></div>
+                    <span class="tech-label" style="display: block; margin-bottom: 0.25rem; color: var(--neon-blue); font-size: 0.75rem;"><i class="fa-solid fa-3"></i> TROISIÈME PASSAGE (FIN - OPTIONNEL)</span>
+                    <div style="display: flex; gap: 0.75rem; align-items: center;">
+                        <input type="file" id="compare-file-input-3" accept=".xlsx, .xls" style="display: none;">
+                        <button class="cyber-btn" onclick="document.getElementById('compare-file-input-3').click()" style="padding: 0.25rem 0.75rem; font-size: 0.75rem; border-color: var(--neon-blue);"><i class="fa-solid fa-file-excel"></i> CHOISIR</button>
+                        <span id="compare-file-name-3" style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Aucun fichier (Optionnel)</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button class="cyber-btn-secondary" id="cancel-visites-compare-upload">ANNULER</button>
+                <button class="cyber-btn" id="submit-visites-compare-upload" style="border-color: var(--neon-pink); color: var(--neon-pink);"><i class="fa-solid fa-code-compare"></i> COMPARAISON</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== VISITES COMPARE RESULT MODAL ===== -->
+    <div class="modal-backdrop" id="visites-compare-result-modal">
+        <div class="cyber-modal" style="max-width: 1000px; width: 95%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-chart-line neon-text-pink"></i> ANALYSE COMPARATIVE DES PASSAGES</h3>
+                <button class="close-btn" id="close-visites-compare-result-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; max-height: 70vh; overflow-y: auto;">
+                <!-- Tournée Header -->
+                <div class="cyber-card" style="padding: 0.85rem 1.25rem; display: flex; justify-content: space-between; align-items: center; width: 100%; box-sizing: border-box;">
+                    <div class="card-edge"></div>
+                    <div><span class="tech-label">Vendeur SOM/VMM :</span> <strong id="vc-res-vendeur" style="color: var(--text-main);"></strong></div>
+                    <div id="vc-res-dates-badges" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <!-- dynamic dates badges -->
+                    </div>
+                </div>
+
+                <!-- KPI Summary cards -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; width: 100%;">
+                    <div class="cyber-card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; border: 1px solid rgba(0, 200, 100, 0.25);">
+                        <div class="card-edge"></div>
+                        <span class="tech-label" style="font-size: 0.65rem;">Toujours Facturé</span>
+                        <h3 id="vc-kpi-always-ok" style="margin: 0; color: var(--neon-green); font-size: 1.5rem;">0</h3>
+                    </div>
+                    <div class="cyber-card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; border: 1px solid rgba(255, 45, 85, 0.25);">
+                        <div class="card-edge"></div>
+                        <span class="tech-label" style="font-size: 0.65rem; color: var(--neon-pink);">Pertes (Facturé puis Perdu)</span>
+                        <h3 id="vc-kpi-loss" style="margin: 0; color: var(--neon-pink); font-size: 1.5rem;">0</h3>
+                    </div>
+                    <div class="cyber-card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; border: 1px solid rgba(0, 242, 254, 0.25);">
+                        <div class="card-edge"></div>
+                        <span class="tech-label" style="font-size: 0.65rem; color: var(--neon-blue);">Gagnés (Nouveau Facturé)</span>
+                        <h3 id="vc-kpi-gain" style="margin: 0; color: var(--neon-blue); font-size: 1.5rem;">0</h3>
+                    </div>
+                    <div class="cyber-card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; border: 1px solid rgba(255, 170, 0, 0.25);">
+                        <div class="card-edge"></div>
+                        <span class="tech-label" style="font-size: 0.65rem; color: var(--neon-amber);">Jamais Facturé (Alerte!)</span>
+                        <h3 id="vc-kpi-never" style="margin: 0; color: var(--neon-amber); font-size: 1.5rem;">0</h3>
+                    </div>
+                </div>
+
+                <!-- Filters & Table -->
+                <div style="border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                    <div class="cf-view-toggle" role="tablist" style="display: flex; flex-wrap: wrap; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: auto; margin-bottom: 0.75rem;">
+                        <button type="button" class="cf-view-btn is-active" id="vc-btn-all" style="font-size: 0.75rem; border: none; cursor: pointer; padding: 0.5rem 1rem; flex: 1;">TOUS</button>
+                        <button type="button" class="cf-view-btn" id="vc-btn-always" style="font-size: 0.75rem; border: none; cursor: pointer; padding: 0.5rem 1rem; flex: 1; color: var(--neon-green);">TOUJOURS FACTURÉ</button>
+                        <button type="button" class="cf-view-btn" id="vc-btn-loss" style="font-size: 0.75rem; border: none; cursor: pointer; padding: 0.5rem 1rem; flex: 1; color: var(--neon-pink);">PERTE</button>
+                        <button type="button" class="cf-view-btn" id="vc-btn-gain" style="font-size: 0.75rem; border: none; cursor: pointer; padding: 0.5rem 1rem; flex: 1; color: var(--neon-blue);">GAGNÉ</button>
+                        <button type="button" class="cf-view-btn" id="vc-btn-never" style="font-size: 0.75rem; border: none; cursor: pointer; padding: 0.5rem 1rem; flex: 1; color: var(--neon-amber);">JAMAIS FACTURÉ</button>
+                        <button type="button" class="cf-view-btn" id="vc-btn-at-least-once" style="font-size: 0.75rem; border: none; cursor: pointer; padding: 0.5rem 1rem; flex: 1; color: var(--neon-blue); border-left: 1px solid var(--border-color);" title="Clients facturés au moins 1 fois (toutes synthèses sauf Jamais Facturé)">≥1x OK</button>
+                    </div>
+
+                    <div class="table-container" style="max-height: 250px; overflow-y: auto;">
+                        <table class="cyber-table" id="vc-details-table">
+                            <thead>
+                                <tr id="vc-table-headers">
+                                    <th>Client</th>
+                                    <th>Nom Client</th>
+                                    <th>Passage 1</th>
+                                    <th>Passage 2</th>
+                                    <th>Passage 3</th>
+                                    <th>Synthèse</th>
+                                </tr>
+                            </thead>
+                            <tbody id="vc-details-tbody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
+                <button class="cyber-btn" id="close-visites-compare-result-action" style="border-color: var(--neon-pink); color: var(--neon-pink); padding: 0.5rem 1.5rem;"><i class="fa-solid fa-check"></i> FERMER</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== VISITES UPLOAD MODAL ===== -->
+    <div class="modal-backdrop" id="visites-upload-modal">
+        <div class="cyber-modal" style="max-width: 500px; width: 95%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-cloud-arrow-up neon-text-blue"></i> ANALYSER UN RAPPORT VISITES</h3>
+                <button class="close-btn" id="close-visites-upload-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                <div class="upload-dropzone" id="visites-dropzone" style="border: 2px dashed var(--border-color); border-radius: 6px; padding: 2rem; text-align: center; cursor: pointer; background: rgba(0,0,0,0.2); transition: border-color 0.25s, background-color 0.25s;">
+                    <i class="fa-solid fa-file-excel" style="font-size: 2.5rem; color: var(--neon-blue); margin-bottom: 1rem;"></i>
+                    <p style="margin: 0; color: var(--text-main); font-weight: bold;">Glissez-déposez un ou plusieurs fichiers Excel du rapport</p>
+                    <p style="margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.8rem;">Ou cliquez pour parcourir les fichiers (.xlsx, .xls)</p>
+                    <input type="file" id="visites-file-input" accept=".xlsx, .xls" style="display: none;" multiple>
+                </div>
+                <div id="visites-file-info" style="display: none; align-items: center; gap: 0.5rem; padding: 0.50rem 0.75rem; background: rgba(0,242,254,0.08); border: 1px solid var(--neon-blue); border-radius: 4px; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-main);">
+                    <i class="fa-solid fa-check-circle" style="color: var(--neon-green);"></i>
+                    <span id="visites-file-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Fichier : </span>
+                    <button id="visites-file-clear" class="cyber-btn-text" style="color: var(--neon-pink); text-transform: uppercase;">Retirer</button>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button class="cyber-btn-secondary" id="cancel-visites-upload">ANNULER</button>
+                <button class="cyber-btn" id="submit-visites-upload" style="border-color: var(--neon-blue); color: var(--neon-blue);"><i class="fa-solid fa-circle-check"></i> ANALYSER</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== VISITES ANALYSIS RESULT MODAL ===== -->
+    <div class="modal-backdrop" id="visites-result-modal">
+        <div class="cyber-modal" style="max-width: 900px; width: 95%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-square-poll-vertical neon-text-blue"></i> RÉSULTATS DE L'ANALYSE DE VISITES</h3>
+                <button class="close-btn" id="close-visites-result-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; max-height: 70vh; overflow-y: auto;">
+                <!-- Tournée Info Header -->
+                <div class="cyber-card" style="padding: 0.85rem 1.25rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; width: 100%; box-sizing: border-box;">
+                    <div class="card-edge"></div>
+                    <div><span class="tech-label">Vendeur :</span> <strong id="vr-res-vendeur" style="color: var(--text-main);"></strong></div>
+                    <div><span class="tech-label">Date :</span> <strong id="vr-res-date" style="color: var(--text-main);"></strong></div>
+                    <div><span class="tech-label">Tournée :</span> <strong id="vr-res-tournee" style="color: var(--text-main);"></strong></div>
+                    <div><span class="tech-label">Agence :</span> <strong id="vr-res-agence" style="color: var(--text-main);"></strong></div>
+                </div>
+
+                <!-- KPI Aggregates -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; width: 100%;">
+                    <div class="cyber-card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; background: rgba(0,242,254,0.05); border: 1px solid rgba(0,242,254,0.25);">
+                        <div class="card-edge"></div>
+                        <span class="tech-label" style="font-size: 0.65rem;">Visites Effectuées</span>
+                        <h3 id="vr-kpi-total" style="margin: 0; color: var(--text-main); font-size: 1.5rem;">0</h3>
+                    </div>
+                    <div class="cyber-card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; background: rgba(0,200,100,0.05); border: 1px solid rgba(0,200,100,0.25);">
+                        <div class="card-edge"></div>
+                        <span class="tech-label" style="font-size: 0.65rem;">Visites Validées (OK)</span>
+                        <h3 id="vr-kpi-ok" style="margin: 0; color: var(--neon-green); font-size: 1.5rem;">0</h3>
+                    </div>
+                    <div class="cyber-card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; background: rgba(255,45,85,0.05); border: 1px solid rgba(255,45,85,0.25);">
+                        <div class="card-edge"></div>
+                        <span class="tech-label" style="font-size: 0.65rem;">Non Validées (No OK)</span>
+                        <h3 id="vr-kpi-no-ok" style="margin: 0; color: var(--neon-pink); font-size: 1.5rem;">0</h3>
+                    </div>
+                    <div class="cyber-card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; background: rgba(255,170,0,0.05); border: 1px solid rgba(255,170,0,0.25);">
+                        <div class="card-edge"></div>
+                        <span class="tech-label" style="font-size: 0.65rem;">ACM (Taux Facturation)</span>
+                        <h3 id="vr-kpi-acm" style="margin: 0; color: var(--neon-amber); font-size: 1.5rem;">0%</h3>
+                    </div>
+                </div>
+
+                <!-- Distance Metrics / Motifs -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; width: 100%;">
+                    <div class="cyber-card" style="padding: 1rem; box-sizing: border-box;">
+                        <div class="card-edge"></div>
+                        <span class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-list-ol"></i> Motifs de Non-Facturation</span>
+                        <div id="vr-motifs-list" style="display: flex; flex-direction: column; gap: 0.4rem; font-family: var(--font-mono); font-size: 0.8rem;">
+                            <!-- populated by JS -->
+                        </div>
+                    </div>
+                    <div class="cyber-card" style="padding: 1rem; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 0.5rem;">
+                        <div class="card-edge"></div>
+                        <div><span class="tech-label">Distance Moyenne :</span> <strong id="vr-dist-avg" style="color: var(--text-main);">0 m</strong></div>
+                        <div style="margin-top: 0.25rem;"><span class="tech-label">Hors-Zone (> 100m) :</span> <strong id="vr-dist-anom" style="color: var(--neon-pink);">0 anomalie(s)</strong></div>
+                    </div>
+                </div>
+
+                <!-- Clients Toggles & Details Table -->
+                <div style="border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                    <div class="cf-view-toggle" role="tablist" aria-label="Visites Filter" style="display: inline-flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 38px; margin-bottom: 0.75rem;">
+                        <button type="button" class="cf-view-btn is-active" id="vr-toggle-ok" style="font-size: 0.75rem; background: var(--bg-color); border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.35rem; padding: 0 1.25rem;">
+                            <i class="fa-solid fa-circle-check" style="color: var(--neon-green);"></i> <span>Facturés (OK)</span>
+                            <span class="badge-blue" id="vr-badge-count-ok" style="margin-left: 0.25rem; font-size: 0.7rem; padding: 1px 5px;">0</span>
+                        </button>
+                        <button type="button" class="cf-view-btn" id="vr-toggle-no-ok" style="font-size: 0.75rem; background: var(--bg-color); border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.35rem; padding: 0 1.25rem;">
+                            <i class="fa-solid fa-circle-xmark" style="color: var(--neon-pink);"></i> <span>Non Facturés</span>
+                            <span class="badge-blue" id="vr-badge-count-no-ok" style="margin-left: 0.25rem; font-size: 0.7rem; padding: 1px 5px; background: rgba(255,45,85,0.15); color: var(--neon-pink); border-color: rgba(255,45,85,0.3);">0</span>
+                        </button>
+                    </div>
+
+                    <div class="table-container" style="max-height: 250px; overflow-y: auto;">
+                        <table class="cyber-table" id="vr-details-table">
+                            <thead>
+                                <tr>
+                                    <th>Code Client</th>
+                                    <th>Nom Client</th>
+                                    <th>Heure</th>
+                                    <th>Distance</th>
+                                    <th>Motif / Note</th>
+                                </tr>
+                            </thead>
+                            <tbody id="vr-details-tbody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button class="cyber-btn-secondary" id="close-visites-result-action" style="text-transform: uppercase;">Annuler / Fermer</button>
+                <button class="cyber-btn" id="save-visites-result-btn" style="border-color: var(--neon-green); color: var(--neon-green); padding: 0.5rem 1.5rem;"><i class="fa-solid fa-floppy-disk"></i> ENREGISTRER DANS LA BASE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== BULK WHATSAPP RECIPIENT PICKER ===== -->
+    <div class="modal-backdrop" id="bulk-whatsapp-modal">
+        <div class="cyber-modal" style="max-width: 560px; width: 95%;">
+            <div class="modal-header">
+                <h3><i class="fa-brands fa-whatsapp" style="color: #25d366;"></i> ENVOI WHATSAPP EN MASSE</h3>
+                <button class="close-btn" id="close-bulk-whatsapp-modal" aria-label="Fermer">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.85rem;">
+                <p style="margin: 0; color: var(--text-muted); font-size: 0.86rem; line-height: 1.45;">
+                    Choisissez les vendeurs qui recevront leur rapport. Tous sont sélectionnés au départ.
+                </p>
+                <div style="display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                    <label style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; color: var(--text-main); font-family: var(--font-mono); font-size: 0.78rem;">
+                        <input type="checkbox" id="bulk-whatsapp-select-all" checked style="accent-color: #25d366; width: 15px; height: 15px;">
+                        Tout sélectionner
+                    </label>
+                    <span id="bulk-whatsapp-selection-count" class="badge-blue">0 SÉLECTIONNÉ</span>
+                </div>
+                <div style="position: relative;">
+                    <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.75rem;"></i>
+                    <input id="bulk-whatsapp-search" type="search" autocomplete="off" placeholder="Rechercher un vendeur..." class="cyber-input" style="width: 100%; box-sizing: border-box; padding-left: 2.25rem;">
+                </div>
+                <div id="bulk-whatsapp-vendeur-list" style="max-height: 310px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.35rem; padding: 0.25rem; border: 1px solid var(--border-color); border-radius: 5px; background: rgba(0,0,0,0.16);"></div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button type="button" class="cyber-btn" id="cancel-bulk-whatsapp" style="border-color: var(--text-muted); color: var(--text-muted);">ANNULER</button>
+                <button type="button" class="cyber-btn" id="confirm-bulk-whatsapp" style="border-color: #25d366; color: #25d366;"><i class="fa-brands fa-whatsapp"></i> ENVOYER LES RAPPORTS</button>
+            </div>
+        </div>
+    </div>
+        </div>
+    </div>
+
 
     <!-- Custom Script JS -->
-    <script src="/static/js/dashboard.js?v=4.0"></script>
-    <script src="/static/js/fdv.js?v=1.0"></script>
-    <script src="/static/js/bg-anim.js?v=1.0"></script>
-    <script src="/static/js/terrain.js?v=1.1"></script>
-    <script src="/static/js/focus.js?v=1.4"></script>
-    <script src="/static/js/stock.js?v=1.1"></script>
+    <script src="/static/js/vendeur360.js?v=7.0"></script>
+    <script src="/static/js/dashboard.js?v=5.7"></script>
+    <script src="/static/js/fdv.js?v=5.0"></script>
+    <script src="/static/js/bg-anim.js?v=5.0"></script>
+    <script src="/static/js/terrain.js?v=5.0"></script>
+    <script src="/static/js/focus.js?v=5.2"></script>
+    <script src="/static/js/stock.js?v=5.0"></script>
 </body>
 </html>

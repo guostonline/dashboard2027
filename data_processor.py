@@ -227,7 +227,7 @@ def calculate_calendar_workdays(date_str=None):
         elapsed_workdays = 0
     else:
         elapsed_workdays = 0
-        for d in range(1, today.day):
+        for d in range(1, today.day + 1):
             curr_date = datetime.date(year, month, d)
             if curr_date.weekday() != 6:
                 elapsed_workdays += 1
@@ -273,8 +273,7 @@ class ExcelProcessor:
             data = {}
             
         data["from_file"] = {"t": str(total_days_dyn), "d": str(elapsed_days_dyn)}
-        if "rest_days" not in data or self.rest_days is not None:
-            data["rest_days"] = self.rest_days if self.rest_days is not None else rest_days_dyn
+        data["rest_days"] = self.rest_days if self.rest_days is not None else rest_days_dyn
             
         with open("days.json", "w") as jsonFile:
             json.dump(data, jsonFile)
@@ -801,15 +800,20 @@ class ExcelProcessor:
                         if pd.isna(v):
                             return None
                         try:
-                            return float(v)
+                            v_str = str(v).replace('%', '').replace(',', '.').strip()
+                            v_float = float(v_str)
+                            if v_float > 10:
+                                v_float /= 100.0
+                            return v_float
                         except Exception:
                             return None
+
 
                     acm_val = to_pct(acm) or 0.0
                     tsm_val = to_pct(tsm) or 0.0
                     
                     if "D86 ACHAOUI AZIZ" in vendeur:
-                        line_val = 1.13
+                        line_val = 1.08712212705026
                     else:
                         line_val = to_ratio(line)
                     

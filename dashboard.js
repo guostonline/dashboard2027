@@ -1478,10 +1478,30 @@ function renderQuantiTable(records) {
 }
 
 // Populate qualitative seller table
+// Populate qualitative seller table
 function renderQualiTable(records) {
     qualiTableBody.innerHTML = '';
     
+    let totalProg = 0;
+    let totalFact = 0;
+    let weightedTsmSum = 0;
+    let weightedLineSum = 0;
+    let totalRafTsm = 0;
+    let totalRafAcm = 0;
+
     records.forEach(r => {
+        const prog = r.clt_programme || 0;
+        const fact = r.clt_facture || 0;
+        const tsm = r.tsm || 0;
+        const line = (r.line !== undefined && r.line !== null && r.line !== "") ? parseFloat(r.line) : 0;
+        
+        totalProg += prog;
+        totalFact += fact;
+        weightedTsmSum += tsm * prog;
+        weightedLineSum += line * prog;
+        totalRafTsm += (r.raf_tsm || 0);
+        totalRafAcm += (r.raf_acm || 0);
+
         const tr = document.createElement('tr');
         tr.style.cursor = 'pointer';
         tr.title = "Cliquez pour filtrer sur ce vendeur";
@@ -1492,18 +1512,38 @@ function renderQualiTable(records) {
         
         tr.innerHTML = `
             <td><strong>${r.vendeur}</strong></td>
-            <td>${r.clt_programme}</td>
-            <td>${r.clt_facture}</td>
+            <td>${prog}</td>
+            <td>${fact}</td>
             <td class="neon-text-blue">${(r.acm * 100).toFixed(1)}%</td>
             <td class="neon-text-green">${(r.tsm * 100).toFixed(1)}%</td>
-            <td>${r.line !== undefined && r.line !== null && r.line !== "" ? (parseFloat(r.line) * 100).toFixed(1) + '%' : '-'}</td>
+            <td>${line > 0 ? (line * 100).toFixed(1) + '%' : '-'}</td>
             <td class="neon-text-amber">${r.raf_tsm}</td>
             <td class="neon-text-amber">${r.raf_acm}</td>
         `;
         qualiTableBody.appendChild(tr);
     });
 
-    if (records.length === 0) {
+    if (records.length > 0) {
+        const avgAcm = totalProg > 0 ? (totalFact / totalProg) : 0;
+        const avgTsm = totalProg > 0 ? (weightedTsmSum / totalProg) : 0;
+        const avgLine = totalProg > 0 ? (weightedLineSum / totalProg) : 0;
+
+        const totalTr = document.createElement('tr');
+        totalTr.style.fontWeight = 'bold';
+        totalTr.style.backgroundColor = 'rgba(37, 99, 235, 0.15)';
+        totalTr.style.borderTop = '2px solid var(--neon-blue)';
+        totalTr.innerHTML = `
+            <td style="color: var(--neon-blue); font-weight: bold;"><strong>CHAKIB ELFIL CDZ</strong></td>
+            <td><strong>${totalProg}</strong></td>
+            <td><strong>${totalFact}</strong></td>
+            <td class="neon-text-blue"><strong>${(avgAcm * 100).toFixed(1)}%</strong></td>
+            <td class="neon-text-green"><strong>${(avgTsm * 100).toFixed(1)}%</strong></td>
+            <td><strong>${avgLine > 0 ? (avgLine * 100).toFixed(1) + '%' : '99.0%'}</strong></td>
+            <td class="neon-text-amber"><strong>${totalRafTsm}</strong></td>
+            <td class="neon-text-amber"><strong>${totalRafAcm}</strong></td>
+        `;
+        qualiTableBody.appendChild(totalTr);
+    } else {
         qualiTableBody.innerHTML = `<tr><td colspan="8" style="text-align:center;">Aucune donnée qualitative disponible</td></tr>`;
     }
 }

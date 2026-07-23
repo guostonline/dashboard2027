@@ -2523,6 +2523,10 @@ body.light-mode .nav-item.active {
     min-height: 150px;
 }
 
+.upload-dropzone * {
+    pointer-events: none;
+}
+
 .upload-dropzone:hover, .upload-dropzone.drag-over {
     border-color: var(--neon-blue);
     background: rgba(0, 180, 216, 0.08);
@@ -4988,3 +4992,536 @@ body.light-mode .drawer-info-group {
     border-bottom-color: rgba(0,0,0,0.05);
 }
 
+/* Sidebar WhatsApp Bulk Button premium styling */
+#sidebar-whatsapp-bulk-btn {
+    background: rgba(37, 211, 102, 0.12) !important;
+    border: 1px solid #25D366 !important;
+    color: #25D366 !important;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: bold;
+    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    padding: 0.65rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.25rem;
+    box-shadow: none !important;
+}
+
+body.light-mode #sidebar-whatsapp-bulk-btn {
+    color: #075E54 !important;
+    background: rgba(37, 211, 102, 0.08) !important;
+    border-color: #128C7E !important;
+}
+
+#sidebar-whatsapp-bulk-btn:hover {
+    background: rgba(37, 211, 102, 0.22) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(37, 211, 102, 0.15) !important;
+}
+
+body.light-mode #sidebar-whatsapp-bulk-btn:hover {
+    background: rgba(37, 211, 102, 0.15) !important;
+    box-shadow: 0 4px 12px rgba(18, 140, 126, 0.12) !important;
+}
+
+#sidebar-whatsapp-bulk-btn:active {
+    transform: translateY(0);
+}
+
+.sidebar-bulk-wa-btn {
+    background: rgba(37, 211, 102, 0.12) !important;
+    border: 1px solid #25D366 !important;
+    color: #25D366 !important;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: bold;
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    padding: 0.55rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.25rem;
+    box-shadow: none !important;
+}
+
+body.light-mode .sidebar-bulk-wa-btn {
+    color: #075E54 !important;
+    background: rgba(37, 211, 102, 0.08) !important;
+    border-color: #128C7E !important;
+}
+
+.sidebar-bulk-wa-btn:hover {
+    background: rgba(37, 211, 102, 0.22) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(37, 211, 102, 0.15) !important;
+}
+
+body.light-mode .sidebar-bulk-wa-btn:hover {
+    background: rgba(37, 211, 102, 0.15) !important;
+    box-shadow: 0 4px 12px rgba(18, 140, 126, 0.12) !important;
+}
+
+.sidebar-bulk-wa-btn:active {
+    transform: translateY(0);
+}
+
+/* ── WORKSPACE LAYOUT & SIDEBAR REDESIGN ─────────── */
+.rp-workspace-layout {
+    display: flex;
+    gap: 1.5rem;
+    align-items: start;
+    margin-top: 1rem;
+    width: 100%;
+}
+
+.rp-sidebar-panel {
+    width: 320px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.rp-main-content-panel {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+@media (max-width: 992px) {
+    .rp-workspace-layout {
+        flex-direction: column;
+    }
+    .rp-sidebar-panel {
+        width: 100%;
+    }
+}
+
+/* Premium Sidebar Card Styles */
+.rp-sidebar-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    backdrop-filter: blur(12px);
+    position: relative;
+}
+
+.sidebar-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+}
+
+body.light-mode .sidebar-section {
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-section:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.sidebar-section-title {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--neon-blue);
+    margin: 0 0 0.25rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+body.light-mode .sidebar-section-title {
+    color: #1e3a8a;
+}
+
+/* Empty State Styles */
+.rp-empty-state {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 4rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-height: 480px;
+    backdrop-filter: blur(12px);
+}
+
+.empty-state-content {
+    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.empty-state-icon {
+    font-size: 3rem;
+    color: var(--neon-blue);
+    background: rgba(0, 212, 255, 0.06);
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    margin-bottom: 0.5rem;
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+}
+
+body.light-mode .empty-state-icon {
+    color: #2563eb;
+    background: rgba(37, 99, 235, 0.06);
+    border-color: rgba(37, 99, 235, 0.2);
+    box-shadow: 0 0 20px rgba(37, 99, 235, 0.05);
+}
+
+.empty-state-content h3 {
+    margin: 0;
+    font-size: 1.3rem;
+    color: var(--text-main);
+}
+
+.empty-state-content p {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.empty-state-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+    margin-top: 1.5rem;
+    text-align: left;
+}
+
+.step-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.02);
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+body.light-mode .step-item {
+    background: rgba(0, 0, 0, 0.01);
+    border-color: rgba(0, 0, 0, 0.03);
+}
+
+.step-num {
+    background: var(--neon-blue);
+    color: #000;
+    font-weight: bold;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+}
+
+body.light-mode .step-num {
+    background: #2563eb;
+    color: #fff;
+}
+
+/* ============================================================
+   BULK WHATSAPP MODAL - Full theme support (dark & light)
+   ============================================================ */
+
+.bulk-wa-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.82);
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+    animation: bulkFadeIn 0.2s ease;
+}
+
+@keyframes bulkFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.bulk-wa-container {
+    background: var(--card-bg);
+    border: 2px solid #25D366;
+    padding: 1.75rem;
+    width: 480px;
+    max-width: 92vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    box-shadow: 0 0 32px rgba(37, 211, 102, 0.25);
+    border-radius: 10px;
+    color: var(--text-main);
+    animation: bulkSlideUp 0.25s cubic-bezier(0.2, 0.9, 0.4, 1);
+}
+
+@keyframes bulkSlideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+}
+
+.bulk-wa-title {
+    color: #25D366;
+    margin: 0 0 0.75rem 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 1.05rem;
+    letter-spacing: 0.04em;
+}
+
+.bulk-wa-text {
+    font-size: 0.83rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+
+.bulk-wa-list-container {
+    margin: 0.5rem 0;
+    border: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.2);
+    max-height: 220px;
+    overflow-y: auto;
+    border-radius: 6px;
+    flex-shrink: 1;
+    scrollbar-width: thin;
+    scrollbar-color: #25D366 transparent;
+}
+
+.bulk-wa-list-container::-webkit-scrollbar {
+    width: 5px;
+}
+
+.bulk-wa-list-container::-webkit-scrollbar-thumb {
+    background: #25D366;
+    border-radius: 3px;
+}
+
+.bulk-wa-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0.4rem 0.65rem;
+    font-size: 0.8rem;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.05);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.bulk-wa-item:last-child {
+    border-bottom: none;
+}
+
+.bulk-wa-item:hover {
+    background: rgba(37, 211, 102, 0.07);
+}
+
+.bulk-wa-checkbox {
+    width: 15px;
+    height: 15px;
+    accent-color: #25D366;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.bulk-wa-item-label {
+    font-family: var(--font-mono);
+    color: var(--text-main);
+    font-weight: 600;
+    user-select: none;
+}
+
+.bulk-wa-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.bulk-wa-btn-cancel {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    padding: 0.5rem 1.1rem;
+    cursor: pointer;
+    border-radius: 5px;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    transition: all 0.2s;
+}
+
+.bulk-wa-btn-cancel:hover {
+    border-color: var(--text-muted);
+    color: var(--text-main);
+}
+
+.bulk-wa-btn-send {
+    background: #25D366;
+    border: none;
+    color: #000;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    padding: 0.5rem 1.25rem;
+    cursor: pointer;
+    border-radius: 5px;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    box-shadow: 0 0 12px rgba(37, 211, 102, 0.3);
+}
+
+.bulk-wa-btn-send:hover {
+    background: #1faa52;
+    box-shadow: 0 0 20px rgba(37, 211, 102, 0.5);
+    transform: translateY(-1px);
+}
+
+.bulk-wa-btn-send:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Light mode overrides */
+body.light-mode .bulk-wa-overlay {
+    background: rgba(15, 23, 42, 0.65);
+}
+
+body.light-mode .bulk-wa-container {
+    background: #ffffff;
+    border-color: #22c55e;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.18);
+    color: #1e293b;
+}
+
+body.light-mode .bulk-wa-title {
+    color: #16a34a;
+}
+
+body.light-mode .bulk-wa-text {
+    color: #475569;
+}
+
+body.light-mode .bulk-wa-list-container {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+}
+
+body.light-mode .bulk-wa-item {
+    border-bottom-color: #f1f5f9;
+}
+
+body.light-mode .bulk-wa-item:hover {
+    background: rgba(34, 197, 94, 0.07);
+}
+
+body.light-mode .bulk-wa-item-label {
+    color: #1e293b;
+}
+
+body.light-mode .bulk-wa-footer {
+    border-top-color: #e2e8f0;
+}
+
+body.light-mode .bulk-wa-btn-cancel {
+    border-color: #cbd5e1;
+    color: #64748b;
+}
+
+body.light-mode .bulk-wa-btn-cancel:hover {
+    border-color: #94a3b8;
+    color: #334155;
+}
+
+body.light-mode .bulk-wa-btn-send {
+    background: #16a34a;
+    color: #fff;
+    box-shadow: 0 0 12px rgba(22, 163, 74, 0.25);
+}
+
+body.light-mode .bulk-wa-btn-send:hover {
+    background: #15803d;
+    box-shadow: 0 0 20px rgba(22, 163, 74, 0.4);
+}
+
+/* ── Card Preview Zoom Toolbar ─────────────────────────── */
+#wa-zoom-toolbar button:hover {
+    border-color: var(--neon-blue);
+    color: var(--neon-blue);
+    box-shadow: 0 0 8px var(--neon-blue-glow);
+}
+
+#wa-zoom-reset-btn:hover {
+    border-color: var(--neon-blue);
+    color: var(--neon-blue);
+}
+
+body.light-mode #wa-zoom-toolbar button:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    box-shadow: none;
+}
+
+#wa-zoom-wrapper {
+    transform-origin: top center;
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                margin-bottom 0.2s ease;
+}

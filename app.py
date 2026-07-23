@@ -110,6 +110,23 @@ def process_and_save_suivi(date, file_content, force_extract_rest_days=False):
             except Exception:
                 pass
 
+def get_all_vendeurs_from_db():
+    try:
+        fdv_rows = db_manager.get_fdv_list()
+        # Filter only vendors belonging to CHAKIB ELFIL's CDZ
+        vendeurs = sorted(list(set([
+            r["vendeur"].strip()
+            for r in fdv_rows
+            if r.get("vendeur") and r["vendeur"].strip() != "N/A"
+            and (r.get("cdz", "") or "").strip().upper() == "CHAKIB ELFIL"
+        ])))
+        return vendeurs
+    except Exception as e:
+        import traceback
+        print("Error fetching vendeurs from DB:", e)
+        traceback.print_exc()
+        return []
+
 @app.route("/")
 @app.route("/dashboard")
 def index():
@@ -164,21 +181,29 @@ def index():
     config = load_config()
     theme = config.get("theme", "theme-1")
     light_mode = config.get("light_mode", False)
-    return render_template("index.html", theme=theme, light_mode=light_mode)
+    all_vendeurs = get_all_vendeurs_from_db()
+    return render_template("index.html", theme=theme, light_mode=light_mode, all_vendeurs=all_vendeurs)
 
 @app.route("/details")
+@app.route("/vendeur360")
 def details():
     config = load_config()
     theme = config.get("theme", "theme-1")
     light_mode = config.get("light_mode", False)
-    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="details")
+    active_sub_tab = request.args.get("view", "")
+    if request.path == "/vendeur360":
+        active_sub_tab = "vendeur360"
+    all_vendeurs = get_all_vendeurs_from_db()
+    print("INSIDE DETAILS ROUTE - VENDEURS COUNT:", len(all_vendeurs), all_vendeurs[:3] if all_vendeurs else 'EMPTY')
+    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="details", active_sub_tab=active_sub_tab, all_vendeurs=all_vendeurs)
 
 @app.route("/clients")
 def clients():
     config = load_config()
     theme = config.get("theme", "theme-1")
     light_mode = config.get("light_mode", False)
-    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="clients")
+    active_sub_tab = request.args.get("view", "")
+    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="clients", active_sub_tab=active_sub_tab)
 
 @app.route("/rapport")
 def rapport():
@@ -472,6 +497,8 @@ def run_ai_analysis():
         options_str = request.args.get("options")
         tax_mode = request.args.get("tax_mode", "TTC")
         report_type = request.args.get("report_type", "complet")
+        language = request.args.get("language", "fr")
+        model = request.args.get("model", "anthropic/claude-3.5-sonnet")
         
         # Parse options if provided
         options = None
@@ -485,12 +512,821 @@ def run_ai_analysis():
                 "rappel": "rappel" in selected_options
             }
 
-        report_content, summary_data = generate_report(vendeur=vendeur, category=category, date=date, options=options, tax_mode=tax_mode, report_type=report_type, return_data=True)
+        report_content, summary_data = generate_report(vendeur=vendeur, category=category, date=date, options=options, tax_mode=tax_mode, report_type=report_type, language=language, model=model, return_data=True)
         focus_names = db_manager.get_focus_names()
         if report_content:
             return jsonify({"status": "success", "report": report_content, "summary_data": summary_data, "focus_names": focus_names})
         else:
             return jsonify({"status": "error", "message": "Erreur lors de la génération du rapport via OpenRouter."}), 500
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/send_whatsapp_image", methods=["POST"])
+def send_whatsapp_image():
+    try:
+        import sys
+        import base64
+        import subprocess
+        
+        req_data = request.get_json() or {}
+        phone = req_data.get("phone")
+        image_data_b64 = req_data.get("image_data")
+        
+        if not phone or not image_data_b64:
+            return jsonify({"status": "error", "message": "Numéro de téléphone et image_data requis."}), 400
+            
+        if "," in image_data_b64:
+            image_data_b64 = image_data_b64.split(",")[1]
+            
+        img_bytes = base64.b64decode(image_data_b64)
+        
+        os.makedirs("excel", exist_ok=True)
+        img_path = os.path.abspath("excel/temp_wa_card.png")
+        
+        with open(img_path, "wb") as f:
+            f.write(img_bytes)
+            
+        python_executable = sys.executable
+        cmd = [python_executable, "send_whatsapp.py", phone, img_path]
+        
+        subprocess.Popen(cmd, close_fds=True)
+        
+        return jsonify({
+            "status": "success", 
+            "message": "Envoi WhatsApp démarré. WhatsApp Web va s'ouvrir pour envoyer l'image."
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/send_bulk_whatsapp", methods=["POST"])
+def send_bulk_whatsapp():
+    try:
+        import sys
+        import time
+        import json
+        import subprocess
+        
+        req_data = request.get_json() or {}
+        vendeurs = req_data.get("vendeurs", [])
+        date = req_data.get("date", "")
+        
+        if not vendeurs:
+            return jsonify({"status": "error", "message": "Liste de vendeurs requise."}), 400
+            
+        # Use app root dir as the working directory so the task script finds database.db
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        os.makedirs(os.path.join(app_dir, "excel"), exist_ok=True)
+        task_file_path = os.path.join(app_dir, f"excel/bulk_task_{int(time.time())}.json")
+        
+        with open(task_file_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "vendeurs": vendeurs,
+                "date": date
+            }, f, indent=4)
+            
+        python_executable = sys.executable
+        script_path = os.path.join(app_dir, "send_bulk_whatsapp_task.py")
+        cmd = [python_executable, script_path, task_file_path]
+        
+        # Use DETACHED_PROCESS on Windows so the process survives independently
+        try:
+            CREATE_NO_WINDOW = 0x08000000
+            subprocess.Popen(cmd, cwd=app_dir, creationflags=CREATE_NO_WINDOW)
+        except TypeError:
+            # Non-Windows fallback
+            subprocess.Popen(cmd, cwd=app_dir)
+        
+        return jsonify({
+            "status": "success", 
+            "message": f"Envoi automatique en masse démarré pour {len(vendeurs)} vendeurs. Les rapports vont être générés et envoyés les uns après les autres."
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/clients/analyse_visites", methods=["POST"])
+def analyse_visites_endpoint():
+    try:
+        import io
+        if "file" not in request.files:
+            return jsonify({"status": "error", "message": "Aucun fichier fourni."}), 400
+        file = request.files["file"]
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            return jsonify({"status": "error", "message": "Le fichier doit être un classeur Excel (.xlsx, .xls)."}), 400
+            
+        file_content = file.read()
+        file_stream = io.BytesIO(file_content)
+        
+        # Read the file content into pandas
+        df_raw = pd.read_excel(file_stream, sheet_name=None)
+        
+        # Check sheet name
+        sheet_name = None
+        for name in df_raw.keys():
+            if "rapport" in name.lower() or "visite" in name.lower():
+                sheet_name = name
+                break
+        
+        if not sheet_name:
+            sheet_name = list(df_raw.keys())[0]
+            
+        df_sheet_raw = df_raw[sheet_name]
+        
+        # Safe extraction of metadata
+        agence = "N/A"
+        if len(df_sheet_raw) > 5 and len(df_sheet_raw.columns) > 5:
+            val = df_sheet_raw.iloc[5, 5]
+            if pd.notna(val):
+                agence = str(val).strip()
+                
+        vendeur_code = ""
+        if len(df_sheet_raw) > 8 and len(df_sheet_raw.columns) > 6:
+            val = df_sheet_raw.iloc[8, 6]
+            if pd.notna(val):
+                vendeur_code = str(val).strip()
+                
+        vendeur_name = ""
+        if len(df_sheet_raw) > 8 and len(df_sheet_raw.columns) > 8:
+            val = df_sheet_raw.iloc[8, 8]
+            if pd.notna(val):
+                vendeur_name = str(val).strip()
+                
+        vendeur = f"{vendeur_code} {vendeur_name}".strip() or "N/A"
+        
+        date_tournee = "N/A"
+        if len(df_sheet_raw) > 4 and len(df_sheet_raw.columns) > 21:
+            val = df_sheet_raw.iloc[4, 21]
+            if pd.notna(val):
+                date_tournee = str(val).split(' ')[0]
+                
+        tournee = "N/A"
+        if len(df_sheet_raw) > 7 and len(df_sheet_raw.columns) > 21:
+            val = df_sheet_raw.iloc[7, 21]
+            if pd.notna(val):
+                tournee = str(val).strip()
+                
+        # Skip metadata rows
+        file_stream.seek(0)
+        df_data = pd.read_excel(file_stream, sheet_name=sheet_name, skiprows=13)
+        if df_data.empty:
+            return jsonify({"status": "error", "message": "Le fichier Excel semble vide ou mal structuré."}), 400
+            
+        df_data.columns = [str(val).strip() if pd.notna(val) else f"col{i}" for i, val in enumerate(df_data.iloc[0])]
+        df_data = df_data.iloc[1:]
+        
+        client_col = None
+        for col in df_data.columns:
+            if str(col).lower() == "client":
+                client_col = col
+                break
+        if not client_col:
+            for col in df_data.columns:
+                if "col" not in str(col) and str(col).strip() != "":
+                    client_col = col
+                    break
+        if not client_col:
+            return jsonify({"status": "error", "message": "Impossible de trouver la colonne 'Client' dans le fichier."}), 400
+            
+        df_data = df_data.dropna(subset=[client_col])
+        
+        df_data = df_data.rename(columns={
+            'Heure Dbut': 'Heure Début',
+            'Heure Fin ': 'Heure Fin'
+        })
+        
+        h_dep = 'Heure Début' if 'Heure Début' in df_data.columns else ('col13' if 'col13' in df_data.columns else None)
+        h_fin = 'Heure Fin' if 'Heure Fin' in df_data.columns else ('col14' if 'col14' in df_data.columns else None)
+        dist_col = 'Distance' if 'Distance' in df_data.columns else ('col18' if 'col18' in df_data.columns else None)
+        motif_col = 'Motif' if 'Motif' in df_data.columns else ('col19' if 'col19' in df_data.columns else None)
+        note_col = 'Note' if 'Note' in df_data.columns else ('col24' if 'col24' in df_data.columns else None)
+        nom_col = 'Nom' if 'Nom' in df_data.columns else ('col4' if 'col4' in df_data.columns else None)
+        
+        clients_ok = []
+        clients_no_ok = []
+        motifs_count = {}
+        total_visits = len(df_data)
+        ok_count = 0
+        no_ok_count = 0
+        
+        sum_dist = 0
+        valid_dist_count = 0
+        dist_anomalies = 0
+        
+        for _, row in df_data.iterrows():
+            c_code = str(row[client_col]).strip()
+            c_name = str(row[nom_col]).strip() if nom_col else "N/A"
+            c_h_dep = str(row[h_dep]).strip() if h_dep else ""
+            c_h_fin = str(row[h_fin]).strip() if h_fin else ""
+            c_time = f"{c_h_dep} - {c_h_fin}" if c_h_dep or c_h_fin else "N/A"
+            
+            c_dist_str = str(row[dist_col]).split('.')[0].strip() if dist_col else "0"
+            try:
+                c_dist = int(c_dist_str)
+                sum_dist += c_dist
+                valid_dist_count += 1
+                if c_dist > 100:
+                    dist_anomalies += 1
+            except:
+                c_dist = 0
+                
+            c_motif = str(row[motif_col]).strip() if motif_col else "N/A"
+            c_note = str(row[note_col]).strip() if note_col else ""
+            if pd.isna(row[note_col]) or c_note.lower() in ("nan", "none", "null"):
+                c_note = ""
+                
+            client_record = {
+                "code": c_code,
+                "name": c_name,
+                "time": c_time,
+                "distance": f"{c_dist_str} m",
+                "motif": c_motif,
+                "note": c_note
+            }
+            
+            if c_motif.upper() == "OK":
+                ok_count += 1
+                clients_ok.append(client_record)
+            else:
+                no_ok_count += 1
+                clients_no_ok.append(client_record)
+                motifs_count[c_motif] = motifs_count.get(c_motif, 0) + 1
+                
+        avg_dist = round(sum_dist / valid_dist_count, 1) if valid_dist_count > 0 else 0
+        acm_pct = round((ok_count / total_visits) * 100, 1) if total_visits > 0 else 0
+
+        return jsonify({
+            "status": "success",
+            "metadata": {
+                "agence": agence,
+                "vendeur": vendeur,
+                "date": date_tournee,
+                "tournee": tournee,
+                "file_name": file.filename
+            },
+            "summary": {
+                "total": total_visits,
+                "ok": ok_count,
+                "no_ok": no_ok_count,
+                "acm": acm_pct
+            },
+            "motifs": motifs_count,
+            "distance": {
+                "average": avg_dist,
+                "anomalies": dist_anomalies
+            },
+            "clients_ok": clients_ok,
+            "clients_no_ok": clients_no_ok
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": f"Erreur d'analyse : {str(e)}"}), 500
+
+@app.route("/api/clients/enregistrer_visites", methods=["POST"])
+def enregistrer_visites_endpoint():
+    try:
+        data = request.json or {}
+        metadata = data.get("metadata", {})
+        clients_ok = data.get("clients_ok", [])
+        clients_no_ok = data.get("clients_no_ok", [])
+        
+        file_name = metadata.get("file_name", "upload.xlsx")
+        vendeur = metadata.get("vendeur")
+        date_tournee = metadata.get("date")
+        tournee = metadata.get("tournee")
+        agence = metadata.get("agence")
+        
+        if not vendeur or not date_tournee:
+            return jsonify({"status": "error", "message": "Métadonnées de visite incomplètes."}), 400
+            
+        all_records = clients_ok + clients_no_ok
+        
+        # Save to DB
+        db_manager.save_visites_rapport(
+            file_name,
+            vendeur,
+            date_tournee,
+            tournee,
+            agence,
+            all_records
+        )
+        
+        return jsonify({
+            "status": "success",
+            "message": "Données de visites enregistrées avec succès dans la base de données !"
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/clients/compare_visites", methods=["POST"])
+def compare_visites_endpoint():
+    try:
+        import io
+        files = []
+        for key in ["file1", "file2", "file3"]:
+            if key in request.files:
+                f = request.files[key]
+                if f and f.filename != "":
+                    files.append(f)
+                    
+        if len(files) < 2:
+            return jsonify({"status": "error", "message": "Veuillez charger au moins 2 rapports de visites pour pouvoir les comparer."}), 400
+            
+        tournees_data = []
+        for i, file in enumerate(files):
+            file_content = file.read()
+            file_stream = io.BytesIO(file_content)
+            df_raw = pd.read_excel(file_stream, sheet_name=None)
+            
+            sheet_name = None
+            for name in df_raw.keys():
+                if "rapport" in name.lower() or "visite" in name.lower():
+                    sheet_name = name
+                    break
+            if not sheet_name:
+                sheet_name = list(df_raw.keys())[0]
+                
+            df_sheet_raw = df_raw[sheet_name]
+            
+            # Extract metadata
+            vendeur = "N/A"
+            if len(df_sheet_raw) > 8 and len(df_sheet_raw.columns) > 8:
+                v_code = str(df_sheet_raw.iloc[8, 6] or "").strip()
+                v_name = str(df_sheet_raw.iloc[8, 8] or "").strip()
+                vendeur = f"{v_code} {v_name}".strip() or "N/A"
+                
+            date_tournee = "N/A"
+            if len(df_sheet_raw) > 4 and len(df_sheet_raw.columns) > 21:
+                val = df_sheet_raw.iloc[4, 21]
+                if pd.notna(val):
+                    date_tournee = str(val).split(' ')[0]
+                    
+            # Skip metadata rows
+            file_stream.seek(0)
+            df_data = pd.read_excel(file_stream, sheet_name=sheet_name, skiprows=13)
+            df_data.columns = [str(val).strip() if pd.notna(val) else f"col{i}" for i, val in enumerate(df_data.iloc[0])]
+            df_data = df_data.iloc[1:]
+            
+            client_col = None
+            for col in df_data.columns:
+                if str(col).lower() == "client":
+                    client_col = col
+                    break
+            if not client_col:
+                for col in df_data.columns:
+                    if "col" not in str(col) and str(col).strip() != "":
+                        client_col = col
+                        break
+            if not client_col:
+                continue
+                
+            df_data = df_data.dropna(subset=[client_col])
+            
+            motif_col = 'Motif' if 'Motif' in df_data.columns else ('col19' if 'col19' in df_data.columns else None)
+            nom_col = 'Nom' if 'Nom' in df_data.columns else ('col4' if 'col4' in df_data.columns else None)
+            
+            clients_map = {}
+            for _, row in df_data.iterrows():
+                c_code = str(row[client_col]).strip()
+                c_name = str(row[nom_col]).strip() if nom_col else "N/A"
+                c_motif = str(row[motif_col]).strip() if motif_col else "N/A"
+                
+                if c_code not in clients_map:
+                    clients_map[c_code] = {"name": c_name, "motif": c_motif}
+                else:
+                    curr_m = clients_map[c_code]["motif"]
+                    if curr_m.upper() == "OK":
+                        pass
+                    elif c_motif.upper() == "OK":
+                        clients_map[c_code] = {"name": c_name, "motif": "OK"}
+                    elif not curr_m or curr_m == "N/A":
+                        clients_map[c_code] = {"name": c_name, "motif": c_motif}
+                    else:
+                        clients_map[c_code] = {"name": c_name, "motif": c_motif}
+                
+            tournees_data.append({
+                "date": date_tournee,
+                "vendeur": vendeur,
+                "clients": clients_map
+            })
+            
+        # Compile all unique client codes
+        all_clients = {}
+        for td in tournees_data:
+            for c_code, c_info in td["clients"].items():
+                if c_code not in all_clients:
+                    all_clients[c_code] = c_info["name"]
+                    
+        # Compare clients
+        comparison_rows = []
+        summary_stats = {
+            "always_ok": 0,
+            "never_ok": 0,
+            "billing_loss": 0,
+            "billing_gain": 0,
+            "inconsistent": 0
+        }
+        
+        for c_code, c_name in all_clients.items():
+            motifs = []
+            for td in tournees_data:
+                if c_code in td["clients"]:
+                    motifs.append(td["clients"][c_code]["motif"])
+                else:
+                    motifs.append("Non visité")
+                    
+            # Synthesis
+            bools = []
+            for m in motifs:
+                if m.upper() == "OK":
+                    bools.append(True)
+                elif m == "Non visité":
+                    bools.append(None)
+                else:
+                    bools.append(False)
+                    
+            synth = "Inconstant"
+            visited_bools = [b for b in bools if b is not None]
+            
+            if len(visited_bools) == 0:
+                synth = "Non visité"
+            elif all(b is True for b in visited_bools):
+                synth = "Toujours Facturé"
+                summary_stats["always_ok"] += 1
+            elif all(b is False for b in visited_bools):
+                synth = "Jamais Facturé"
+                summary_stats["never_ok"] += 1
+            else:
+                actual_vis = [(idx, val) for idx, val in enumerate(bools) if val is not None]
+                if len(actual_vis) >= 2:
+                    first_val = actual_vis[0][1]
+                    last_val = actual_vis[-1][1]
+                    if first_val is True and last_val is False:
+                        synth = "Perte de facturation"
+                        summary_stats["billing_loss"] += 1
+                    elif first_val is False and last_val is True:
+                        synth = "Gagné (Facturé en fin)"
+                        summary_stats["billing_gain"] += 1
+                    else:
+                        synth = "Inconstant"
+                        summary_stats["inconsistent"] += 1
+                else:
+                    synth = "Inconstant"
+                    summary_stats["inconsistent"] += 1
+                    
+            comparison_rows.append({
+                "code": c_code,
+                "name": c_name,
+                "motifs": motifs,
+                "synthesis": synth
+            })
+            
+        dates = [td["date"] for td in tournees_data]
+        vendeur = tournees_data[0]["vendeur"]
+        
+        return jsonify({
+            "status": "success",
+            "vendeur": vendeur,
+            "dates": dates,
+            "summary": summary_stats,
+            "comparison": comparison_rows
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": f"Erreur de comparaison : {str(e)}"}), 500
+
+@app.route("/api/clients/visites", methods=["GET"])
+def get_visites_rapport_endpoint():
+    try:
+        vendeur = request.args.get("vendeur")
+        date_visite = request.args.get("date")
+        
+        if not vendeur or not date_visite:
+            return jsonify({"status": "error", "message": "Vendeur et Date requis."}), 400
+            
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT file_name, tournee, agence, client_code, client_nom, heure, distance, motif, note
+            FROM visites_rapports
+            WHERE vendeur = ? AND date_visite = ?
+        """, (vendeur, date_visite))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if len(rows) == 0:
+            return jsonify({
+                "status": "success",
+                "message": "Aucun détail de visite enregistré dans la base pour ce vendeur et cette date.",
+                "data": None
+            })
+            
+        clients_ok = []
+        clients_no_ok = []
+        motifs_count = {}
+        ok_count = 0
+        no_ok_count = 0
+        sum_dist = 0
+        valid_dist_count = 0
+        dist_anomalies = 0
+        
+        tournee = rows[0]["tournee"]
+        agence = rows[0]["agence"]
+        
+        for row in rows:
+            c_code = row["client_code"]
+            c_name = row["client_nom"] or "N/A"
+            c_time = row["heure"] or "N/A"
+            c_dist = row["distance"] or 0
+            c_motif = row["motif"] or "N/A"
+            c_note = row["note"] or ""
+            
+            sum_dist += c_dist
+            valid_dist_count += 1
+            if c_dist > 100:
+                dist_anomalies += 1
+                
+            client_record = {
+                "code": c_code,
+                "name": c_name,
+                "time": c_time,
+                "distance": f"{c_dist} m",
+                "motif": c_motif,
+                "note": c_note
+            }
+            
+            if c_motif.upper() == "OK":
+                ok_count += 1
+                clients_ok.append(client_record)
+            else:
+                no_ok_count += 1
+                clients_no_ok.append(client_record)
+                motifs_count[c_motif] = motifs_count.get(c_motif, 0) + 1
+                
+        total_visits = len(rows)
+        avg_dist = round(sum_dist / valid_dist_count, 1) if valid_dist_count > 0 else 0
+        acm_pct = round((ok_count / total_visits) * 100, 1) if total_visits > 0 else 0
+        
+        return jsonify({
+            "status": "success",
+            "data": {
+                "metadata": {
+                    "vendeur": vendeur,
+                    "date": date_visite,
+                    "tournee": tournee,
+                    "agence": agence
+                },
+                "summary": {
+                    "total": total_visits,
+                    "ok": ok_count,
+                    "no_ok": no_ok_count,
+                    "acm": acm_pct
+                },
+                "motifs": motifs_count,
+                "distance": {
+                    "average": avg_dist,
+                    "anomalies": dist_anomalies
+                },
+                "clients_ok": clients_ok,
+                "clients_no_ok": clients_no_ok
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": f"Erreur de lecture : {str(e)}"}), 500
+
+@app.route("/api/clients/visites_disponibles", methods=["GET"])
+def get_visites_disponibles_endpoint():
+    try:
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT DISTINCT tournee, date_visite, vendeur
+            FROM visites_rapports
+            ORDER BY tournee, date_visite ASC
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        tournees_map = {}
+        vendeurs_map = {}
+        
+        for row in rows:
+            t_name = row["tournee"]
+            d_val = row["date_visite"]
+            v_name = row["vendeur"]
+            
+            if t_name and t_name != "N/A":
+                if t_name not in tournees_map:
+                    tournees_map[t_name] = {"dates": [], "dates_details": []}
+                if d_val not in tournees_map[t_name]["dates"]:
+                    tournees_map[t_name]["dates"].append(d_val)
+                    tournees_map[t_name]["dates_details"].append({"date": d_val, "tournee": t_name, "vendeur": v_name or ""})
+                    
+            if v_name and v_name != "N/A":
+                if v_name not in vendeurs_map:
+                    vendeurs_map[v_name] = {"dates": [], "dates_details": []}
+                if d_val not in vendeurs_map[v_name]["dates"]:
+                    vendeurs_map[v_name]["dates"].append(d_val)
+                    vendeurs_map[v_name]["dates_details"].append({"date": d_val, "tournee": t_name or "", "vendeur": v_name})
+
+        # Sort dates ascending A to Z
+        for info in tournees_map.values():
+            info["dates"].sort()
+            info["dates_details"].sort(key=lambda x: x["date"])
+            
+        for info in vendeurs_map.values():
+            info["dates"].sort()
+            info["dates_details"].sort(key=lambda x: x["date"])
+                    
+        return jsonify({
+            "status": "success",
+            "tournees": [{"name": t, "dates": info["dates"], "dates_details": info["dates_details"]} for t, info in tournees_map.items()],
+            "vendeurs": [{"name": v, "dates": info["dates"], "dates_details": info["dates_details"]} for v, info in vendeurs_map.items()]
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/clients/compare_visites_db", methods=["POST"])
+def compare_visites_db_endpoint():
+    try:
+        data = request.json or {}
+        tournee = data.get("tournee")
+        vendeur = data.get("vendeur")
+        dates = sorted(data.get("dates", []))
+        
+        if not dates or len(dates) < 1:
+            return jsonify({"status": "error", "message": "Veuillez sélectionner au moins 1 date à analyser."}), 400
+            
+        if len(dates) > 3:
+            return jsonify({"status": "error", "message": "Vous pouvez comparer jusqu'à 3 dates au maximum."}), 400
+            
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        
+        dates_data = []
+        dates_details = []
+        for d in dates:
+            if tournee:
+                cursor.execute("""
+                    SELECT client_code, client_nom, motif, note, vendeur, tournee
+                    FROM visites_rapports
+                    WHERE tournee = ? AND date_visite = ?
+                """, (tournee, d))
+            else:
+                cursor.execute("""
+                    SELECT client_code, client_nom, motif, note, vendeur, tournee
+                    FROM visites_rapports
+                    WHERE vendeur = ? AND date_visite = ?
+                """, (vendeur, d))
+            rows = cursor.fetchall()
+            t_found = (rows[0]["tournee"] if rows and rows[0]["tournee"] else (tournee or ""))
+            v_found = (rows[0]["vendeur"] if rows and rows[0]["vendeur"] else (vendeur or ""))
+            dates_details.append({"date": d, "tournee": t_found, "vendeur": v_found})
+            dates_data.append((d, rows))
+            
+        conn.close()
+        
+        for d, rows in dates_data:
+            if len(rows) == 0:
+                return jsonify({"status": "error", "message": f"Aucune donnée de visite pour la date {d}."}), 400
+                
+        all_clients = {}
+        for idx, (d, rows) in enumerate(dates_data):
+            for row in rows:
+                code = row["client_code"]
+                name = row["client_nom"] or "N/A"
+                motif = row["motif"] or "Non visité"
+                
+                if code not in all_clients:
+                    all_clients[code] = {
+                        "code": code,
+                        "name": name,
+                        "motifs": ["Non visité"] * len(dates)
+                    }
+                curr_m = all_clients[code]["motifs"][idx]
+                if curr_m.upper() == "OK":
+                    pass
+                elif motif.upper() == "OK":
+                    all_clients[code]["motifs"][idx] = "OK"
+                elif curr_m == "Non visité" or not curr_m:
+                    all_clients[code]["motifs"][idx] = motif
+                else:
+                    all_clients[code]["motifs"][idx] = motif
+                
+        client_codes = list(all_clients.keys())
+        localites_map = {}
+        if client_codes:
+            conn = db_manager.get_db_connection()
+            c_cursor = conn.cursor()
+            placeholders = ",".join(["?" for _ in client_codes])
+            c_cursor.execute(f"SELECT code, localite FROM clients_full WHERE code IN ({placeholders})", client_codes)
+            for r in c_cursor.fetchall():
+                if r["code"]:
+                    localites_map[r["code"]] = r["localite"] or ""
+            conn.close()
+
+        comparison_rows = []
+        summary_stats = {
+            "always_ok": 0,
+            "billing_loss": 0,
+            "billing_gain": 0,
+            "never_ok": 0,
+            "inconsistent": 0,
+            "at_least_one": 0,
+            "no_facture": 0
+        }
+        
+        for code, c in all_clients.items():
+            motifs = c["motifs"]
+            is_ok = [m.upper() == "OK" for m in motifs]
+            facture_cnt = sum(1 for ok in is_ok if ok)
+            has_fact = (facture_cnt >= 1)
+            localite = localites_map.get(code, "")
+            
+            if has_fact:
+                summary_stats["at_least_one"] += 1
+            else:
+                summary_stats["no_facture"] += 1
+
+            if all(is_ok):
+                synth = "Toujours Facturé"
+                summary_stats["always_ok"] += 1
+            elif not any(is_ok):
+                synth = "Jamais Facturé"
+                summary_stats["never_ok"] += 1
+            elif is_ok[0] and not is_ok[-1]:
+                synth = "Perte de facturation"
+                summary_stats["billing_loss"] += 1
+            elif not is_ok[0] and is_ok[-1]:
+                synth = "Gagné (Facturé en fin)"
+                summary_stats["billing_gain"] += 1
+            else:
+                synth = "Inconstant"
+                summary_stats["inconsistent"] += 1
+                
+            comparison_rows.append({
+                "code": c["code"],
+                "name": c["name"],
+                "localite": localite,
+                "motifs": motifs,
+                "synthesis": synth,
+                "facture_count": facture_cnt,
+                "has_facture": has_fact
+            })
+            
+        vendeur_name = vendeur or "N/A"
+        for _, rows in dates_data:
+            if len(rows) > 0 and rows[0]["vendeur"]:
+                vendeur_name = rows[0]["vendeur"]
+                break
+                
+        v_phone = db_manager.get_vendeur_phone_from_fdv(vendeur_name) or ""
+        v_phone_raw = v_phone
+
+        # Retrieve ACM RAF (raf_acm) for this seller from qualitative_data
+        raf_acm = 20
+        if vendeur_name and vendeur_name != "N/A":
+            try:
+                conn_q = db_manager.get_db_connection()
+                cur_q = conn_q.cursor()
+                v_code = vendeur_name.split()[0]
+                cur_q.execute("SELECT raf_acm FROM qualitative_data WHERE vendeur LIKE ? ORDER BY date DESC LIMIT 1", (f"%{v_code}%",))
+                q_row = cur_q.fetchone()
+                if q_row and q_row["raf_acm"] is not None:
+                    raf_acm = int(round(q_row["raf_acm"]))
+                conn_q.close()
+            except Exception as e:
+                pass
+
+        return jsonify({
+            "status": "success",
+            "vendeur": vendeur_name,
+            "vendeur_phone": v_phone,
+            "vendeur_phone_raw": v_phone_raw,
+            "raf_acm": raf_acm,
+            "dates": dates,
+            "dates_details": dates_details,
+            "summary": summary_stats,
+            "comparison": comparison_rows
+        })
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1413,6 +2249,211 @@ def clients_full_export():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/vendeur/360", methods=["GET"])
+def get_vendeur_360_endpoint():
+    try:
+        vendeur_name = request.args.get("vendeur", "").strip()
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. Sellers list for dropdown - only CHAKIB ELFIL CDZ
+        cursor.execute("""
+            SELECT DISTINCT vendeur FROM fdv
+            WHERE vendeur IS NOT NULL AND vendeur != ''
+            AND UPPER(TRIM(cdz)) = 'CHAKIB ELFIL'
+        """)
+        all_vendeurs = sorted([r[0] for r in cursor.fetchall() if r[0] and r[0].strip() != "N/A"])
+        
+        if not vendeur_name and all_vendeurs:
+            vendeur_name = all_vendeurs[0]
+            
+        # 2. FDV Master Info for selected seller
+        cursor.execute("SELECT * FROM fdv WHERE vendeur LIKE ?", (f"%{vendeur_name}%",))
+        fdv_row = cursor.fetchone()
+        vendeur_info = {
+            "name": vendeur_name,
+            "code": vendeur_name.split(' ')[0] if vendeur_name else "",
+            "role": (fdv_row["role"] if fdv_row and "role" in fdv_row.keys() else "") or "VENDEUR",
+            "type_role": (fdv_row["type_role"] if fdv_row and "type_role" in fdv_row.keys() else "") or "VENDEUR",
+            "cdz": (fdv_row["cdz"] if fdv_row and "cdz" in fdv_row.keys() else "") or "N/A",
+            "activite": (fdv_row["activite"] if fdv_row and "activite" in fdv_row.keys() else "") or "GMS",
+            "secteur": (fdv_row["secteur"] if fdv_row and "secteur" in fdv_row.keys() else "") or "AGADIR",
+            "telephone": (fdv_row["telephone"] if fdv_row and "telephone" in fdv_row.keys() else "") or "",
+            "whatsapp": (fdv_row["whatsapp"] if fdv_row and "whatsapp" in fdv_row.keys() else "") or ""
+        }
+        if not vendeur_info["whatsapp"] and vendeur_info["telephone"]:
+            vendeur_info["whatsapp"] = vendeur_info["telephone"]
+
+        # 3. Visites & Tournées Data from visites_rapports
+        cursor.execute("""
+            SELECT client_code, client_nom, tournee, motif, date_visite, distance, agence
+            FROM visites_rapports
+            WHERE vendeur LIKE ? OR vendeur = ?
+        """, (f"%{vendeur_name}%", vendeur_name))
+        visites_rows = cursor.fetchall()
+        
+        # Get localites map from clients_full
+        client_codes = list(set([r["client_code"] for r in visites_rows if r["client_code"] and r["client_code"].strip()]))
+        localites_map = {}
+        if client_codes:
+            placeholders = ','.join(['?'] * len(client_codes))
+            cursor.execute(f"SELECT code, localite FROM clients_full WHERE code IN ({placeholders})", client_codes)
+            for r in cursor.fetchall():
+                if r["code"]:
+                    localites_map[r["code"]] = r["localite"] or ""
+                    
+        # Consolidate per client
+        clients_map = {}
+        tournees_map = {}
+        anomalies_list = []
+        
+        for r in visites_rows:
+            code = r["client_code"]
+            name = r["client_nom"] or "N/A"
+            t_name = r["tournee"] or "N/A"
+            motif = r["motif"] or "Non visité"
+            loc = localites_map.get(code) or t_name.replace("VMM", "").replace("SOM", "").strip()
+            dist = 0
+            try:
+                dist = int(str(r["distance"]).split('.')[0])
+            except:
+                pass
+                
+            if dist > 100:
+                anomalies_list.append({
+                    "client_code": code,
+                    "client_nom": name,
+                    "date": r["date_visite"],
+                    "distance": dist,
+                    "motif": motif
+                })
+                
+            if t_name not in tournees_map:
+                tournees_map[t_name] = {"total": 0, "ok": 0, "sans_ok": 0}
+                
+            if code not in clients_map:
+                clients_map[code] = {
+                    "code": code,
+                    "name": name,
+                    "localite": loc,
+                    "tournee": t_name,
+                    "has_ok": False,
+                    "latest_motif": motif,
+                    "visite_count": 0
+                }
+                
+            clients_map[code]["visite_count"] += 1
+            if motif.upper() == "OK":
+                clients_map[code]["has_ok"] = True
+                clients_map[code]["latest_motif"] = "OK"
+            elif not clients_map[code]["has_ok"]:
+                clients_map[code]["latest_motif"] = motif
+
+        clients_list = list(clients_map.values())
+        total_clients_count = len(clients_list)
+        clients_ok_count = sum(1 for c in clients_list if c["has_ok"])
+        clients_sans_ok_count = total_clients_count - clients_ok_count
+        acm_pct = round((clients_ok_count / total_clients_count) * 100, 1) if total_clients_count > 0 else 0
+        
+        # Tournees summary
+        for c in clients_list:
+            t_name = c["tournee"]
+            if t_name in tournees_map:
+                tournees_map[t_name]["total"] += 1
+                if c["has_ok"]:
+                    tournees_map[t_name]["ok"] += 1
+                else:
+                    tournees_map[t_name]["sans_ok"] += 1
+                    
+        tournees_summary = [{
+            "tournee": t,
+            "total_clients": info["total"],
+            "clients_ok": info["ok"],
+            "clients_sans_ok": info["sans_ok"],
+            "billing_rate": round((info["ok"] / info["total"]) * 100, 1) if info["total"] > 0 else 0
+        } for t, info in tournees_map.items()]
+        
+        # 4. Tasks from tasks table
+        cursor.execute("""
+            SELECT id, title, status, date, priority
+            FROM tasks
+            WHERE assignee LIKE ? OR creator LIKE ?
+        """, (f"%{vendeur_name}%", f"%{vendeur_name}%"))
+        tasks_rows = cursor.fetchall()
+        tasks_list = [{
+            "id": r["id"],
+            "title": r["title"],
+            "description": "",
+            "status": r["status"] or "Start",
+            "due_date": r["date"] or "",
+            "priority": r["priority"] or "Moyenne"
+        } for r in tasks_rows]
+        
+        # 5. Global Score Calculation (0 - 100 pts)
+        cov_score = min(35.0, round(acm_pct * 0.35, 1))
+        billing_score = min(35.0, round((clients_ok_count / max(1, total_clients_count)) * 35, 1)) if total_clients_count > 0 else 0
+        compliance_score = max(0.0, round(15.0 - (len(anomalies_list) * 0.5), 1))
+        activity_score = min(15.0, round(len(visites_rows) * 0.05, 1))
+        
+        total_score = round(cov_score + billing_score + compliance_score + activity_score, 1)
+        
+        grade = "EXCELLENT ⭐⭐⭐⭐⭐"
+        if total_score < 40:
+            grade = "ALERTE ⚠️"
+        elif total_score < 60:
+            grade = "SATISFAISANT ⭐⭐"
+        elif total_score < 75:
+            grade = "BON ⭐⭐⭐"
+        elif total_score < 90:
+            grade = "TRÈS BON ⭐⭐⭐⭐"
+
+        conn.close()
+
+        return jsonify({
+            "status": "success",
+            "all_vendeurs": all_vendeurs,
+            "vendeur": vendeur_name,
+            "vendeur_info": vendeur_info,
+            "score": {
+                "total_score": total_score,
+                "grade": grade,
+                "rank": 1,
+                "total_vendeurs": max(1, len(all_vendeurs)),
+                "agency_avg_score": 75.0,
+                "breakdown": {
+                    "couverture": cov_score,
+                    "facturation": billing_score,
+                    "conformite": compliance_score,
+                    "activite": activity_score
+                }
+            },
+            "stats": {
+                "total_visites": len(visites_rows),
+                "total_clients": total_clients_count,
+                "clients_ok": clients_ok_count,
+                "clients_sans_ok": clients_sans_ok_count,
+                "acm_pct": acm_pct,
+                "anomalies_count": len(anomalies_list),
+                "tasks_count": len(tasks_list)
+            },
+            "tournees": tournees_summary,
+            "clients": [{
+                "code": c["code"],
+                "name": c["name"],
+                "localite": c["localite"],
+                "tournee": c["tournee"],
+                "status": "OK" if c["has_ok"] else "SANS OK",
+                "motif": c["latest_motif"]
+            } for c in clients_list],
+            "anomalies": anomalies_list[:20],
+            "tasks": tasks_list
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/vendeurs", methods=["GET"])
 def get_vendeurs_list():
     try:
@@ -2260,9 +3301,9 @@ def import_focus_objectives_file(filepath="Focus.xlsx"):
                         "secteur": secteur,
                         "obj_juin": obj_juin,
                         "obj_acm": obj_juin, # Synchronize both objective columns for compatibility
-                        "ttc": ttc,
+                        "ttc": ttc if ttc > 0.0 else obj_juin,
                         "number_client": 0,
-                        "glace_ht": 0.0
+                        "glace_ht": obj_juin
                     })
                     
         else:
@@ -2274,13 +3315,17 @@ def import_focus_objectives_file(filepath="Focus.xlsx"):
                     vendeur = str(row.get("Vendeur") or "").strip()
                     if not vendeur or vendeur.lower() == "nan":
                         continue
+                    obj_acm_val = float(row.get("OBJ ACM") or 0.0) if pd.notna(row.get("OBJ ACM")) else 0.0
+                    obj_juin_val = float(row.get("OBJ JUIN") or 0.0) if pd.notna(row.get("OBJ JUIN")) else 0.0
                     objectives.append({
                         "focus_type": "TOMATE_FRITO",
                         "vendeur": vendeur,
                         "secteur": str(row.get("TOMATE FRITO") or "").strip(),
                         "number_client": int(row.get("Number Client") or 0) if pd.notna(row.get("Number Client")) else 0,
-                        "obj_acm": float(row.get("OBJ ACM") or 0.0) if pd.notna(row.get("OBJ ACM")) else 0.0,
-                        "obj_juin": float(row.get("OBJ JUIN") or 0.0) if pd.notna(row.get("OBJ JUIN")) else 0.0,
+                        "obj_acm": obj_acm_val,
+                        "obj_juin": obj_juin_val,
+                        "ttc": obj_acm_val if obj_acm_val > 0.0 else obj_juin_val,
+                        "glace_ht": obj_juin_val
                     })
                     
             # Focus SOM (Glace)
@@ -2568,8 +3613,11 @@ def save_focus_data_all(date_str, reps, cdzs):
             obj_acm_val = obj['obj_acm'] if obj else 0.0
             obj_juin_val = obj['obj_juin'] if obj else 0.0
             nb_clients_val = obj['number_client'] if obj else 0
-            realise_val = round(percent_val * obj_acm_val, 2)
-            rest_val = round(obj_acm_val - realise_val, 2)
+            
+            # Use ttc objective for VMM calculations as well
+            ttc_val = obj['ttc'] if (obj and obj['ttc'] > 0.0) else obj_acm_val
+            realise_val = round(percent_val * ttc_val, 2)
+            rest_val = round(ttc_val - realise_val, 2)
             rest_jour_val = round(rest_val / rest_days, 2) if rest_days > 0 else 0.0
             
             focus_vmm_list.append({
@@ -2825,7 +3873,11 @@ def get_focus_data_api():
         # Always fetch objectives
         conn = db_manager.get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc FROM focus_objectives")
+        cursor.execute("""
+            SELECT o.focus_type, o.vendeur, o.secteur, o.number_client, o.obj_acm, o.obj_juin, o.glace_ht, o.ttc, f.cdz 
+            FROM focus_objectives o
+            LEFT JOIN fdv f ON o.vendeur = f.vendeur COLLATE NOCASE
+        """)
         objectives = [dict(o) for o in cursor.fetchall()]
         conn.close()
 
@@ -2898,6 +3950,77 @@ def get_focus_trend_api():
             "total_days": total_days,
             "focus_names": db_manager.get_focus_names()
         })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/vendeur/quanti_history", methods=["GET"])
+def get_vendeur_quanti_history():
+    """Return day-by-day quantitative famille data for a given vendor."""
+    try:
+        vendeur_name = request.args.get("vendeur", "").strip()
+        limit = int(request.args.get("limit", 10))
+
+        if not vendeur_name:
+            return jsonify({"status": "error", "message": "vendeur parameter required"}), 400
+
+        # Get all available dates
+        all_dates = db_manager.get_suivi_dates()
+        if not all_dates:
+            return jsonify({"status": "success", "dates": [], "familles": [], "rows": []})
+
+        # Use most recent `limit` dates
+        dates = all_dates[:limit]
+        dates_reversed = list(reversed(dates))  # chronological order for display
+
+        families_set = set()
+        date_data = {}  # date -> {famille -> row}
+
+        for dt in dates:
+            records = db_manager.get_day_data(dt)
+            quanti = records.get("quantitative", [])
+            vendeur_upper = vendeur_name.strip().upper()
+            for row in quanti:
+                v = (row.get("vendeur") or "").strip().upper()
+                if v == vendeur_upper:
+                    fam = row.get("famille", "")
+                    families_set.add(fam)
+                    if dt not in date_data:
+                        date_data[dt] = {}
+                    date_data[dt][fam] = {
+                        "real": row.get("real", 0),
+                        "obj": row.get("obj", 0),
+                        "obj_mois": row.get("obj_mois", 0),
+                        "percent": row.get("percent", 0),
+                        "h_pct": row.get("h_pct", 0),
+                        "raf": row.get("raf", 0),
+                        "encours": row.get("encours", 0)
+                    }
+
+        # Sort families: C.A (TTC) first, then alphabetical
+        familles = sorted(families_set, key=lambda f: ("" if f == "C.A (TTC)" else f))
+
+        # Build output rows (chronological order)
+        rows = []
+        for dt in dates_reversed:
+            row = {"date": dt, "familles": {}}
+            for fam in familles:
+                row["familles"][fam] = date_data.get(dt, {}).get(fam, {
+                    "real": 0, "obj": 0, "obj_mois": 0,
+                    "percent": 0, "h_pct": 0, "raf": 0, "encours": 0
+                })
+            rows.append(row)
+
+        return jsonify({
+            "status": "success",
+            "vendeur": vendeur_name,
+            "dates": dates_reversed,
+            "familles": familles,
+            "rows": rows
+        })
+
     except Exception as e:
         import traceback
         traceback.print_exc()

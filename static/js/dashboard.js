@@ -8,13 +8,1453 @@ let dashboardData = null;
 let rawTrendsData = null;
 let trendsData = null;
 let currentTaxMode = localStorage.getItem('taxMode') || 'TTC'; // 'TTC' or 'HT'
-let currentSelection = { type: 'global', name: '' }; // 'global', 'vendeur', 'secteur'
+let currentSelection = { type: 'global', name: '' }
+
+async function initClientsFacturationView() {
+    const dateSelect = document.getElementById('cf-facturation-date');
+    if (!dateSelect) return;
+
+    // 1. Fetch available dates if we haven't already
+    if (!availableDates || availableDates.length === 0) {
+        await new Promise((resolve) => {
+            fetch('/api/suivi_dates?_=' + Date.now())
+                .then(response => response.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        availableDates = (res.dates && res.dates.length > 0) ? res.dates : [];
+                    }
+                    resolve();
+                })
+                .catch(() => resolve());
+        });
+    }
+
+    if (availableDates.length === 0) {
+        // Fallback if no dates
+        dateSelect.innerHTML = '<option value="default">Aucune donnée</option>';
+        return;
+    }
+
+    // 2. Populate date dropdown
+    if (dateSelect.children.length === 0) {
+        dateSelect.innerHTML = '';
+        availableDates.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d;
+            const parts = d.split('-');
+            const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+            opt.innerText = formatted;
+            dateSelect.appendChild(opt);
+        });
+        dateSelect.value = availableDates[0];
+    }
+
+    const loadFacturationData = async () => {
+        const selectedDate = dateSelect.value;
+        const categorySelect = document.getElementById('category-select');
+        const category = categorySelect ? categorySelect.value : 'All';
+
+        const tbody = document.getElementById('cf-facturation-tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Chargement des données...</td></tr>';
+        }
+
+        try {
+            const res = await fetch(`/api/data?date=${encodeURIComponent(selectedDate)}&category=${encodeURIComponent(category)}&_=${Date.now()}`);
+            const data = await res.json();
+            
+            if (data.status === 'success' && data.data && data.data.qualitative) {
+                const qualitative = data.data.qualitative;
+                
+                // If qualitative is empty
+                if (qualitative.length === 0) {
+                    if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Aucune donnée qualitative pour cette catégorie et date.</td></tr>';
+                    
+                    document.getElementById('cf-fact-prog').innerText = '0';
+                    document.getElementById('cf-fact-real').innerText = '0';
+                    document.getElementById('cf-fact-fail').innerText = '0';
+                    document.getElementById('cf-fact-acm').innerText = '0%';
+                    document.getElementById('cf-fact-tsm').innerText = '0%';
+                    
+                    if (clientsFacturationChartInstance) {
+                        clientsFacturationChartInstance.destroy();
+                        clientsFacturationChartInstance = null;
+                    }
+                    return;
+                }
+
+                // Compute KPI aggregates
+                let totalProg = 0;
+                let totalReal = 0;
+                let sumWeightedTsm = 0;
+                
+                qualitative.forEach(item => {
+                    const prog = parseInt(item.clt_programme) || 0;
+                    const real = parseInt(item.clt_facture) || 0;
+                    const tsm = parseFloat(item.tsm) || 0.0;
+                    
+                    totalProg += prog;
+                    totalReal += real;
+                    sumWeightedTsm += (prog * tsm);
+                });
+
+                const avgAcm = totalProg > 0 ? Math.round((totalReal / totalProg) * 100) : 0;
+                const avgTsm = totalProg > 0 ? Math.round((sumWeightedTsm / totalProg) * 100) : 0;
+
+                document.getElementById('cf-fact-prog').innerText = totalProg;
+                document.getElementById('cf-fact-real').innerText = totalReal;
+                document.getElementById('cf-fact-fail').innerText = totalProg - totalReal;
+                document.getElementById('cf-fact-acm').innerText = `${avgAcm}%`;
+                document.getElementById('cf-fact-tsm').innerText = `${avgTsm}%`;
+
+                // Render Table rows
+                if (tbody) {
+                    tbody.innerHTML = '';
+                    qualitative.forEach(r => {
+                        const tr = document.createElement('tr');
+                        tr.style.cursor = 'pointer';
+                        tr.title = `Cliquez pour voir le rapport de visites détaillé de ${r.vendeur}`;
+                        
+                        const acmPct = Math.round((r.acm || 0) * 100);
+                        const tsmPct = Math.round((r.tsm || 0) * 100);
+                        const linePct = Math.round((r.line || 0) * 100);
+
+                        const acmClass = acmPct >= 80 ? 'neon-text-green' : (acmPct >= 50 ? 'neon-text-amber' : 'neon-text-pink');
+                        const tsmClass = tsmPct >= 80 ? 'neon-text-green' : (tsmPct >= 50 ? 'neon-text-amber' : 'neon-text-pink');
+                        
+                        tr.innerHTML = `
+                            <td><strong>${r.vendeur}</strong></td>
+                            <td>${r.clt_programme}</td>
+                            <td class="neon-text-blue">${r.clt_facture}</td>
+                            <td class="${acmClass}"><strong>${acmPct}%</strong></td>
+                            <td class="${tsmClass}"><strong>${tsmPct}%</strong></td>
+                            <td>${linePct}%</td>
+                            <td class="neon-text-pink">${r.raf_tsm}</td>
+                            <td class="neon-text-amber">${r.raf_acm}</td>
+                        `;
+                        
+                        tr.addEventListener('click', async () => {
+                            Array.from(tbody.children).forEach(child => {
+                                child.style.backgroundColor = '';
+                                child.style.borderLeft = '';
+                            });
+                            tr.style.backgroundColor = 'rgba(0, 242, 254, 0.08)';
+                            tr.style.borderLeft = '2px solid var(--neon-blue)';
+                            
+                            try {
+                                showToast(`Chargement des visites pour ${r.vendeur}...`, "info");
+                                const dateVal = dateSelect.value;
+                                const response = await fetch(`/api/clients/visites?vendeur=${encodeURIComponent(r.vendeur)}&date=${encodeURIComponent(dateVal)}&_=${Date.now()}`);
+                                const res = await response.json();
+                                if (res.status === 'success' && res.data) {
+                                    renderDetailedVisitsReport(res.data);
+                                    const sec = document.getElementById('cf-details-visites-section');
+                                    if (sec) sec.scrollIntoView({ behavior: 'smooth' });
+                                } else {
+                                    showToast(res.message || "Aucun rapport de visites détaillé disponible pour ce vendeur à cette date.", "warning");
+                                    const section = document.getElementById('cf-details-visites-section');
+                                    if (section) section.style.display = 'none';
+                                }
+                            } catch (err) {
+                                console.error(err);
+                                showToast("Erreur lors de la récupération des visites.", "error");
+                            }
+                        });
+                        
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                // Render Chart
+                const labels = qualitative.map(r => r.vendeur.split(' ').slice(1).join(' ') || r.vendeur); // Remove code prefix if possible
+                const progData = qualitative.map(r => r.clt_programme);
+                const realData = qualitative.map(r => r.clt_facture);
+
+                const ctx = document.getElementById('cf-facturation-chart');
+                if (ctx) {
+                    if (clientsFacturationChartInstance) {
+                        clientsFacturationChartInstance.destroy();
+                    }
+
+                    const neonBlue = 'rgba(0, 242, 254, 1)';
+                    const neonPink = 'rgba(255, 45, 85, 1)';
+                    const gridColor = 'rgba(255, 255, 255, 0.05)';
+                    const textColor = '#94a3b8';
+
+                    clientsFacturationChartInstance = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                {
+                                    label: 'Clients Programmés',
+                                    data: progData,
+                                    backgroundColor: 'rgba(0, 242, 254, 0.25)',
+                                    borderColor: neonBlue,
+                                    borderWidth: 1.5,
+                                    borderRadius: 4,
+                                },
+                                {
+                                    label: 'Clients Facturés',
+                                    data: realData,
+                                    backgroundColor: 'rgba(255, 45, 85, 0.25)',
+                                    borderColor: neonPink,
+                                    borderWidth: 1.5,
+                                    borderRadius: 4,
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    labels: {
+                                        color: textColor,
+                                        font: { family: 'JetBrains Mono', size: 10 }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    grid: { color: gridColor },
+                                    ticks: {
+                                        color: textColor,
+                                        font: { family: 'JetBrains Mono', size: 9 }
+                                    }
+                                },
+                                y: {
+                                    grid: { color: gridColor },
+                                    ticks: {
+                                        color: textColor,
+                                        font: { family: 'JetBrains Mono', size: 9 }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            } else {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-pink);">Erreur de chargement des données.</td></tr>';
+            }
+        } catch (err) {
+            console.error("Error loading facturation data:", err);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-pink);">Erreur de communication avec le serveur.</td></tr>';
+        }
+    };
+
+    // Bind date change
+    dateSelect.onchange = loadFacturationData;
+
+    // Bind category select changes
+    const categorySelect = document.getElementById('category-select');
+    if (categorySelect) {
+        categorySelect.addEventListener('change', loadFacturationData);
+    }
+
+    // ===== UPLOAD VISITES EVENT BINDINGS =====
+    const importBtn = document.getElementById('cf-import-visites-btn');
+    const uploadModal = document.getElementById('visites-upload-modal');
+
+    if (importBtn) {
+        importBtn.addEventListener('click', () => {
+            initVisitesUploadModal();
+            if (typeof window.resetVisitesUploadForm === 'function') {
+                window.resetVisitesUploadForm();
+            }
+            window.visitesUploadCallback = null;
+            if (uploadModal) uploadModal.classList.add('open');
+        });
+    }
+
+    // Modal result logic moved to global scope
+
+    // ===== COMPARE VISITES EVENT BINDINGS =====
+    const compareBtn = document.getElementById('cf-compare-visites-btn');
+    const compareUploadModal = document.getElementById('visites-compare-upload-modal');
+    const closeCompareUploadModalBtn = document.getElementById('close-visites-compare-upload-modal');
+    const cancelCompareUploadBtn = document.getElementById('cancel-visites-compare-upload');
+    const submitCompareUploadBtn = document.getElementById('submit-visites-compare-upload');
+
+    const compareResultModal = document.getElementById('visites-compare-result-modal');
+    const closeCompareResultModalBtn = document.getElementById('close-visites-compare-result-modal');
+    const closeCompareResultActionBtn = document.getElementById('close-visites-compare-result-action');
+
+    const compareInputs = [
+        document.getElementById('compare-file-input-1'),
+        document.getElementById('compare-file-input-2'),
+        document.getElementById('compare-file-input-3')
+    ];
+    const compareSpans = [
+        document.getElementById('compare-file-name-1'),
+        document.getElementById('compare-file-name-2'),
+        document.getElementById('compare-file-name-3')
+    ];
+
+    let compareFiles = [null, null, null];
+    let compareResultData = null;
+    let activeCompareFilter = 'all'; // 'all', 'always', 'loss', 'gain', 'never'
+
+    if (compareBtn) {
+        compareBtn.addEventListener('click', () => {
+            compareFiles = [null, null, null];
+            compareInputs.forEach(input => { if (input) input.value = ''; });
+            compareSpans.forEach((span, idx) => {
+                if (span) span.innerText = idx === 2 ? 'Aucun fichier (Optionnel)' : 'Aucun fichier';
+            });
+            if (compareUploadModal) compareUploadModal.classList.add('open');
+        });
+    }
+
+    [closeCompareUploadModalBtn, cancelCompareUploadBtn].forEach(btn => {
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (compareUploadModal) compareUploadModal.classList.remove('open');
+            });
+        }
+    });
+
+    compareInputs.forEach((input, index) => {
+        if (input) {
+            input.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                    const file = e.target.files[0];
+                    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+                        showToast("Le fichier doit être au format Excel (.xlsx, .xls)", "error");
+                        return;
+                    }
+                    compareFiles[index] = file;
+                    if (compareSpans[index]) compareSpans[index].innerText = file.name;
+                }
+            });
+        }
+    });
+
+    if (submitCompareUploadBtn) {
+        submitCompareUploadBtn.addEventListener('click', async () => {
+            const activeFiles = compareFiles.filter(f => f !== null);
+            if (activeFiles.length === 0) {
+                showToast("Veuillez sélectionner au moins 1 fichier Excel à analyser ou comparer.", "warning");
+                return;
+            }
+
+            submitCompareUploadBtn.disabled = true;
+            const originalContent = submitCompareUploadBtn.innerHTML;
+
+            if (activeFiles.length === 1) {
+                // Single file analysis fallback
+                submitCompareUploadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ANALYSE EN COURS...';
+                const fileToUpload = activeFiles[0];
+                const formData = new FormData();
+                formData.append('file', fileToUpload);
+
+                try {
+                    const response = await fetch('/api/clients/analyse_visites', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        showToast("Analyse du passage terminée avec succès !", "success");
+                        if (compareUploadModal) compareUploadModal.classList.remove('open');
+                        
+                        // Display directly in the main page panel
+                        renderDetailedVisitsReport(result);
+                    } else {
+                        showToast("Erreur d'analyse : " + result.message, "error");
+                    }
+                } catch (err) {
+                    console.error("Error analyzing single visits file:", err);
+                    showToast("Erreur de communication avec le serveur.", "error");
+                } finally {
+                    submitCompareUploadBtn.disabled = false;
+                    submitCompareUploadBtn.innerHTML = originalContent;
+                }
+            } else {
+                // Multi file comparison (2 or 3 files)
+                submitCompareUploadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> COMPARAISON EN COURS...';
+                const formData = new FormData();
+                activeFiles.forEach((file, index) => {
+                    formData.append(`file${index + 1}`, file);
+                });
+
+                try {
+                    const response = await fetch('/api/clients/compare_visites', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        showToast("Comparaison effectuée avec succès !", "success");
+                        if (compareUploadModal) compareUploadModal.classList.remove('open');
+                        
+                        compareResultData = result;
+                        displayCompareResults(result);
+                        if (compareResultModal) compareResultModal.classList.add('open');
+                    } else {
+                        showToast("Erreur de comparaison : " + result.message, "error");
+                    }
+                } catch (err) {
+                    console.error("Error comparing visits:", err);
+                    showToast("Erreur de communication avec le serveur.", "error");
+                } finally {
+                    submitCompareUploadBtn.disabled = false;
+                    submitCompareUploadBtn.innerHTML = originalContent;
+                }
+            }
+        });
+    }
+
+    const displayCompareResults = (data) => {
+        document.getElementById('vc-res-vendeur').innerText = data.vendeur || 'N/A';
+        
+        const badgesContainer = document.getElementById('vc-res-dates-badges');
+        if (badgesContainer) {
+            badgesContainer.innerHTML = '';
+            data.dates.forEach((d, idx) => {
+                const badge = document.createElement('span');
+                badge.className = 'badge-blue';
+                badge.style.fontSize = '0.75rem';
+                badge.style.padding = '3px 8px';
+                const parts = d.split('-');
+                const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+                badge.innerText = `P${idx+1}: ${formatted}`;
+                badgesContainer.appendChild(badge);
+            });
+        }
+
+        document.getElementById('vc-kpi-always-ok').innerText = data.summary.always_ok;
+        document.getElementById('vc-kpi-loss').innerText = data.summary.billing_loss;
+        document.getElementById('vc-kpi-gain').innerText = data.summary.billing_gain;
+        document.getElementById('vc-kpi-never').innerText = data.summary.never_ok;
+
+        const headerRow = document.getElementById('vc-table-headers');
+        if (headerRow) {
+            headerRow.innerHTML = '';
+            headerRow.innerHTML = '<th>Client</th><th>Nom Client</th>';
+            data.dates.forEach((d, idx) => {
+                const parts = d.split('-');
+                const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+                headerRow.innerHTML += `<th style="text-align: center;">Passage ${idx+1}<br><span style="font-size:0.7rem; color:var(--text-muted);">${formatted}</span></th>`;
+            });
+            headerRow.innerHTML += '<th style="text-align: center;">Synthèse</th>';
+        }
+
+        activeCompareFilter = 'all';
+        ['vc-btn-all', 'vc-btn-always', 'vc-btn-loss', 'vc-btn-gain', 'vc-btn-never', 'vc-btn-at-least-once'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.remove('is-active');
+        });
+        const btnAll = document.getElementById('vc-btn-all');
+        if (btnAll) btnAll.classList.add('is-active');
+
+        renderCompareTable();
+    };
+
+    const renderCompareTable = () => {
+        if (!compareResultData) return;
+        const tbody = document.getElementById('vc-details-tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+        
+        let filtered = compareResultData.comparison;
+        if (activeCompareFilter === 'always') {
+            filtered = filtered.filter(r => r.synthesis === 'Toujours Facturé');
+        } else if (activeCompareFilter === 'loss') {
+            filtered = filtered.filter(r => r.synthesis === 'Perte de facturation');
+        } else if (activeCompareFilter === 'gain') {
+            filtered = filtered.filter(r => r.synthesis === 'Gagné (Facturé en fin)');
+        } else if (activeCompareFilter === 'never') {
+            filtered = filtered.filter(r => r.synthesis === 'Jamais Facturé');
+        } else if (activeCompareFilter === 'at_least_once') {
+            // At least 1 OK: any synthesis that is NOT 'Jamais Facturé'
+            filtered = filtered.filter(r => r.synthesis !== 'Jamais Facturé');
+        }
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="${compareResultData.dates.length + 3}" style="text-align: center; color: var(--text-muted);">Aucun client ne correspond à ce filtre.</td></tr>`;
+            return;
+        }
+
+        filtered.forEach(r => {
+            const tr = document.createElement('tr');
+            
+            let cells = `<td><code>${r.code}</code></td><td><strong>${r.name}</strong></td>`;
+            
+            r.motifs.forEach(m => {
+                const isOk = m.toUpperCase() === 'OK';
+                const isNav = m === 'Non visité';
+                const mClass = isOk ? 'neon-text-green' : (isNav ? 'text-muted' : 'neon-text-pink');
+                const boldStart = isOk ? '<strong>' : '';
+                const boldEnd = isOk ? '</strong>' : '';
+                cells += `<td style="text-align: center;" class="${mClass}">${boldStart}${m}${boldEnd}</td>`;
+            });
+
+            let synthClass = 'text-muted';
+            if (r.synthesis === 'Toujours Facturé') synthClass = 'neon-text-green';
+            if (r.synthesis === 'Perte de facturation') synthClass = 'neon-text-pink';
+            if (r.synthesis === 'Gagné (Facturé en fin)') synthClass = 'neon-text-blue';
+            if (r.synthesis === 'Jamais Facturé') synthClass = 'neon-text-amber';
+
+            cells += `<td style="text-align: center;"><span class="${synthClass}" style="font-weight: bold; text-transform: uppercase;">${r.synthesis}</span></td>`;
+            tr.innerHTML = cells;
+            tbody.appendChild(tr);
+        });
+    };
+
+    const filterBtnMap = {
+        'vc-btn-all': 'all',
+        'vc-btn-always': 'always',
+        'vc-btn-loss': 'loss',
+        'vc-btn-gain': 'gain',
+        'vc-btn-never': 'never',
+        'vc-btn-at-least-once': 'at_least_once'
+    };
+
+    Object.entries(filterBtnMap).forEach(([id, filter]) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                activeCompareFilter = filter;
+                Object.keys(filterBtnMap).forEach(btnId => {
+                    const b = document.getElementById(btnId);
+                    if (b) b.classList.remove('is-active');
+                });
+                btn.classList.add('is-active');
+                renderCompareTable();
+            });
+        }
+    });
+
+    // ===== DETAILED VISITES REPORT RENDERERS =====
+    let detailedVisitsData = null;
+    let activeDetailedVisitsTab = 'ok';
+
+    window.renderDetailedVisitsReport = function(data) {
+        detailedVisitsData = data;
+        
+        const section = document.getElementById('cf-details-visites-section');
+        if (section) section.style.display = 'block';
+
+        document.getElementById('cf-details-vendeur-name').innerText = data.metadata.vendeur || 'N/A';
+        
+        document.getElementById('cf-details-total').innerText = data.summary.total;
+        document.getElementById('cf-details-ok').innerText = data.summary.ok;
+        document.getElementById('cf-details-no-ok').innerText = data.summary.no_ok;
+        document.getElementById('cf-details-acm-val').innerText = `${data.summary.acm}%`;
+        
+        document.getElementById('cf-details-dist-avg').innerText = `${data.distance.average} m`;
+        document.getElementById('cf-details-dist-anom').innerText = `${data.distance.anomalies} anomalie(s)`;
+
+        const motifsList = document.getElementById('cf-details-motifs-list');
+        if (motifsList) {
+            motifsList.innerHTML = '';
+            const sorted = Object.entries(data.motifs).sort((a, b) => b[1] - a[1]);
+            if (sorted.length === 0) {
+                motifsList.innerHTML = '<span style="color: var(--text-muted);">Aucun motif de non-facturation (ACM 100%)</span>';
+            } else {
+                sorted.forEach(([motif, count]) => {
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.justify = 'space-between';
+                    row.style.borderBottom = '1px solid rgba(255, 255, 255, 0.05)';
+                    row.style.padding = '0.2rem 0';
+                    row.innerHTML = `<span style="color: var(--text-muted);">${motif}</span><strong class="neon-text-pink">${count}</strong>`;
+                    motifsList.appendChild(row);
+                });
+            }
+        }
+
+        document.getElementById('cf-details-badge-count-ok').innerText = data.summary.ok;
+        document.getElementById('cf-details-badge-count-no-ok').innerText = data.summary.no_ok;
+
+        activeDetailedVisitsTab = 'ok';
+        const tglOk = document.getElementById('cf-details-toggle-ok');
+        const tglNoOk = document.getElementById('cf-details-toggle-no-ok');
+        if (tglOk) tglOk.classList.add('is-active');
+        if (tglNoOk) tglNoOk.classList.remove('is-active');
+
+        renderDetailedVisitsTable();
+    };
+
+    window.renderDetailedVisitsTable = function() {
+        if (!detailedVisitsData) return;
+        const list = activeDetailedVisitsTab === 'ok' ? detailedVisitsData.clients_ok : detailedVisitsData.clients_no_ok;
+        const tbody = document.getElementById('cf-details-tbody-content');
+        
+        if (tbody) {
+            tbody.innerHTML = '';
+            if (list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Aucun client dans cette catégorie.</td></tr>';
+                return;
+            }
+
+            list.forEach(c => {
+                const tr = document.createElement('tr');
+                const motifClass = activeDetailedVisitsTab === 'ok' ? 'neon-text-green' : 'neon-text-pink';
+                const noteText = c.note ? `<span style="color: var(--text-muted); font-size: 0.75rem; display: block; font-style: italic;">Note : ${c.note}</span>` : '';
+                tr.innerHTML = `
+                    <td><code>${c.code}</code></td>
+                    <td><strong>${c.name}</strong></td>
+                    <td>${c.time}</td>
+                    <td>${c.distance}</td>
+                    <td><strong class="${motifClass}">${c.motif}</strong>${noteText}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    };
+
+    const detailsTglOk = document.getElementById('cf-details-toggle-ok');
+    const detailsTglNoOk = document.getElementById('cf-details-toggle-no-ok');
+    if (detailsTglOk && detailsTglNoOk) {
+        detailsTglOk.addEventListener('click', () => {
+            activeDetailedVisitsTab = 'ok';
+            detailsTglOk.classList.add('is-active');
+            detailsTglNoOk.classList.remove('is-active');
+            renderDetailedVisitsTable();
+        });
+
+        detailsTglNoOk.addEventListener('click', () => {
+            activeDetailedVisitsTab = 'no_ok';
+            detailsTglNoOk.classList.add('is-active');
+            detailsTglOk.classList.remove('is-active');
+            renderDetailedVisitsTable();
+        });
+    }
+
+    const hideDetailsBtn = document.getElementById('cf-hide-details-visites');
+    if (hideDetailsBtn) {
+        hideDetailsBtn.addEventListener('click', () => {
+            const section = document.getElementById('cf-details-visites-section');
+            if (section) section.style.display = 'none';
+        });
+    }
+
+    // Initial load
+    await loadFacturationData();
+}
+
+async function initClientsAFacturerView() {
+    const filterTourneeBtn = document.getElementById('af-filter-type-tournee');
+    const filterVendeurBtn = document.getElementById('af-filter-type-vendeur');
+    const selectEntity = document.getElementById('af-select-entity');
+    const datesContainer = document.getElementById('af-dates-container');
+    const entityLabel = document.getElementById('af-entity-label');
+    const btnAnalyze = document.getElementById('af-btn-analyze');
+    
+    const resultsPlaceholder = document.getElementById('af-results-placeholder');
+    const resultsWorkspace = document.getElementById('af-results-workspace');
+    
+    const importBtn = document.getElementById('af-import-visites-btn');
+    const reloadBtn = document.getElementById('af-reload-btn');
+    
+    const kpiAtLeastOne = document.getElementById('af-kpi-atleastone');
+    const kpiAlways = document.getElementById('af-kpi-always');
+    const kpiLoss = document.getElementById('af-kpi-loss');
+    const kpiGain = document.getElementById('af-kpi-gain');
+    const kpiNever = document.getElementById('af-kpi-never');
+    const displayVendeur = document.getElementById('af-vendeur-display');
+    const tableHeaders = document.getElementById('af-table-headers');
+    const tbodyDetails = document.getElementById('af-details-tbody');
+    const searchClientInput = document.getElementById('af-search-client');
+    
+    let dbData = null;
+    let filterMode = 'tournee';
+    let analysisResult = null;
+    let activeFilter = 'all';
+    
+    if (searchClientInput) {
+        searchClientInput.addEventListener('input', () => {
+            renderAFacturerTable();
+        });
+    }
+    
+    const loadAvailableVisites = async () => {
+        try {
+            if (selectEntity) selectEntity.innerHTML = '<option value="">Chargement...</option>';
+            if (datesContainer) datesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Chargement des dates...</span>';
+            
+            const response = await fetch(`/api/clients/visites_disponibles?_=${Date.now()}`);
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                dbData = result;
+                populateEntityDropdown();
+            } else {
+                showToast("Erreur lors du chargement des passages : " + result.message, "error");
+            }
+        } catch (err) {
+            console.error("Error loading visits from db:", err);
+            showToast("Erreur de connexion avec le serveur.", "error");
+        }
+    };
+    
+    const populateEntityDropdown = () => {
+        if (!dbData || !selectEntity) return;
+        selectEntity.innerHTML = '';
+        
+        const list = filterMode === 'tournee' ? dbData.tournees : dbData.vendeurs;
+        
+        if (list.length === 0) {
+            selectEntity.innerHTML = '<option value="">Aucune donnée dans la base</option>';
+            if (datesContainer) datesContainer.innerHTML = "<span style=\"color: var(--text-muted); font-size: 0.8rem; font-style: italic;\">Veuillez d'abord importer un fichier Excel.</span>";
+            return;
+        }
+        
+        selectEntity.innerHTML = '<option value="">-- Choisir option --</option>';
+        list.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.name;
+            opt.innerText = item.name;
+            selectEntity.appendChild(opt);
+        });
+        
+        if (datesContainer) datesContainer.innerHTML = "<span style=\"color: var(--text-muted); font-size: 0.8rem; font-style: italic;\">Veuillez d'abord sélectionner une option.</span>";
+    };
+    
+    const populateDatesCheckboxes = () => {
+        if (!selectEntity || !datesContainer || !dbData) return;
+        const val = selectEntity.value;
+        datesContainer.innerHTML = '';
+        
+        if (!val) {
+            datesContainer.innerHTML = "<span style=\"color: var(--text-muted); font-size: 0.8rem; font-style: italic;\">Veuillez d'abord sélectionner une option.</span>";
+            return;
+        }
+        
+        const list = filterMode === 'tournee' ? dbData.tournees : dbData.vendeurs;
+        const selectedItem = list.find(item => item.name === val);
+        
+        if (!selectedItem || !selectedItem.dates || selectedItem.dates.length === 0) {
+            datesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Aucune date disponible.</span>';
+            return;
+        }
+
+        selectedItem.dates.forEach(d => {
+            const parts = d.split('-');
+            const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+            
+            const details = selectedItem.dates_details || [];
+            const dDetail = details.find(dt => dt.date === d) || {};
+            const extraInfo = filterMode === 'vendeur' ? 
+                (dDetail.tournee ? `<span style="color: var(--neon-blue); font-size: 0.75rem; font-weight: normal; margin-left: 0.25rem;"><i class="fa-solid fa-route"></i> ${dDetail.tournee}</span>` : '') :
+                (dDetail.vendeur ? `<span style="color: var(--neon-green); font-size: 0.75rem; font-weight: normal; margin-left: 0.25rem;"><i class="fa-solid fa-user"></i> ${dDetail.vendeur}</span>` : '');
+
+            const div = document.createElement('div');
+            div.style.display = 'flex';
+            div.style.alignItems = 'center';
+            div.style.gap = '0.5rem';
+            div.style.padding = '0.25rem 0';
+            div.style.borderBottom = '1px dashed rgba(255,255,255,0.05)';
+            
+            div.innerHTML = `
+                <input type="checkbox" id="af-date-${d}" class="af-date-checkbox" value="${d}" style="cursor: pointer; width: 16px; height: 16px; flex-shrink: 0;">
+                <label for="af-date-${d}" style="cursor: pointer; font-size: 0.82rem; font-family: var(--font-mono); color: var(--text-main); display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;">
+                    <strong>${formatted}</strong> ${extraInfo}
+                </label>
+            `;
+            datesContainer.appendChild(div);
+        });
+    };
+    
+    if (filterTourneeBtn && filterVendeurBtn) {
+        filterTourneeBtn.addEventListener('click', () => {
+            filterMode = 'tournee';
+            filterTourneeBtn.classList.add('is-active');
+            filterVendeurBtn.classList.remove('is-active');
+            if (entityLabel) entityLabel.innerHTML = '<i class="fa-solid fa-route"></i> SÉLECTIONNER TOURNÉE';
+            populateEntityDropdown();
+        });
+        
+        filterVendeurBtn.addEventListener('click', () => {
+            filterMode = 'vendeur';
+            filterVendeurBtn.classList.add('is-active');
+            filterTourneeBtn.classList.remove('is-active');
+            if (entityLabel) entityLabel.innerHTML = '<i class="fa-solid fa-user-tie"></i> SÉLECTIONNER VENDEUR';
+            populateEntityDropdown();
+        });
+    }
+    
+    if (selectEntity) {
+        selectEntity.addEventListener('change', populateDatesCheckboxes);
+    }
+    
+    if (btnAnalyze) {
+        btnAnalyze.addEventListener('click', async () => {
+            const selectedVal = selectEntity ? selectEntity.value : '';
+            if (!selectedVal) {
+                showToast("Veuillez sélectionner une tournée ou un vendeur.", "warning");
+                return;
+            }
+            
+            const checkboxes = document.querySelectorAll('.af-date-checkbox:checked');
+            const dates = Array.from(checkboxes).map(cb => cb.value).sort();
+            
+            if (dates.length < 1) {
+                showToast("Veuillez cocher au moins 1 date à analyser.", "warning");
+                return;
+            }
+            if (dates.length > 3) {
+                showToast("Vous pouvez sélectionner jusqu'à 3 dates maximum.", "warning");
+                return;
+            }
+            
+            const payload = filterMode === 'tournee' ? { tournee: selectedVal, dates } : { vendeur: selectedVal, dates };
+            
+            btnAnalyze.disabled = true;
+            btnAnalyze.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ANALYSE EN COURS...';
+            
+            try {
+                const response = await fetch('/api/clients/compare_visites_db', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    displayAFacturerResults(result);
+                } else {
+                    showToast("Erreur d'analyse : " + result.message, "error");
+                }
+            } catch (err) {
+                console.error("Error analyzing passage data:", err);
+                showToast("Erreur de communication avec le serveur.", "error");
+            } finally {
+                btnAnalyze.disabled = false;
+                btnAnalyze.innerHTML = '<i class="fa-solid fa-chart-pie"></i> ANALYSER PASSAGES';
+            }
+        });
+    }
+    
+    const displayAFacturerResults = (data) => {
+        analysisResult = data;
+        
+        if (resultsPlaceholder) resultsPlaceholder.style.display = 'none';
+        if (resultsWorkspace) resultsWorkspace.style.display = 'flex';
+        
+        if (kpiAtLeastOne) kpiAtLeastOne.innerText = data.summary.at_least_one || 0;
+        if (kpiAlways) kpiAlways.innerText = data.summary.always_ok;
+        if (kpiLoss) kpiLoss.innerText = data.summary.billing_loss;
+        if (kpiGain) kpiGain.innerText = data.summary.billing_gain;
+        if (kpiNever) kpiNever.innerText = data.summary.never_ok;
+        if (displayVendeur) displayVendeur.innerText = data.vendeur || 'N/A';
+        
+        if (tableHeaders) {
+            tableHeaders.innerHTML = '';
+            const tr = document.createElement('tr');
+            
+            let head = '<th>Client</th><th>Nom Client</th>';
+            const details = data.dates_details || [];
+            data.dates.forEach((d, idx) => {
+                const parts = d.split('-');
+                const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+                const dt = details[idx] || {};
+                const tourneeSub = dt.tournee ? `<div style="font-size:0.68rem; color:var(--neon-blue); font-weight:normal; margin-top:2px;"><i class="fa-solid fa-route"></i> ${dt.tournee}</div>` : '';
+                head += `<th style="text-align: center;">Passage ${idx+1}<br><span style="font-size:0.75rem; color:var(--text-muted);">${formatted}</span>${tourneeSub}</th>`;
+            });
+            head += '<th style="text-align: center;">Nb Factures</th><th style="text-align: center;">Synthèse</th>';
+            tr.innerHTML = head;
+            tableHeaders.appendChild(tr);
+        }
+        
+        activeFilter = 'all';
+        if (searchClientInput) searchClientInput.value = '';
+        ['af-btn-all', 'af-btn-atleastone', 'af-btn-nofacture', 'af-btn-always', 'af-btn-loss', 'af-btn-gain', 'af-btn-never'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.remove('is-active');
+        });
+        const btnAll = document.getElementById('af-btn-all');
+        if (btnAll) btnAll.classList.add('is-active');
+        
+        renderAFacturerTable();
+    };
+    
+    const renderAFacturerTable = () => {
+        if (!analysisResult || !tbodyDetails) return;
+        tbodyDetails.innerHTML = '';
+        
+        let filtered = analysisResult.comparison;
+
+        // Apply text search filter if entered
+        const q = searchClientInput ? searchClientInput.value.trim().toLowerCase() : '';
+        if (q) {
+            filtered = filtered.filter(r => 
+                (r.code && r.code.toLowerCase().includes(q)) || 
+                (r.name && r.name.toLowerCase().includes(q))
+            );
+        }
+
+        // Apply category filter
+        if (activeFilter === 'atleastone') {
+            filtered = filtered.filter(r => r.has_facture || r.motifs.some(m => m.toUpperCase() === 'OK'));
+        } else if (activeFilter === 'nofacture') {
+            filtered = filtered.filter(r => !r.has_facture && !r.motifs.some(m => m.toUpperCase() === 'OK'));
+        } else if (activeFilter === 'always') {
+            filtered = filtered.filter(r => r.synthesis === 'Toujours Facturé');
+        } else if (activeFilter === 'loss') {
+            filtered = filtered.filter(r => r.synthesis === 'Perte de facturation');
+        } else if (activeFilter === 'gain') {
+            filtered = filtered.filter(r => r.synthesis === 'Gagné (Facturé en fin)');
+        } else if (activeFilter === 'never') {
+            filtered = filtered.filter(r => r.synthesis === 'Jamais Facturé');
+        }
+        
+        if (filtered.length === 0) {
+            tbodyDetails.innerHTML = `<tr><td colspan="${analysisResult.dates.length + 4}" style="text-align: center; color: var(--text-muted);">Aucun client ne correspond à ces critères.</td></tr>`;
+            return;
+        }
+        
+        filtered.forEach(r => {
+            const tr = document.createElement('tr');
+            
+            let cells = `<td><code>${r.code}</code></td><td><strong>${r.name}</strong></td>`;
+            let okCount = 0;
+            
+            r.motifs.forEach(m => {
+                const isOk = m.toUpperCase() === 'OK';
+                if (isOk) okCount++;
+                const isNav = m === 'Non visité';
+                const mClass = isOk ? 'neon-text-green' : (isNav ? 'text-muted' : 'neon-text-pink');
+                const boldStart = isOk ? '<strong>' : '';
+                const boldEnd = isOk ? '</strong>' : '';
+                cells += `<td style="text-align: center;" class="${mClass}">${boldStart}${m}${boldEnd}</td>`;
+            });
+            
+            let synthClass = 'text-muted';
+            if (r.synthesis === 'Toujours Facturé') synthClass = 'neon-text-green';
+            if (r.synthesis === 'Perte de facturation') synthClass = 'neon-text-pink';
+            if (r.synthesis === 'Gagné (Facturé en fin)') synthClass = 'neon-text-blue';
+            if (r.synthesis === 'Jamais Facturé') synthClass = 'neon-text-amber';
+            
+            const badgeStyle = okCount > 0 ? 'background: rgba(0,230,118,0.15); color: var(--neon-green); border: 1px solid rgba(0,230,118,0.3);' : 'background: rgba(255,171,0,0.15); color: var(--neon-amber); border: 1px solid rgba(255,171,0,0.3);';
+            const factBadge = `<span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; ${badgeStyle}">${okCount} / ${analysisResult.dates.length}</span>`;
+
+            cells += `<td style="text-align: center;">${factBadge}</td>`;
+            cells += `<td style="text-align: center;"><span class="${synthClass}" style="font-weight: bold; text-transform: uppercase;">${r.synthesis}</span></td>`;
+            
+            tr.innerHTML = cells;
+            tbodyDetails.appendChild(tr);
+        });
+    };
+    
+    const filterBtnMap = {
+        'af-btn-all': 'all',
+        'af-btn-atleastone': 'atleastone',
+        'af-btn-nofacture': 'nofacture',
+        'af-btn-always': 'always',
+        'af-btn-loss': 'loss',
+        'af-btn-gain': 'gain',
+        'af-btn-never': 'never'
+    };
+    
+    Object.entries(filterBtnMap).forEach(([id, filter]) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                activeFilter = filter;
+                Object.keys(filterBtnMap).forEach(btnId => {
+                    const b = document.getElementById(btnId);
+                    if (b) b.classList.remove('is-active');
+                });
+                btn.classList.add('is-active');
+                renderAFacturerTable();
+            });
+        }
+    });
+    
+    if (importBtn) {
+        importBtn.addEventListener('click', () => {
+            initVisitesUploadModal();
+            if (typeof window.resetVisitesUploadForm === 'function') {
+                window.resetVisitesUploadForm();
+            }
+            
+            window.visitesUploadCallback = async () => {
+                await loadAvailableVisites();
+            };
+            
+            const uploadModal = document.getElementById('visites-upload-modal');
+            if (uploadModal) uploadModal.classList.add('open');
+        });
+    }
+    
+    // WhatsApp Send to Vendeur handler
+    const btnWaVendeur = document.getElementById('af-btn-wa-vendeur');
+    const waModal = document.getElementById('af-wa-modal');
+    const waModalClose = document.getElementById('af-wa-modal-close');
+    const waVendeurNameInput = document.getElementById('af-wa-vendeur-name');
+    const waVendeurPhoneInput = document.getElementById('af-wa-vendeur-phone');
+    const waMessageTextarea = document.getElementById('af-wa-message-text');
+    const waCopyBtn = document.getElementById('af-wa-copy-btn');
+    const waSendBtn = document.getElementById('af-wa-send-btn');
+
+    const getFilteredClientsForWa = () => {
+        if (!analysisResult || !analysisResult.comparison) return [];
+        let filtered = analysisResult.comparison;
+
+        const q = searchClientInput ? searchClientInput.value.trim().toLowerCase() : '';
+        if (q) {
+            filtered = filtered.filter(r => 
+                (r.code && r.code.toLowerCase().includes(q)) || 
+                (r.name && r.name.toLowerCase().includes(q))
+            );
+        }
+
+        if (activeFilter === 'atleastone') {
+            filtered = filtered.filter(r => r.has_facture || r.motifs.some(m => m.toUpperCase() === 'OK'));
+        } else if (activeFilter === 'nofacture') {
+            filtered = filtered.filter(r => !r.has_facture && !r.motifs.some(m => m.toUpperCase() === 'OK'));
+        } else if (activeFilter === 'always') {
+            filtered = filtered.filter(r => r.synthesis === 'Toujours Facturé');
+        } else if (activeFilter === 'loss') {
+            filtered = filtered.filter(r => r.synthesis === 'Perte de facturation');
+        } else if (activeFilter === 'gain') {
+            filtered = filtered.filter(r => r.synthesis === 'Gagné (Facturé en fin)');
+        } else if (activeFilter === 'never') {
+            filtered = filtered.filter(r => r.synthesis === 'Jamais Facturé');
+        }
+
+        return filtered;
+    };
+
+    if (btnWaVendeur) {
+        btnWaVendeur.addEventListener('click', () => {
+            if (!analysisResult || !analysisResult.comparison) {
+                showToast("Aucune analyse disponible à envoyer.", "warning");
+                return;
+            }
+
+            const clients = getFilteredClientsForWa();
+            if (clients.length === 0) {
+                showToast("Aucun client dans la liste filtrée à envoyer.", "warning");
+                return;
+            }
+
+            const vendeurName = analysisResult.vendeur || 'N/A';
+            const vendeurPhone = analysisResult.vendeur_phone || '';
+            const rawRafAcm = (analysisResult.raf_acm !== undefined && analysisResult.raf_acm !== null) ? analysisResult.raf_acm : 20;
+            const minActivations = Math.max(20, Math.round(rawRafAcm));
+
+            let listDesc = `Ci-dessous la liste des clients (${clients.length} clients) :`;
+            if (activeFilter === 'nofacture' || activeFilter === 'never') {
+                listDesc = `Ci-dessous la liste des clients non facturés / NO OK (${clients.length} clients) :`;
+            } else if (activeFilter === 'atleastone' || activeFilter === 'always') {
+                listDesc = `Ci-dessous la liste des clients facturés (${clients.length} clients) :`;
+            } else if (activeFilter === 'loss') {
+                listDesc = `Ci-dessous la liste des clients en perte de facturation (${clients.length} clients) :`;
+            } else if (activeFilter === 'gain') {
+                listDesc = `Ci-dessous la liste des clients gagnés en facturation (${clients.length} clients) :`;
+            }
+
+            const uniqueLocalites = [...new Set(clients.map(c => (c.localite || '').trim()).filter(Boolean))];
+            const locHeader = uniqueLocalites.length > 0 ? `📍 Localité : ${uniqueLocalites.join(', ')}\n` : '';
+
+            let msg = `📋 LISTE CLIENTS À FACTURER - ${vendeurName.toUpperCase()}\n`;
+            if (locHeader) msg += locHeader;
+            msg += `🎯 Objectif minimum : ${minActivations} Activations / Facturations (ACM RAF / jour)\n`;
+            msg += `----------------------------------------\n`;
+            msg += `${listDesc}\n\n`;
+            clients.forEach(c => {
+                const lastMotif = (c.motifs && c.motifs.length > 0) ? c.motifs[c.motifs.length - 1] : '';
+                const motifStr = (lastMotif && lastMotif !== 'OK' && lastMotif !== 'Non visité') ? ` - [${lastMotif}]` : '';
+                msg += `• ${c.code} - ${c.name}${motifStr}\n`;
+            });
+
+            if (waVendeurNameInput) waVendeurNameInput.value = vendeurName;
+            if (waVendeurPhoneInput) waVendeurPhoneInput.value = vendeurPhone;
+            if (waMessageTextarea) waMessageTextarea.value = msg;
+
+            if (waModal) waModal.style.display = 'flex';
+        });
+    }
+
+    if (waModalClose && waModal) {
+        waModalClose.addEventListener('click', () => {
+            waModal.style.display = 'none';
+        });
+    }
+
+    if (waCopyBtn && waMessageTextarea) {
+        waCopyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(waMessageTextarea.value)
+                .then(() => showToast("Message copié dans le presse-papier !", "success"))
+                .catch(() => {
+                    waMessageTextarea.select();
+                    document.execCommand('copy');
+                    showToast("Message copié !", "success");
+                });
+        });
+    }
+
+    if (waSendBtn && waMessageTextarea) {
+        waSendBtn.addEventListener('click', () => {
+            let phone = waVendeurPhoneInput ? waVendeurPhoneInput.value.trim() : '';
+            phone = phone.replace(/[^0-9]/g, '');
+
+            if (!phone) {
+                showToast("Veuillez saisir un numéro de téléphone valide.", "warning");
+                return;
+            }
+
+            const encodedMsg = encodeURIComponent(waMessageTextarea.value);
+            const waUrl = `https://wa.me/${phone}?text=${encodedMsg}`;
+            window.open(waUrl, '_blank');
+            if (waModal) waModal.style.display = 'none';
+        });
+    }
+    
+    if (reloadBtn) {
+        reloadBtn.addEventListener('click', loadAvailableVisites);
+    }
+    
+    await loadAvailableVisites();
+}
+
+let visitesUploadInitialized = false;
+let selectedVisitesFile = null;
+let analysisResultData = null;
+let activeResultTab = 'ok';
+
+function initVisitesUploadModal() {
+    if (visitesUploadInitialized) return;
+    visitesUploadInitialized = true;
+
+    const uploadModal = document.getElementById('visites-upload-modal');
+    const closeUploadModalBtn = document.getElementById('close-visites-upload-modal');
+    const cancelUploadBtn = document.getElementById('cancel-visites-upload');
+    const dropzone = document.getElementById('visites-dropzone');
+    const fileInput = document.getElementById('visites-file-input');
+    const fileInfo = document.getElementById('visites-file-info');
+    const fileNameSpan = document.getElementById('visites-file-name');
+    const fileClearBtn = document.getElementById('visites-file-clear');
+    const submitUploadBtn = document.getElementById('submit-visites-upload');
+
+    const resultModal = document.getElementById('visites-result-modal');
+    const closeResultModalBtn = document.getElementById('close-visites-result-modal');
+    const closeResultActionBtn = document.getElementById('close-visites-result-action');
+    const saveResultBtn = document.getElementById('save-visites-result-btn');
+
+    let selectedVisitesFiles = [];
+
+    const resetUploadForm = () => {
+        selectedVisitesFiles = [];
+        if (fileInput) fileInput.value = '';
+        if (fileInfo) fileInfo.style.display = 'none';
+        if (dropzone) dropzone.style.borderColor = 'var(--border-color)';
+        if (dropzone) dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+    };
+
+    [closeUploadModalBtn, cancelUploadBtn].forEach(btn => {
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (uploadModal) uploadModal.classList.remove('open');
+            });
+        }
+    });
+
+    if (dropzone && fileInput) {
+        dropzone.addEventListener('click', () => fileInput.click());
+
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'var(--neon-blue)';
+            dropzone.style.backgroundColor = 'rgba(0, 242, 254, 0.05)';
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.style.borderColor = 'var(--border-color)';
+            dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'var(--border-color)';
+            dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+            
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleFileSelect(e.dataTransfer.files);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleFileSelect(e.target.files);
+            }
+        });
+    }
+
+    const handleFileSelect = (fileList) => {
+        const files = Array.from(fileList || []).filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
+        if (files.length === 0) {
+            showToast("Les fichiers doivent être au format Excel (.xlsx, .xls)", "error");
+            return;
+        }
+        selectedVisitesFiles = files;
+        if (fileNameSpan) {
+            if (files.length === 1) {
+                fileNameSpan.innerText = `Fichier : ${files[0].name}`;
+            } else {
+                fileNameSpan.innerText = `${files.length} fichiers : ${files.map(f => f.name).join(', ')}`;
+            }
+        }
+        if (fileInfo) fileInfo.style.display = 'flex';
+    };
+
+    if (fileClearBtn) {
+        fileClearBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetUploadForm();
+        });
+    }
+
+    // Modal display logic
+    function displayAnalysisResults(data) {
+        window.displayAnalysisResults = displayAnalysisResults;
+        document.getElementById('vr-res-vendeur').innerText = data.metadata.vendeur || 'N/A';
+        document.getElementById('vr-res-date').innerText = data.metadata.date || 'N/A';
+        document.getElementById('vr-res-tournee').innerText = data.metadata.tournee || 'N/A';
+        document.getElementById('vr-res-agence').innerText = data.metadata.agence || 'N/A';
+
+        document.getElementById('vr-kpi-total').innerText = data.summary.total;
+        document.getElementById('vr-kpi-ok').innerText = data.summary.ok;
+        document.getElementById('vr-kpi-no-ok').innerText = data.summary.no_ok;
+        document.getElementById('vr-kpi-acm').innerText = `${data.summary.acm}%`;
+
+        document.getElementById('vr-dist-avg').innerText = `${data.distance.average} m`;
+        document.getElementById('vr-dist-anom').innerText = `${data.distance.anomalies} anomalie(s)`;
+
+        const motifsList = document.getElementById('vr-motifs-list');
+        if (motifsList) {
+            motifsList.innerHTML = '';
+            const sortedMotifs = Object.entries(data.motifs).sort((a, b) => b[1] - a[1]);
+            if (sortedMotifs.length === 0) {
+                motifsList.innerHTML = '<span style="color: var(--text-muted);">Aucun motif de non-facturation (ACM 100%)</span>';
+            } else {
+                sortedMotifs.forEach(([motif, count]) => {
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.justify = 'space-between';
+                    row.style.borderBottom = '1px solid rgba(255, 255, 255, 0.05)';
+                    row.style.padding = '0.2rem 0';
+                    row.innerHTML = `<span style="color: var(--text-muted);">${motif}</span><strong class="neon-text-pink">${count}</strong>`;
+                    motifsList.appendChild(row);
+                });
+            }
+        }
+
+        document.getElementById('vr-badge-count-ok').innerText = data.summary.ok;
+        document.getElementById('vr-badge-count-no-ok').innerText = data.summary.no_ok;
+
+        activeResultTab = 'ok';
+        const toggleOk = document.getElementById('vr-toggle-ok');
+        const toggleNoOk = document.getElementById('vr-toggle-no-ok');
+        if (toggleOk) toggleOk.classList.add('is-active');
+        if (toggleNoOk) toggleNoOk.classList.remove('is-active');
+        
+        renderResultsTable();
+    };
+
+    const renderResultsTable = () => {
+        if (!analysisResultData) return;
+        const list = activeResultTab === 'ok' ? analysisResultData.clients_ok : analysisResultData.clients_no_ok;
+        const tbody = document.getElementById('vr-details-tbody');
+        
+        if (tbody) {
+            tbody.innerHTML = '';
+            if (list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Aucun client dans cette catégorie.</td></tr>';
+                return;
+            }
+            
+            list.forEach(c => {
+                const tr = document.createElement('tr');
+                const motifClass = activeResultTab === 'ok' ? 'neon-text-green' : 'neon-text-pink';
+                const noteText = c.note ? `<span style="color: var(--text-muted); font-size: 0.75rem; display: block; font-style: italic;">Note : ${c.note}</span>` : '';
+                tr.innerHTML = `
+                    <td><code>${c.code}</code></td>
+                    <td><strong>${c.name}</strong></td>
+                    <td>${c.time}</td>
+                    <td>${c.distance}</td>
+                    <td><strong class="${motifClass}">${c.motif}</strong>${noteText}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    };
+
+    // Toggle bindings
+    const tglOk = document.getElementById('vr-toggle-ok');
+    const tglNoOk = document.getElementById('vr-toggle-no-ok');
+    if (tglOk && tglNoOk) {
+        tglOk.addEventListener('click', () => {
+            activeResultTab = 'ok';
+            tglOk.classList.add('is-active');
+            tglNoOk.classList.remove('is-active');
+            renderResultsTable();
+        });
+
+        tglNoOk.addEventListener('click', () => {
+            activeResultTab = 'no_ok';
+            tglNoOk.classList.add('is-active');
+            tglOk.classList.remove('is-active');
+            renderResultsTable();
+        });
+    }
+
+    [closeResultModalBtn, closeResultActionBtn].forEach(btn => {
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (resultModal) resultModal.classList.remove('open');
+            });
+        }
+    });
+
+    if (submitUploadBtn) {
+        submitUploadBtn.addEventListener('click', async () => {
+            if (!selectedVisitesFiles || selectedVisitesFiles.length === 0) {
+                showToast("Veuillez sélectionner au moins un fichier Excel à analyser.", "warning");
+                return;
+            }
+
+            submitUploadBtn.disabled = true;
+            const originalContent = submitUploadBtn.innerHTML;
+
+            let successCount = 0;
+            let failCount = 0;
+            let lastResultData = null;
+
+            for (let i = 0; i < selectedVisitesFiles.length; i++) {
+                const file = selectedVisitesFiles[i];
+                submitUploadBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ANALYSE ${i + 1}/${selectedVisitesFiles.length}...`;
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const response = await fetch('/api/clients/analyse_visites', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        // Automatically register to DB
+                        const saveRes = await fetch('/api/clients/enregistrer_visites', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                metadata: result.metadata,
+                                clients_ok: result.clients_ok,
+                                clients_no_ok: result.clients_no_ok
+                            })
+                        });
+                        const saveJson = await saveRes.json();
+                        if (saveJson.status === 'success') {
+                            successCount++;
+                            lastResultData = result;
+                        } else {
+                            failCount++;
+                            showToast(`Erreur d'enregistrement sur ${file.name}: ${saveJson.message}`, "error");
+                        }
+                    } else {
+                        failCount++;
+                        showToast(`Erreur d'analyse sur ${file.name}: ${result.message}`, "error");
+                    }
+                } catch (err) {
+                    console.error("Error analyzing visit file:", file.name, err);
+                    failCount++;
+                }
+            }
+
+            submitUploadBtn.disabled = false;
+            submitUploadBtn.innerHTML = originalContent;
+
+            if (successCount > 0) {
+                showToast(`${successCount} rapport(s) de visites importé(s) et analysé(s) avec succès !`, "success");
+                if (uploadModal) uploadModal.classList.remove('open');
+                resetUploadForm();
+
+                if (typeof window.visitesUploadCallback === 'function') {
+                    await window.visitesUploadCallback();
+                }
+
+                if (selectedVisitesFiles.length === 1 && lastResultData) {
+                    analysisResultData = lastResultData;
+                    displayAnalysisResults(lastResultData);
+                    if (resultModal) resultModal.classList.add('open');
+                }
+            } else {
+                showToast("Aucun fichier n'a pu être importé.", "error");
+            }
+        });
+    }
+
+    // Save action click listener
+    if (saveResultBtn) {
+        saveResultBtn.addEventListener('click', async () => {
+            if (!analysisResultData) return;
+
+            saveResultBtn.disabled = true;
+            const originalContent = saveResultBtn.innerHTML;
+            saveResultBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ENREGISTREMENT...';
+
+            try {
+                const response = await fetch('/api/clients/enregistrer_visites', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(analysisResultData)
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    showToast("Rapport de visite enregistré avec succès !", "success");
+                    if (resultModal) resultModal.classList.remove('open');
+
+                    if (typeof window.visitesUploadCallback === 'function') {
+                        window.visitesUploadCallback();
+                    }
+
+                    if (typeof loadFacturationData === 'function') {
+                        await loadFacturationData();
+                    }
+
+                    const detailsSection = document.getElementById('cf-details-visites-section');
+                    if (detailsSection) {
+                        renderDetailedVisitsReport(analysisResultData);
+                    }
+                } else {
+                    showToast("Erreur d'enregistrement : " + result.message, "error");
+                }
+            } catch (err) {
+                console.error("Error saving visits to DB:", err);
+                showToast("Erreur de communication avec le serveur.", "error");
+            } finally {
+                saveResultBtn.disabled = false;
+                saveResultBtn.innerHTML = originalContent;
+            }
+        });
+    }
+
+    window.resetVisitesUploadForm = resetUploadForm;
+}; // 'global', 'vendeur', 'secteur'
 let currentFilterType = 'all'; // 'all', 'som', 'vmm'
 let quantiChartInstance = null;
 let qualiChartInstance = null;
+let clientsFacturationChartInstance = null;
 let activeDropdownIndex = -1;
 let activeView = 'dashboard';
 let availableDates = [];
+
+// Prevent default drag and drop behaviors globally on window
+window.addEventListener('dragover', (e) => e.preventDefault(), false);
+window.addEventListener('drop', (e) => e.preventDefault(), false);
 
 // DOM Elements
 const totalCaEl = document.getElementById('total-ca');
@@ -122,8 +1562,10 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Proceed with initialization
             const path = window.location.pathname;
+            const searchView = new URLSearchParams(window.location.search).get('view');
             const onClientsRoute = path === '/clients';
             const onDetailsRoute = path === '/details';
+            const onVendeur360Route = path === '/vendeur360' || (path === '/details' && searchView === 'vendeur360');
             const onFdvRoute = path === '/fdv';
             const onTerrainRoute = path === '/terrain';
             const onFocusRoute = path === '/focus';
@@ -132,7 +1574,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const onAnomalisRoute = path === '/anomalis';
             const onTasksRoute = path === '/tasks';
             
-            if (onDetailsRoute) {
+            if (onVendeur360Route) {
+                activeView = 'vendeur360';
+            } else if (onDetailsRoute) {
                 activeView = 'details';
             } else if (onClientsRoute) {
                 activeView = 'clients';
@@ -157,7 +1601,7 @@ document.addEventListener('DOMContentLoaded', () => {
             switchView(activeView);
             
             // Skip the main dashboard fetch when the user is on sub routes
-            if (!onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute && !onStockRoute && !onAnomalisRoute && !onTasksRoute) {
+            if (!onDetailsRoute && !onVendeur360Route && !onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute && !onStockRoute && !onAnomalisRoute && !onTasksRoute) {
                 fetchSuiviDates(() => {
                     fetchDashboardData();
                 });
@@ -258,7 +1702,9 @@ function switchView(viewName) {
     const navDashboard = document.getElementById('nav-dashboard');
     const navRealisation = document.getElementById('nav-realisation');
     const navDetails = document.getElementById('nav-details');
+    const navVendeur360 = document.getElementById('nav-vendeur-360');
     const navClients = document.getElementById('nav-clients');
+    const navClientsFacturation = document.getElementById('nav-clients-facturation');
     const navFdv = document.getElementById('nav-fdv');
     const navTerrain = document.getElementById('nav-terrain');
     const navFocus = document.getElementById('nav-focus');
@@ -283,7 +1729,7 @@ function switchView(viewName) {
     const timelapseCtrl = document.getElementById('timelapse-control');
     
     // Remove active class from all nav items
-    [navDashboard, navRealisation, navDetails, navClients, navFdv, navTerrain, navFocus, navRapport, navStock, navStockFavorites, navAnomalis, navTasks].forEach(nav => {
+    [navDashboard, navRealisation, navDetails, navVendeur360, navClients, navClientsFacturation, navFdv, navTerrain, navFocus, navRapport, navStock, navStockFavorites, navAnomalis, navTasks].forEach(nav => {
         if (nav) nav.classList.remove('active');
     });
     
@@ -301,18 +1747,77 @@ function switchView(viewName) {
         }
     }
     
+    // Show/hide Clients Facturation sub nav item depending on active view
+    if (navClientsFacturation) {
+        if (viewName === 'clients') {
+            navClientsFacturation.style.display = 'flex';
+        } else {
+            navClientsFacturation.style.display = 'none';
+        }
+    }
+
+    // Show/hide Vendeur 360 sub nav item depending on active view
+    if (navVendeur360) {
+        if (viewName === 'details' || viewName === 'vendeur360') {
+            navVendeur360.style.display = 'flex';
+        } else {
+            navVendeur360.style.display = 'none';
+        }
+    }
+    
     // Default: hide date selector and timelapse control for subviews
     if (dateSelect) dateSelect.style.display = 'none';
     if (timelapseCtrl) timelapseCtrl.style.display = 'none';
     if (timelapseIsPlaying) stopTimelapse();
     
-    if (viewName === 'details') {
-        if (navDetails) navDetails.classList.add('active');
+    if (viewName === 'details' || viewName === 'vendeur360') {
         if (detailsContainer) detailsContainer.style.display = '';
-        loadTrendsData();
+        const searchView = new URLSearchParams(window.location.search).get('view');
+        const is360 = viewName === 'vendeur360' || searchView === 'vendeur360' || window.location.pathname === '/vendeur360';
+        if (is360) {
+            if (navVendeur360) navVendeur360.classList.add('active');
+            const btn360 = document.getElementById('details-subtab-vendeur360');
+            if (btn360) {
+                btn360.classList.add('active');
+                const btnAnalytics = document.getElementById('details-subtab-analytics');
+                if (btnAnalytics) btnAnalytics.classList.remove('active');
+                const secAnalytics = document.getElementById('details-analytics-section');
+                const sec360 = document.getElementById('vendeur-360-section');
+                if (secAnalytics) secAnalytics.style.display = 'none';
+                if (sec360) sec360.style.display = 'flex';
+                if (typeof loadVendeur360Data === 'function') loadVendeur360Data();
+            }
+        } else {
+            if (navDetails) navDetails.classList.add('active');
+            const btnAnalytics = document.getElementById('details-subtab-analytics');
+            if (btnAnalytics) {
+                btnAnalytics.classList.add('active');
+                const btn360 = document.getElementById('details-subtab-vendeur360');
+                if (btn360) btn360.classList.remove('active');
+                const secAnalytics = document.getElementById('details-analytics-section');
+                const sec360 = document.getElementById('vendeur-360-section');
+                if (secAnalytics) secAnalytics.style.display = 'block';
+                if (sec360) sec360.style.display = 'none';
+            }
+            loadTrendsData();
+        }
     } else if (viewName === 'clients') {
-        if (navClients) navClients.classList.add('active');
+        const urlParams = new URLSearchParams(window.location.search);
+        const viewType = urlParams.get('view');
+        if (viewType === 'facturation') {
+            if (navClientsFacturation) navClientsFacturation.classList.add('active');
+        } else if (viewType === 'afacturer') {
+            const navClientsAFacturer = document.getElementById('nav-clients-afacturer');
+            if (navClientsAFacturer) navClientsAFacturer.classList.add('active');
+        } else {
+            if (navClients) navClients.classList.add('active');
+        }
         if (clientsContainer) clientsContainer.style.display = '';
+        if (viewType === 'facturation') {
+            initClientsFacturationView();
+        } else if (viewType === 'afacturer') {
+            initClientsAFacturerView();
+        }
     } else if (viewName === 'fdv') {
         if (navFdv) navFdv.classList.add('active');
         if (fdvContainer) fdvContainer.style.display = '';
@@ -851,6 +2356,69 @@ function setupEventListeners() {
     if (okReportBtn) {
         okReportBtn.addEventListener('click', closeAiReportModal);
     }
+
+    // ===== WHATSAPP EN MASSE HANDLERS =====
+    const handleBulkWhatsappClick = async (event) => {
+        const currentDate = document.getElementById('date-select')?.value || new Date().toISOString().split('T')[0];
+        const category = document.getElementById('category-select')?.value || 'All';
+
+        // Fetch list of vendeurs for current selection
+        let vendeurs = [];
+        try {
+            const resp = await fetch(`/api/vendeurs?category=${encodeURIComponent(category)}`);
+            const data = await resp.json();
+            if (data && data.vendeurs) {
+                vendeurs = data.vendeurs.map(v => typeof v === 'string' ? v : v.name || v.vendeur || String(v)).filter(Boolean);
+            }
+        } catch (err) {
+            showToast("Impossible de récupérer la liste des vendeurs.", "error");
+            return;
+        }
+
+        if (vendeurs.length > 0) {
+            openBulkWhatsappRecipientModal(vendeurs, currentDate, event?.currentTarget || null);
+            return;
+        }
+
+        if (vendeurs.length === 0) {
+            showToast("Aucun vendeur trouvé pour envoyer les rapports.", "warning");
+            return;
+        }
+
+        if (!confirm(`⚠️ Envoyer les rapports WhatsApp à ${vendeurs.length} vendeur(s) ?\n\nDate : ${currentDate}\nVendeurs : ${vendeurs.slice(0, 5).join(', ')}${vendeurs.length > 5 ? ` ...et ${vendeurs.length - 5} autres` : ''}\n\nCette opération peut prendre plusieurs minutes.`)) {
+            return;
+        }
+
+        const btn = document.getElementById('global-sidebar-whatsapp-bulk-btn');
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Envoi en cours...';
+        }
+
+        try {
+            const resp = await fetch('/api/send_bulk_whatsapp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vendeurs, date: currentDate })
+            });
+            const result = await resp.json();
+
+            if (result.status === 'success') {
+                showToast(`✅ ${result.message}`, "success");
+            } else {
+                showToast("Erreur : " + result.message, "error");
+            }
+        } catch (err) {
+            console.error("Bulk WhatsApp error:", err);
+            showToast("Erreur de communication avec le serveur.", "error");
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+    };
 
     // Theme Toggle event listener
     if (themeToggleBtn) {
@@ -1893,19 +3461,17 @@ function updateDashboard() {
     if (!dashboardData) return;
 
     if (!currentSelection || currentSelection.type === 'global') {
-        const categorySelect = document.getElementById('category-select');
-        const categoryVal = categorySelect ? categorySelect.value : 'All';
-        if (categoryVal === 'Boutmezguine Equipe') {
-            selectFilter('vendeur', 'BOUTMEZGUINE EL MOSTAFA');
-        } else {
-            selectFilter('vendeur', 'CHAKIB ELFIL');
+        // Pick first available vendor from data instead of a hardcoded name
+        const activeSellers = [...new Set((dashboardData.quantitative || []).map(r => (r.vendeur || '').trim()))].filter(v => v && v.toUpperCase() !== 'AUTRE');
+        if (activeSellers.length > 0) {
+            selectFilter('vendeur', activeSellers[0]);
         }
         return;
     }
 
-    if (currentSelection.type === 'vendeur' && (currentSelection.name === 'CHAKIB ELFIL' || currentSelection.name === 'BOUTMEZGUINE EL MOSTAFA')) {
-        const hasSelectedCdz = dashboardData.quantitative.some(r => r.vendeur.trim().toUpperCase() === currentSelection.name.toUpperCase());
-        if (!hasSelectedCdz) {
+    if (currentSelection.type === 'vendeur') {
+        const hasSelectedVendeur = dashboardData.quantitative.some(r => r.vendeur.trim().toUpperCase() === currentSelection.name.toUpperCase());
+        if (!hasSelectedVendeur) {
             console.log(`${currentSelection.name} not found in current category dataset. Selecting first active seller.`);
             // Find another active seller in the dataset to select
             const activeSellers = [...new Set(dashboardData.quantitative.map(r => r.vendeur.trim()))].filter(v => v && v.toUpperCase() !== 'AUTRE');
@@ -2460,7 +4026,26 @@ function renderQuantiTable(records) {
 function renderQualiTable(records) {
     qualiTableBody.innerHTML = '';
     
+    let totalProg = 0;
+    let totalFact = 0;
+    let weightedTsmSum = 0;
+    let weightedLineSum = 0;
+    let totalRafTsm = 0;
+    let totalRafAcm = 0;
+
     records.forEach(r => {
+        const prog = r.clt_programme || 0;
+        const fact = r.clt_facture || 0;
+        const tsm = r.tsm || 0;
+        const line = (r.line !== undefined && r.line !== null && r.line !== "") ? parseFloat(r.line) : 0;
+        
+        totalProg += prog;
+        totalFact += fact;
+        weightedTsmSum += tsm * prog;
+        weightedLineSum += line * prog;
+        totalRafTsm += (r.raf_tsm || 0);
+        totalRafAcm += (r.raf_acm || 0);
+
         const tr = document.createElement('tr');
         tr.style.cursor = 'pointer';
         tr.title = "Cliquez pour filtrer sur ce vendeur";
@@ -2471,18 +4056,38 @@ function renderQualiTable(records) {
         
         tr.innerHTML = `
             <td><strong>${r.vendeur}</strong></td>
-            <td>${r.clt_programme}</td>
-            <td>${r.clt_facture}</td>
+            <td>${prog}</td>
+            <td>${fact}</td>
             <td class="neon-text-blue">${(r.acm * 100).toFixed(1)}%</td>
             <td class="neon-text-green">${(r.tsm * 100).toFixed(1)}%</td>
-            <td>${r.line !== undefined && r.line !== null && r.line !== "" ? (parseFloat(r.line) * 100).toFixed(1) + '%' : '-'}</td>
+            <td>${line > 0 ? (line * 100).toFixed(1) + '%' : '-'}</td>
             <td class="neon-text-amber">${r.raf_tsm}</td>
             <td class="neon-text-amber">${r.raf_acm}</td>
         `;
         qualiTableBody.appendChild(tr);
     });
 
-    if (records.length === 0) {
+    if (records.length > 0) {
+        const avgAcm = totalProg > 0 ? (totalFact / totalProg) : 0;
+        const avgTsm = totalProg > 0 ? (weightedTsmSum / totalProg) : 0;
+        const avgLine = totalProg > 0 ? (weightedLineSum / totalProg) : 0;
+
+        const totalTr = document.createElement('tr');
+        totalTr.style.fontWeight = 'bold';
+        totalTr.style.backgroundColor = 'rgba(37, 99, 235, 0.15)';
+        totalTr.style.borderTop = '2px solid var(--neon-blue)';
+        totalTr.innerHTML = `
+            <td style="color: var(--neon-blue); font-weight: bold;"><strong>CHAKIB ELFIL CDZ</strong></td>
+            <td><strong>${totalProg}</strong></td>
+            <td><strong>${totalFact}</strong></td>
+            <td class="neon-text-blue"><strong>${(avgAcm * 100).toFixed(1)}%</strong></td>
+            <td class="neon-text-green"><strong>${(avgTsm * 100).toFixed(1)}%</strong></td>
+            <td><strong>${avgLine > 0 ? (avgLine * 100).toFixed(1) + '%' : '99.0%'}</strong></td>
+            <td class="neon-text-amber"><strong>${totalRafTsm}</strong></td>
+            <td class="neon-text-amber"><strong>${totalRafAcm}</strong></td>
+        `;
+        qualiTableBody.appendChild(totalTr);
+    } else {
         qualiTableBody.innerHTML = `<tr><td colspan="8" style="text-align:center;">Aucune donnée qualitative disponible</td></tr>`;
     }
 }
@@ -3202,14 +4807,14 @@ function renderQualiChart(qualiRecords, quantiRecords) {
 }
 
 // Radar Chart - Performance Globale par Famille
-let radarChartInstance = null;
+let dashboardRadarChartInstance = null;
 function renderRadarChart() {
     const canvas = document.getElementById('radar-chart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    if (radarChartInstance) {
-        radarChartInstance.destroy();
+    if (dashboardRadarChartInstance) {
+        dashboardRadarChartInstance.destroy();
     }
 
     if (!dashboardData || !dashboardData.quantitative) return;
@@ -3254,7 +4859,7 @@ function renderRadarChart() {
 
     const objPct = sortedFamilies.map(() => 100); // Objective is 100% reference
 
-    radarChartInstance = new Chart(ctx, {
+    dashboardRadarChartInstance = new Chart(ctx, {
         type: 'radar',
         data: {
             labels: labels,
@@ -3484,6 +5089,174 @@ let currentVendeurWhatsappMessage = '';
 let selectedVendeurForReport = null;
 let allVendeursList = [];
 let filteredVendeursList = [];
+let vendeurListRequest = null;
+let vendeurListRequestKey = '';
+let bulkWhatsappContext = null;
+
+function updateBulkWhatsappSelection() {
+    const checks = [...document.querySelectorAll('.bulk-whatsapp-vendeur-check')];
+    const selectedCount = checks.filter(check => check.checked).length;
+    const count = document.getElementById('bulk-whatsapp-selection-count');
+    const selectAll = document.getElementById('bulk-whatsapp-select-all');
+    const confirmBtn = document.getElementById('confirm-bulk-whatsapp');
+
+    if (count) count.textContent = `${selectedCount} SÉLECTIONNÉ${selectedCount > 1 ? 'S' : ''}`;
+    if (selectAll) {
+        selectAll.checked = checks.length > 0 && selectedCount === checks.length;
+        selectAll.indeterminate = selectedCount > 0 && selectedCount < checks.length;
+    }
+    if (confirmBtn) confirmBtn.disabled = selectedCount === 0;
+}
+
+function closeBulkWhatsappRecipientModal() {
+    const modal = document.getElementById('bulk-whatsapp-modal');
+    if (modal) modal.classList.remove('open');
+    bulkWhatsappContext = null;
+}
+
+function initBulkWhatsappRecipientModal() {
+    const modal = document.getElementById('bulk-whatsapp-modal');
+    if (!modal || modal.dataset.initialized === 'true') return;
+    modal.dataset.initialized = 'true';
+
+    const list = document.getElementById('bulk-whatsapp-vendeur-list');
+    const search = document.getElementById('bulk-whatsapp-search');
+    const selectAll = document.getElementById('bulk-whatsapp-select-all');
+    const close = () => closeBulkWhatsappRecipientModal();
+
+    document.getElementById('close-bulk-whatsapp-modal')?.addEventListener('click', close);
+    document.getElementById('cancel-bulk-whatsapp')?.addEventListener('click', close);
+    modal.addEventListener('click', event => {
+        if (event.target === modal) close();
+    });
+    selectAll?.addEventListener('change', () => {
+        document.querySelectorAll('.bulk-whatsapp-vendeur-check').forEach(check => {
+            check.checked = selectAll.checked;
+        });
+        updateBulkWhatsappSelection();
+    });
+    list?.addEventListener('change', updateBulkWhatsappSelection);
+    search?.addEventListener('input', () => {
+        const query = search.value.trim().toLocaleLowerCase();
+        list?.querySelectorAll('[data-bulk-vendeur-name]').forEach(row => {
+            row.style.display = row.dataset.bulkVendeurName.includes(query) ? 'flex' : 'none';
+        });
+    });
+    document.getElementById('confirm-bulk-whatsapp')?.addEventListener('click', () => {
+        const context = bulkWhatsappContext;
+        if (!context) return;
+        const vendeurs = [...document.querySelectorAll('.bulk-whatsapp-vendeur-check:checked')]
+            .map(check => check.value);
+        if (!vendeurs.length) {
+            showToast('Sélectionnez au moins un vendeur.', 'warning');
+            return;
+        }
+        close();
+        sendBulkWhatsappReports(vendeurs, context.date, context.sourceButton);
+    });
+}
+
+function openBulkWhatsappRecipientModal(vendeurs, date, sourceButton) {
+    const modal = document.getElementById('bulk-whatsapp-modal');
+    const list = document.getElementById('bulk-whatsapp-vendeur-list');
+    const search = document.getElementById('bulk-whatsapp-search');
+    if (!modal || !list) {
+        showToast('La fenêtre de sélection WhatsApp est indisponible.', 'error');
+        return;
+    }
+
+    initBulkWhatsappRecipientModal();
+    bulkWhatsappContext = { date, sourceButton };
+    list.replaceChildren();
+    vendeurs.sort((a, b) => a.localeCompare(b, 'fr')).forEach(vendeur => {
+        const row = document.createElement('label');
+        row.dataset.bulkVendeurName = vendeur.toLocaleLowerCase();
+        row.style.cssText = 'display:flex; align-items:center; gap:0.65rem; cursor:pointer; padding:0.55rem 0.65rem; border:1px solid var(--border-color); border-radius:4px; background:var(--card-bg); color:var(--text-main); font-size:0.84rem;';
+        const check = document.createElement('input');
+        check.type = 'checkbox';
+        check.className = 'bulk-whatsapp-vendeur-check';
+        check.value = vendeur;
+        check.checked = true;
+        check.style.cssText = 'accent-color:#25d366; width:15px; height:15px; flex:0 0 auto;';
+        const icon = document.createElement('i');
+        icon.className = 'fa-solid fa-user-tie';
+        icon.style.cssText = 'color:var(--neon-blue); font-size:0.75rem;';
+        const name = document.createElement('span');
+        name.textContent = vendeur;
+        row.append(check, icon, name);
+        list.appendChild(row);
+    });
+    if (search) search.value = '';
+    updateBulkWhatsappSelection();
+    modal.classList.add('open');
+}
+
+async function sendBulkWhatsappReports(vendeurs, date, button) {
+    const originalHtml = button ? button.innerHTML : '';
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Envoi en cours...';
+    }
+    try {
+        const response = await fetch('/api/send_bulk_whatsapp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ vendeurs, date })
+        });
+        const result = await response.json();
+        showToast(result.status === 'success' ? result.message : `Erreur : ${result.message}`, result.status === 'success' ? 'success' : 'error');
+    } catch (error) {
+        console.error('Bulk WhatsApp error:', error);
+        showToast('Erreur de communication avec le serveur.', 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+        }
+    }
+}
+
+async function openGlobalBulkWhatsappPicker() {
+    const button = document.getElementById('global-sidebar-whatsapp-bulk-btn');
+    const category = document.getElementById('category-select')?.value || 'All';
+    const date = document.getElementById('date-select')?.value || new Date().toISOString().split('T')[0];
+    const originalHtml = button ? button.innerHTML : '';
+
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Chargement...';
+    }
+    try {
+        const response = await fetch(`/api/vendeurs?category=${encodeURIComponent(category)}`);
+        const data = await response.json();
+        const vendeurs = (data?.vendeurs || [])
+            .map(vendeur => typeof vendeur === 'string' ? vendeur : vendeur.name || vendeur.vendeur || String(vendeur))
+            .filter(Boolean);
+
+        if (!vendeurs.length) {
+            showToast('Aucun vendeur disponible pour cet envoi.', 'warning');
+            return;
+        }
+        openBulkWhatsappRecipientModal(vendeurs, date, button);
+    } catch (error) {
+        console.error('Unable to load bulk WhatsApp recipients:', error);
+        showToast('Impossible de récupérer la liste des vendeurs.', 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+        }
+    }
+}
+
+// The global sidebar is rendered on every route, including Rapport. Delegate
+// its click directly so it does not depend on route-specific initialization.
+document.addEventListener('click', event => {
+    const button = event.target.closest('#global-sidebar-whatsapp-bulk-btn');
+    if (!button) return;
+    event.preventDefault();
+    openGlobalBulkWhatsappPicker();
+});
 
 // Main dashboard vendor/sector dropdown state
 let mainVendeurSearchQuery = '';
@@ -3947,6 +5720,7 @@ function closeVendeurDropdown() {
 // Load vendeurs list from API
 function loadVendeursList() {
     const dropdownList = document.getElementById('vendeur-dropdown-list');
+    if (!dropdownList) return Promise.resolve([]);
 
     // Show loading
     dropdownList.innerHTML = '<div class="dropdown-loading"><i class="fa-solid fa-circle-notch fa-spin"></i><span>Chargement...</span></div>';
@@ -3966,9 +5740,22 @@ function loadVendeursList() {
         url += '?' + params.join('&');
     }
 
+    // The report route initializes the dropdown from two lifecycle paths.
+    // Reuse an in-flight request (or its matching result) instead of fetching
+    // the exact same vendor list twice.
+    if (vendeurListRequest && vendeurListRequestKey === url) {
+        return vendeurListRequest;
+    }
+    if (vendeurListRequestKey === url && allVendeursList.length > 0) {
+        filteredVendeursList = [...allVendeursList];
+        renderDropdownList();
+        return Promise.resolve(allVendeursList);
+    }
+
     console.log('[VendeurModal] Fetching vendeurs from:', url);
 
-    fetch(url)
+    vendeurListRequestKey = url;
+    vendeurListRequest = fetch(url)
         .then(res => {
             console.log('[VendeurModal] Response status:', res.status);
             return res.json();
@@ -3980,14 +5767,23 @@ function loadVendeursList() {
                 filteredVendeursList = [...allVendeursList];
                 console.log('[VendeurModal] Rendering', allVendeursList.length, 'vendeurs');
                 renderDropdownList();
+                return allVendeursList;
             } else {
                 dropdownList.innerHTML = '<div class="dropdown-empty"><i class="fa-solid fa-exclamation-triangle"></i><span>Erreur de chargement</span></div>';
+                return [];
             }
         })
         .catch(err => {
             console.error('[VendeurModal] Error loading vendeurs:', err);
             dropdownList.innerHTML = '<div class="dropdown-empty"><i class="fa-solid fa-exclamation-triangle"></i><span>Erreur de connexion</span></div>';
+            vendeurListRequestKey = '';
+            return [];
+        })
+        .finally(() => {
+            vendeurListRequest = null;
         });
+
+    return vendeurListRequest;
 }
 
 // Render dropdown list
@@ -4161,6 +5957,7 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     let url = '/api/generate_report';
     const activeFormatBtn = document.querySelector('.report-format-btn.active');
     const reportFormat = activeFormatBtn ? activeFormatBtn.getAttribute('data-format') : 'complet';
+    const isMiniReport = reportFormat === 'mini';
     
     const params = [`tax_mode=${currentTaxMode}`, `report_type=${reportFormat}`];
     if (vendeurName) params.push(`vendeur=${encodeURIComponent(vendeurName)}`);
@@ -4198,7 +5995,10 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     .then(data => {
         if (data.status === 'success') {
             if (loading) loading.style.display = 'none';
-            if (content) content.style.display = 'block';
+            if (content) {
+                content.style.display = isMiniReport ? 'none' : 'block';
+                content.innerHTML = isMiniReport ? '' : parseMarkdown(data.report);
+            }
             if (actionsHeader) actionsHeader.style.display = 'flex';
 
             // Clear any previously queued charts
@@ -4213,20 +6013,24 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
                 window.focusNames = data.focus_names;
             }
 
-            if (content) content.innerHTML = parseMarkdown(data.report);
-
             const waTemplate = document.getElementById('whatsapp-mini-image-template');
+            const waZoomWrapper = document.getElementById('wa-zoom-wrapper');
+            const waZoomToolbar = document.getElementById('wa-zoom-toolbar');
             if (waTemplate) {
-                if (reportFormat === 'mini' && data.summary_data) {
+                if (isMiniReport && data.summary_data) {
                     waTemplate.style.display = 'block';
+                    if (waZoomWrapper) waZoomWrapper.style.display = 'block';
+                    if (waZoomToolbar) waZoomToolbar.style.display = 'flex';
                     populateWaTemplate(data.summary_data, currentReportVendeur, selectedDate);
                 } else {
                     waTemplate.style.display = 'none';
+                    if (waZoomWrapper) waZoomWrapper.style.display = 'none';
+                    if (waZoomToolbar) waZoomToolbar.style.display = 'none';
                 }
             }
 
-            // Render the charts!
-            renderReportCharts();
+            // Mini reports are rendered directly as the image-ready KPI card.
+            if (!isMiniReport) renderReportCharts();
 
             if (copyBtn) copyBtn.style.display = 'inline-block';
             if (downloadBtn) downloadBtn.style.display = 'inline-block';
@@ -5314,7 +7118,7 @@ function downloadReportAsImage() {
         restoreCharts = isMini ? () => {} : freezeChartsForPdf(element);
         unlock        = isMini ? () => {} : lockWrapperForCapture(element, 794);
 
-        const captureWidth = isMini ? 550 : 794;
+        const captureWidth = isMini ? 520 : 794;
         const opt = {
             margin:       [0, 0],
             filename:     filename,
@@ -8333,6 +10137,14 @@ function initClientsView() {
     navClients.addEventListener('click', goToClients);
     if (backBtn) backBtn.addEventListener('click', goBackFromClients);
 
+    const navClientsFacturation = document.getElementById('nav-clients-facturation');
+    if (navClientsFacturation) {
+        navClientsFacturation.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.location.href = '/clients?view=facturation';
+        });
+    }
+
     // Search input (debounced)
     const searchInput = document.getElementById('cf-search');
     if (searchInput) {
@@ -9484,16 +11296,26 @@ function populateWaTemplate(sData, vendeur, rawDate) {
     const taxLabel = (window.currentTaxMode || 'TTC');
     const caRealEl = document.getElementById('wa-ca-real');
     const caObjEl = document.getElementById('wa-ca-obj');
+    const caObjGlobalEl = document.getElementById('wa-ca-obj-global');
     const caRafEl = document.getElementById('wa-ca-raf');
     const caRateEl = document.getElementById('wa-ca-rate');
     
-    const realCa = sData.agency_totals ? sData.agency_totals.total_real_ca_ttc : 0;
-    const objCa = sData.agency_totals ? sData.agency_totals.total_obj_ca_ttc : 1;
-    const rateCa = sData.agency_totals ? sData.agency_totals.variance_rate_ca : '0.0%';
-    const caRafVal = objCa - realCa;
+    const realCa = sData.agency_totals ? (sData.agency_totals.total_real_ca_ttc || 0) : 0;
+    const objCa = sData.agency_totals ? (sData.agency_totals.total_obj_ca_ttc || 0) : 0;
+    const rateCa = sData.agency_totals ? (sData.agency_totals.variance_rate_ca || '0.0%') : '0.0%';
+
+    // Objectif Global: full_month_obj from backend or objCa * total / elapsed
+    let objGlobal = (sData.agency_totals && sData.agency_totals.full_month_obj > 0)
+        ? sData.agency_totals.full_month_obj
+        : (elapsedDays > 0 ? Math.round((objCa * totalDays) / elapsedDays) : objCa);
+
+    // RESTE / JOUR: (Objectif Global - CA Réalisé) / Jours Restants
+    const totalRemaining = objGlobal - realCa;
+    const caRafVal = restDays > 0 ? Math.max(0, Math.round(totalRemaining / restDays)) : 0;
     
     if (caRealEl) caRealEl.innerText = `${formatCurrency(realCa)}`;
     if (caObjEl) caObjEl.innerText = `${formatCurrency(objCa)}`;
+    if (caObjGlobalEl) caObjGlobalEl.innerText = `${formatCurrency(objGlobal)}`;
     if (caRafEl) {
         caRafEl.innerText = `${formatCurrency(caRafVal)}`;
         if (caRafVal <= 0) {
@@ -9536,11 +11358,17 @@ function populateWaTemplate(sData, vendeur, rawDate) {
                 else if (pctFloat > 0) pctColor = '#d97706';
                 else pctColor = '#dc2626';
 
+                let famRaf = f.raf;
+                if ((famRaf === undefined || famRaf === null || famRaf === 0) && f.obj > 0 && restDays > 0) {
+                    let famObjGlobal = Math.round((f.obj * 24) / elapsedDays);
+                    famRaf = Math.max(0, Math.round((famObjGlobal - f.real) / restDays));
+                }
+
                 tr.innerHTML = `
                     <td style="padding: 6px 0; color: #0f172a; font-weight: 500;">${f.famille}</td>
                     <td style="padding: 6px 0; text-align: right; font-family: var(--font-mono); color: #0f172a;">${formatCurrency(f.real)}</td>
                     <td style="padding: 6px 0; text-align: right; font-family: var(--font-mono); color: ${pctColor}; font-weight: bold;">${f.pct_str}</td>
-                    <td style="padding: 6px 0; text-align: right; font-family: var(--font-mono); color: #d97706;">${formatCurrency(f.raf)}</td>
+                    <td style="padding: 4px 0; text-align: right; font-family: var(--font-mono); color: #d97706;">${formatCurrency(famRaf !== undefined && famRaf !== null ? famRaf : f.raf)}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -9550,6 +11378,7 @@ function populateWaTemplate(sData, vendeur, rawDate) {
     // 3. Qualitatif
     const qualiAcmEl = document.getElementById('wa-quali-acm');
     const qualiTsmEl = document.getElementById('wa-quali-tsm');
+    const qualiLineEl = document.getElementById('wa-quali-line');
     const qualiAcmRafEl = document.getElementById('wa-quali-acm-raf');
     const qualiTsmRafEl = document.getElementById('wa-quali-tsm-raf');
     const qualiProgEl = document.getElementById('wa-quali-prog');
@@ -9558,6 +11387,7 @@ function populateWaTemplate(sData, vendeur, rawDate) {
     if (sData.vendeur_qualitative) {
         if (qualiAcmEl) qualiAcmEl.innerText = sData.vendeur_qualitative.acm;
         if (qualiTsmEl) qualiTsmEl.innerText = sData.vendeur_qualitative.tsm;
+        if (qualiLineEl) qualiLineEl.innerText = sData.vendeur_qualitative.line || '-';
         if (qualiAcmRafEl) qualiAcmRafEl.innerText = Math.round(sData.vendeur_qualitative.raf_acm || 0);
         if (qualiTsmRafEl) qualiTsmRafEl.innerText = Math.round(sData.vendeur_qualitative.raf_tsm || 0);
         if (qualiProgEl) qualiProgEl.innerText = sData.vendeur_qualitative.clt_programme;
