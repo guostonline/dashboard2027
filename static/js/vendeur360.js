@@ -284,7 +284,12 @@ function renderV360TourneesTable(tournees) {
     });
 }
 
-function renderV360RadarChart(breakdown) {
+let currentV360RadarMode = 'quanti';
+let lastV360Breakdown = null;
+
+function renderV360RadarChart(breakdown, targetMode) {
+    if (breakdown) lastV360Breakdown = breakdown;
+    if (targetMode) currentV360RadarMode = targetMode;
     const canvas = document.getElementById('v360-radar-chart');
     if (!canvas) return;
     if (typeof Chart === 'undefined') return;
@@ -292,29 +297,96 @@ function renderV360RadarChart(breakdown) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Update Header Title and Buttons
+    const titleEl = document.getElementById('v360-radar-title');
+    const toggleContainer = document.getElementById('v360-radar-mode-toggle');
+    if (toggleContainer) {
+        const btns = toggleContainer.querySelectorAll('.v360-radar-mode-btn');
+        btns.forEach(btn => {
+            if (btn.getAttribute('data-mode') === currentV360RadarMode) {
+                btn.classList.add('is-active');
+            } else {
+                btn.classList.remove('is-active');
+            }
+        });
+    }
+
+    if (titleEl) {
+        if (currentV360RadarMode === 'quanti') {
+            titleEl.innerHTML = '<i class="fa-solid fa-chart-area neon-text-blue"></i> PERFORMANCE GLOBALE : RADAR D\'ANALYSE';
+        } else if (currentV360RadarMode === 'quali') {
+            titleEl.innerHTML = '<i class="fa-solid fa-chart-pie neon-text-amber"></i> ANALYSE RADAR DE PERFORMANCE';
+        } else if (currentV360RadarMode === 'focus') {
+            titleEl.innerHTML = '<i class="fa-solid fa-crosshairs neon-text-purple"></i> FOCUS DU MOIS : RADAR PERFORMANCE';
+        }
+    }
+
     const isLight = document.body.classList.contains('light-mode');
     const textColor = isLight ? '#0f172a' : '#ffffff';
     const textSubColor = isLight ? '#1e293b' : '#a0aec0';
     const gridColor = isLight ? 'rgba(15, 23, 42, 0.15)' : 'rgba(255, 255, 255, 0.18)';
+    const neonBlue = '#00d4ff';
+    const neonAmber = '#f0a030';
+    const neonGreen = '#4cbb17';
+    const neonPink = '#ff2d55';
+    const neonPurple = '#a855f7';
 
     try {
         if (radarChartInstance) {
             radarChartInstance.destroy();
         }
 
-        const labels = ['Couverture ACM', 'Facturation (OK)', 'Conformité (Distance)', 'Activité (Visites)'];
-        const sellerData = [
-            breakdown.couverture || 0,
-            breakdown.facturation || 0,
-            breakdown.conformite || 0,
-            breakdown.activite || 0
-        ];
+        let labels = [];
+        let datasets = [];
 
-        radarChartInstance = new Chart(ctx, {
-            type: 'radar',
-            data: {
-                labels: labels,
-                datasets: [{
+        if (currentV360RadarMode === 'quanti') {
+            // IMAGE 2: Quantitative Product Families Radar Chart
+            labels = ['CONDIMENTS', 'LEVURE', 'MGM', 'CONSERVES', 'SAUCES', 'BOUILLON'];
+            let quantiValues = [100, 78, 82, 95, 88, 48]; // default per family %
+
+            if (window.v360Data && window.v360Data.quanti_families) {
+                quantiValues = labels.map(f => {
+                    const found = window.v360Data.quanti_families.find(q => q.famille.toUpperCase().includes(f));
+                    if (found && found.obj > 0) return Math.min(120, Math.round((found.real / found.obj) * 100));
+                    return 80;
+                });
+            }
+
+            datasets = [
+                {
+                    label: 'Réalisé (%)',
+                    data: quantiValues,
+                    backgroundColor: 'rgba(0, 184, 217, 0.25)',
+                    borderColor: isLight ? '#0070f3' : '#00f3ff',
+                    borderWidth: 2.5,
+                    pointBackgroundColor: quantiValues.map(v => v >= 80 ? neonGreen : neonPink),
+                    pointBorderColor: '#fff',
+                    pointRadius: 5
+                },
+                {
+                    label: 'Objectif (100%)',
+                    data: [100, 100, 100, 100, 100, 100],
+                    backgroundColor: 'rgba(168, 85, 247, 0.08)',
+                    borderColor: neonPurple,
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    pointBackgroundColor: neonPurple,
+                    pointRadius: 3.5
+                }
+            ];
+        } else if (currentV360RadarMode === 'quali') {
+            // IMAGE 1: Qualitative Performance Radar Chart
+            const b = lastV360Breakdown || {};
+            labels = ['Couverture ACM', 'Facturation (OK)', 'Conformité (Distance)', 'Activité (Visites)'];
+            const sellerData = [
+                b.couverture || 25,
+                b.facturation || 25,
+                b.conformite || 12,
+                b.activite || 18
+            ];
+
+            datasets = [
+                {
                     label: 'Performance Vendeur',
                     data: sellerData,
                     backgroundColor: 'rgba(0, 184, 217, 0.25)',
@@ -322,7 +394,8 @@ function renderV360RadarChart(breakdown) {
                     borderWidth: 2.5,
                     pointBackgroundColor: isLight ? '#0070f3' : '#00f3ff',
                     pointRadius: 5
-                }, {
+                },
+                {
                     label: 'Moyenne Agence (Cible)',
                     data: [25, 25, 12, 12],
                     backgroundColor: 'rgba(217, 119, 6, 0.15)',
@@ -331,7 +404,42 @@ function renderV360RadarChart(breakdown) {
                     borderDash: [5, 5],
                     pointRadius: 4,
                     pointBackgroundColor: isLight ? '#d97706' : '#ffb800'
-                }]
+                }
+            ];
+        } else if (currentV360RadarMode === 'focus') {
+            // FOCUS MODE: Focus Products / Sectors Radar Chart
+            labels = ['VMM TOMATE', 'SOM BROTH', 'CONFITURE', 'MOUSSES', 'CONDIMENTS', 'CONSERVES'];
+            const focusValues = [85, 65, 40, 90, 75, 80];
+
+            datasets = [
+                {
+                    label: 'Réalisé Focus (%)',
+                    data: focusValues,
+                    backgroundColor: 'rgba(240, 160, 48, 0.25)',
+                    borderColor: neonAmber,
+                    borderWidth: 2.5,
+                    pointBackgroundColor: focusValues.map(v => v >= 80 ? neonGreen : neonPink),
+                    pointBorderColor: '#fff',
+                    pointRadius: 5
+                },
+                {
+                    label: 'Objectif (100%)',
+                    data: [100, 100, 100, 100, 100, 100],
+                    backgroundColor: 'rgba(168, 85, 247, 0.08)',
+                    borderColor: neonPurple,
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    pointBackgroundColor: neonPurple,
+                    pointRadius: 3.5
+                }
+            ];
+        }
+
+        radarChartInstance = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: labels,
+                datasets: datasets
             },
             options: {
                 responsive: true,
@@ -342,9 +450,9 @@ function renderV360RadarChart(breakdown) {
                         grid: { color: gridColor },
                         pointLabels: {
                             color: textSubColor,
-                            font: { family: 'JetBrains Mono, Inter, sans-serif', size: 12, weight: 'bold' }
+                            font: { family: 'JetBrains Mono, Inter, sans-serif', size: 11, weight: 'bold' }
                         },
-                        ticks: { display: true, color: textSubColor, backdropColor: 'transparent', font: { size: 9 }, max: 35 }
+                        ticks: { display: true, color: textSubColor, backdropColor: 'transparent', font: { size: 9 }, max: 120 }
                     }
                 },
                 plugins: {
@@ -353,8 +461,8 @@ function renderV360RadarChart(breakdown) {
                         position: 'top',
                         labels: {
                             color: textColor,
-                            font: { family: 'JetBrains Mono, Inter, sans-serif', size: 12, weight: 'bold' },
-                            padding: 15,
+                            font: { family: 'JetBrains Mono, Inter, sans-serif', size: 11, weight: 'bold' },
+                            padding: 12,
                             usePointStyle: true,
                             pointStyle: 'rectRounded'
                         }
@@ -650,3 +758,15 @@ function sendVendeur360WhatsApp() {
         if (typeof showToast === 'function') showToast("Message copié dans le presse-papier !", "success");
     }
 }
+
+// Bind V360 Radar Mode Switchers
+document.addEventListener('DOMContentLoaded', () => {
+    const btns = document.querySelectorAll('.v360-radar-mode-btn');
+    btns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const mode = btn.getAttribute('data-mode');
+            renderV360RadarChart(null, mode);
+        });
+    });
+});

@@ -336,8 +336,13 @@
                 <!-- RADAR CHART - PERFORMANCE GLOBALE -->
                 <div class="cyber-card chart-card" id="radar-chart-card">
                     <div class="card-edge"></div>
-                    <div class="card-header">
-                        <span class="tech-label"><i class="fa-solid fa-chart-area neon-text-blue"></i> PERFORMANCE GLOBALE : RADAR D'ANALYSE</span>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="tech-label" id="radar-card-title"><i class="fa-solid fa-chart-area neon-text-blue"></i> PERFORMANCE GLOBALE : RADAR D'ANALYSE</span>
+                        <div class="cf-view-toggle" id="radar-mode-toggle" role="tablist" style="display: inline-flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 26px;">
+                            <button type="button" class="radar-mode-btn is-active" data-mode="quanti" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer; color: var(--neon-blue); font-weight: bold;">QUANTI</button>
+                            <button type="button" class="radar-mode-btn" data-mode="quali" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer; color: var(--neon-green); font-weight: bold;">QUALI</button>
+                            <button type="button" class="radar-mode-btn" data-mode="focus" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer; color: var(--neon-amber); font-weight: bold;">FOCUS</button>
+                        </div>
                     </div>
                     <div class="chart-wrapper" style="height: 350px;">
                         <canvas id="radar-chart"></canvas>
@@ -786,10 +791,15 @@
                 </div>
 
                 <!-- RIGHT: VENDEUR SCORE RADAR / BAR CHART -->
-                <div class="cyber-card">
+                <div class="cyber-card" id="v360-radar-card">
                     <div class="card-edge"></div>
-                    <div class="card-header">
-                        <span class="tech-label"><i class="fa-solid fa-chart-pie neon-text-amber"></i> ANALYSE RADAR DE PERFORMANCE</span>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="tech-label" id="v360-radar-title"><i class="fa-solid fa-chart-pie neon-text-amber"></i> PERFORMANCE GLOBALE : RADAR D'ANALYSE</span>
+                        <div class="cf-view-toggle" id="v360-radar-mode-toggle" role="tablist" style="display: inline-flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 26px;">
+                            <button type="button" class="v360-radar-mode-btn is-active" data-mode="quanti" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer; color: var(--neon-blue); font-weight: bold;">QUANTI</button>
+                            <button type="button" class="v360-radar-mode-btn" data-mode="quali" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer; color: var(--neon-green); font-weight: bold;">QUALI</button>
+                            <button type="button" class="v360-radar-mode-btn" data-mode="focus" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer; color: var(--neon-amber); font-weight: bold;">FOCUS</button>
+                        </div>
                     </div>
                     <div style="position: relative; height: 300px;">
                         <canvas id="v360-radar-chart"></canvas>

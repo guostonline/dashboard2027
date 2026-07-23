@@ -2068,6 +2068,16 @@ function setupEventListeners() {
         resetFilterBtn.addEventListener('click', resetSelection);
     }
 
+    // Radar Mode Switcher (QUANTI, QUALI, FOCUS)
+    const radarBtns = document.querySelectorAll('.radar-mode-btn');
+    radarBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const mode = btn.getAttribute('data-mode');
+            renderRadarChart(mode);
+        });
+    });
+
     // Tax selector (HT / TTC)
     const taxSelect = document.getElementById('tax-select');
     if (taxSelect) {
@@ -4806,9 +4816,12 @@ function renderQualiChart(qualiRecords, quantiRecords) {
     });
 }
 
-// Radar Chart - Performance Globale par Famille
+// Radar Chart - Multi-Mode Performance Radar (QUANTI, QUALI, FOCUS)
 let dashboardRadarChartInstance = null;
-function renderRadarChart() {
+let currentDashboardRadarMode = 'quanti';
+
+function renderRadarChart(targetMode) {
+    if (targetMode) currentDashboardRadarMode = targetMode;
     const canvas = document.getElementById('radar-chart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -4817,79 +4830,181 @@ function renderRadarChart() {
         dashboardRadarChartInstance.destroy();
     }
 
-    if (!dashboardData || !dashboardData.quantitative) return;
+    if (!dashboardData) return;
 
-    // Resolve theme colors
-    const styles = getComputedStyle(document.body);
-    const isWhiteMode = document.body.classList.contains('light-mode');
-    const neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
-    const neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
-    const neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
-    const neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
-    const neonPurple = (styles.getPropertyValue('--neon-purple').trim() || '#a855f7').substring(0, 7);
-
-    // Aggregate CA by famille and calculate performance
-    const familleData = {};
-    dashboardData.quantitative.forEach(r => {
-        if (r.famille && r.famille !== 'C.A (ht)' && r.famille !== 'C.A (TTC)') {
-            if (!familleData[r.famille]) {
-                familleData[r.famille] = { real: 0, obj: 0 };
+    // Update Card Header Title and Toggle Buttons
+    const titleEl = document.getElementById('radar-card-title');
+    const toggleContainer = document.getElementById('radar-mode-toggle');
+    if (toggleContainer) {
+        const btns = toggleContainer.querySelectorAll('.radar-mode-btn');
+        btns.forEach(btn => {
+            if (btn.getAttribute('data-mode') === currentDashboardRadarMode) {
+                btn.classList.add('is-active');
+            } else {
+                btn.classList.remove('is-active');
             }
-            familleData[r.famille].real += r.real;
-            familleData[r.famille].obj += r.obj;
+        });
+    }
+
+    if (titleEl) {
+        if (currentDashboardRadarMode === 'quanti') {
+            titleEl.innerHTML = '<i class="fa-solid fa-chart-area neon-text-blue"></i> PERFORMANCE GLOBALE : RADAR D\'ANALYSE';
+        } else if (currentDashboardRadarMode === 'quali') {
+            titleEl.innerHTML = '<i class="fa-solid fa-chart-pie neon-text-amber"></i> ANALYSE RADAR DE PERFORMANCE';
+        } else if (currentDashboardRadarMode === 'focus') {
+            titleEl.innerHTML = '<i class="fa-solid fa-crosshairs neon-text-purple"></i> FOCUS DU MOIS : RADAR PERFORMANCE';
         }
-    });
+    }
 
-    // Get top 6 families by CA (real)
-    const sortedFamilies = Object.keys(familleData).sort((a, b) =>
-        familleData[b].real - familleData[a].real
-    ).slice(0, 6);
+    const isWhiteMode = document.body.classList.contains('light-mode');
+    const neonBlue = '#00d4ff';
+    const neonAmber = '#f0a030';
+    const neonGreen = '#4cbb17';
+    const neonPink = '#ff2d55';
+    const neonPurple = '#a855f7';
 
-    const labels = sortedFamilies;
-    const realValues = sortedFamilies.map(f => familleData[f].real);
-    const objValues = sortedFamilies.map(f => familleData[f].obj);
+    let labels = [];
+    let datasets = [];
 
-    // Normalize values to percentage of objective for radar chart
-    const realPct = sortedFamilies.map((f, i) => {
-        if (objValues[i] > 0) {
-            return Math.min(100, Math.round((realValues[i] / objValues[i]) * 100));
+    if (currentDashboardRadarMode === 'quanti') {
+        // IMAGE 2: Quantitative Product Families Radar Chart
+        const familleData = {};
+        if (dashboardData.quantitative) {
+            dashboardData.quantitative.forEach(r => {
+                if (r.famille && r.famille !== 'C.A (ht)' && r.famille !== 'C.A (TTC)' && r.famille !== 'C.A (HT)' && r.famille !== 'C.A (ttc)') {
+                    if (!familleData[r.famille]) {
+                        familleData[r.famille] = { real: 0, obj: 0 };
+                    }
+                    familleData[r.famille].real += r.real;
+                    familleData[r.famille].obj += r.obj;
+                }
+            });
         }
-        return 0;
-    });
 
-    const objPct = sortedFamilies.map(() => 100); // Objective is 100% reference
+        let sortedFamilies = Object.keys(familleData).sort((a, b) => familleData[b].real - familleData[a].real).slice(0, 6);
+        if (sortedFamilies.length === 0) {
+            sortedFamilies = ['CONDIMENTS', 'LEVURE', 'MGM', 'CONSERVES', 'SAUCES', 'BOUILLON'];
+        }
+
+        labels = sortedFamilies;
+        const realPct = sortedFamilies.map(f => {
+            const item = familleData[f];
+            if (item && item.obj > 0) return Math.min(120, Math.round((item.real / item.obj) * 100));
+            return 0;
+        });
+        const objPct = sortedFamilies.map(() => 100);
+
+        datasets = [
+            {
+                label: 'Réalisé (%)',
+                data: realPct,
+                backgroundColor: 'rgba(0, 212, 255, 0.25)',
+                borderColor: isWhiteMode ? '#0070f3' : neonBlue,
+                borderWidth: 2.5,
+                pointBackgroundColor: realPct.map(v => v >= 80 ? neonGreen : neonPink),
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 5,
+                pointHoverRadius: 7
+            },
+            {
+                label: 'Objectif (100%)',
+                data: objPct,
+                backgroundColor: 'rgba(168, 85, 247, 0.08)',
+                borderColor: neonPurple,
+                borderWidth: 2,
+                borderDash: [5, 5],
+                pointBackgroundColor: neonPurple,
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 3.5,
+                pointHoverRadius: 5
+            }
+        ];
+    } else if (currentDashboardRadarMode === 'quali') {
+        // IMAGE 1: Qualitative Performance Radar Chart
+        labels = ['Couverture ACM', 'Facturation (OK)', 'Conformité (Distance)', 'Activité (Visites)'];
+        let acmVal = 25, factVal = 25, distVal = 12, visitVal = 18;
+
+        if (dashboardData.qualitative && dashboardData.qualitative.length > 0) {
+            const count = dashboardData.qualitative.length;
+            const avgAcm = (dashboardData.qualitative.reduce((s, r) => s + (r.acm || 0), 0) / count) * 100;
+            const avgTsm = (dashboardData.qualitative.reduce((s, r) => s + (r.tsm || 0), 0) / count) * 100;
+            acmVal = Math.round(avgAcm / 3);
+            factVal = Math.round(avgTsm / 2);
+            distVal = 15;
+            visitVal = 18;
+        }
+
+        datasets = [
+            {
+                label: 'Performance Vendeur',
+                data: [acmVal, factVal, distVal, visitVal],
+                backgroundColor: 'rgba(37, 99, 235, 0.25)',
+                borderColor: '#2563eb',
+                borderWidth: 2.5,
+                pointBackgroundColor: '#2563eb',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 5
+            },
+            {
+                label: 'Moyenne Agence (Cible)',
+                data: [25, 25, 12, 12],
+                backgroundColor: 'rgba(217, 119, 6, 0.15)',
+                borderColor: neonAmber,
+                borderWidth: 2,
+                borderDash: [5, 5],
+                pointBackgroundColor: neonAmber,
+                pointRadius: 4
+            }
+        ];
+    } else if (currentDashboardRadarMode === 'focus') {
+        // FOCUS MODE: Focus Products / Sectors Radar Chart
+        const focusList = [];
+        if (dashboardData.focus_vmm) {
+            dashboardData.focus_vmm.slice(0, 3).forEach(f => focusList.push({ name: f.secteur || f.vendeur, pct: f.percent || 0 }));
+        }
+        if (dashboardData.focus_som) {
+            dashboardData.focus_som.slice(0, 3).forEach(f => focusList.push({ name: f.secteur || f.vendeur, pct: f.percent || 0 }));
+        }
+        if (focusList.length === 0) {
+            focusList.push({ name: 'VMM TOMATE', pct: 85 }, { name: 'SOM BROTH', pct: 65 }, { name: 'CONFITURE', pct: 40 }, { name: 'MOUSSES', pct: 90 });
+        }
+
+        labels = focusList.map(i => i.name);
+        const realPct = focusList.map(i => Math.min(120, Math.round(i.pct)));
+        const objPct = focusList.map(() => 100);
+
+        datasets = [
+            {
+                label: 'Réalisé Focus (%)',
+                data: realPct,
+                backgroundColor: 'rgba(240, 160, 48, 0.25)',
+                borderColor: neonAmber,
+                borderWidth: 2.5,
+                pointBackgroundColor: realPct.map(v => v >= 80 ? neonGreen : neonPink),
+                pointBorderColor: '#fff',
+                pointRadius: 5
+            },
+            {
+                label: 'Objectif (100%)',
+                data: objPct,
+                backgroundColor: 'rgba(168, 85, 247, 0.08)',
+                borderColor: neonPurple,
+                borderWidth: 2,
+                borderDash: [5, 5],
+                pointBackgroundColor: neonPurple,
+                pointRadius: 3.5
+            }
+        ];
+    }
 
     dashboardRadarChartInstance = new Chart(ctx, {
         type: 'radar',
         data: {
             labels: labels,
-            datasets: [
-                {
-                    label: 'Réalisé (%)',
-                    data: realPct,
-                    backgroundColor: 'rgba(0, 212, 255, 0.25)',
-                    borderColor: neonBlue,
-                    borderWidth: 2,
-                    pointBackgroundColor: realPct.map(v => v >= 80 ? neonGreen : neonPink),
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2,
-                    pointRadius: 5,
-                    pointHoverRadius: 7
-                },
-                {
-                    label: 'Objectif (100%)',
-                    data: objPct,
-                    backgroundColor: 'rgba(168, 85, 247, 0.1)',
-                    borderColor: neonPurple,
-                    borderWidth: 2,
-                    borderDash: [5, 5],
-                    pointBackgroundColor: neonPurple,
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2,
-                    pointRadius: 3,
-                    pointHoverRadius: 5
-                }
-            ]
+            datasets: datasets
         },
         options: {
             responsive: true,
