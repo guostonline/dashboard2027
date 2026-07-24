@@ -169,6 +169,7 @@ async function fetchVendeurQuantiQuali(vendeurName) {
 
         renderV360QuantiChart(quanti);
         renderV360QualiChart(quali);
+        renderV360FocusDailyChart(vendeurName);
 
     } catch (err) {
         console.error("Error fetching quanti/quali for vendor:", err);
@@ -776,6 +777,187 @@ function sendVendeur360WhatsApp() {
     }
 }
 
+let v360FocusChartInstance = null;
+let v360FocusHistoryCache = null;
+
+/**
+ * Render Focus Day-by-Day trend line chart for Vendeur 360
+ */
+async function renderV360FocusDailyChart(vendeurName) {
+    const canvas = document.getElementById('v360-focus-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (v360FocusChartInstance) {
+        v360FocusChartInstance.destroy();
+        v360FocusChartInstance = null;
+    }
+
+    if (!vendeurName) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
+
+    // Update vendeur label
+    const labelEl = document.getElementById('v360-focus-vendeur-label');
+    if (labelEl) {
+        labelEl.textContent = ` - ${vendeurName.toUpperCase()}`;
+    }
+
+    // Fetch focus history if not already cached
+    if (!v360FocusHistoryCache) {
+        try {
+            const res = await fetch('/api/focus/trend?agence=AGADIR');
+            const data = await res.json();
+            if (data.status === 'success') {
+                v360FocusHistoryCache = data.data;
+            }
+        } catch (e) {
+            console.error("Error fetching focus trend for Vendeur 360:", e);
+        }
+    }
+
+    if (!v360FocusHistoryCache) return;
+
+    const vendeurCode = vendeurName.split(' ')[0].toUpperCase();
+    
+    // Extract dates across Glace and Tomate
+    const glaceReps = (v360FocusHistoryCache.glace || {}).reps || [];
+    const tomateReps = (v360FocusHistoryCache.tomate || {}).reps || [];
+    
+    const allDatesSet = new Set([
+        ...glaceReps.map(r => r.upload_date.substring(0, 10)),
+        ...tomateReps.map(r => r.upload_date.substring(0, 10))
+    ]);
+    const sortedDates = [...allDatesSet].sort();
+
+    if (sortedDates.length === 0) return;
+
+    const dateLabels = sortedDates.map(d => {
+        const parts = d.split('-');
+        return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
+    });
+
+    const somPoints = [];
+    const vmmPoints = [];
+
+    sortedDates.forEach(d => {
+        // SOM (Glace)
+        const gRec = glaceReps.find(r => r.upload_date.startsWith(d) && (
+            r.representative.toUpperCase().includes(vendeurCode) ||
+            vendeurName.toUpperCase().includes(r.representative.toUpperCase())
+        ));
+        if (gRec) {
+            const pct = Math.round((1.0 + (gRec.deviation || 0.0)) * 100);
+            somPoints.push(pct);
+        } else {
+            somPoints.push(null);
+        }
+
+        // VMM (Tomate Frito)
+        const tRec = tomateReps.find(r => r.upload_date.startsWith(d) && (
+            r.representative.toUpperCase().includes(vendeurCode) ||
+            vendeurName.toUpperCase().includes(r.representative.toUpperCase())
+        ));
+        if (tRec) {
+            const pct = Math.round((1.0 + (tRec.deviation || 0.0)) * 100);
+            vmmPoints.push(pct);
+        } else {
+            vmmPoints.push(null);
+        }
+    });
+
+    const isLight = document.body.classList.contains('light-mode');
+    const textColor = isLight ? '#0f172a' : '#e2e8f0';
+    const textSub = isLight ? '#334155' : '#94a3b8';
+    const gridColor = isLight ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.08)';
+
+    const datasets = [];
+
+    // SOM dataset
+    if (somPoints.some(p => p !== null)) {
+        datasets.push({
+            label: 'Focus SOM (Glace %)',
+            data: somPoints,
+            borderColor: '#00d4ff',
+            backgroundColor: 'rgba(0, 212, 255, 0.12)',
+            borderWidth: 2.5,
+            pointBackgroundColor: '#00d4ff',
+            pointRadius: 4,
+            tension: 0.2,
+            fill: true
+        });
+    }
+
+    // VMM dataset
+    if (vmmPoints.some(p => p !== null)) {
+        datasets.push({
+            label: 'Focus VMM (Tomate %)',
+            data: vmmPoints,
+            borderColor: '#ff2d55',
+            backgroundColor: 'rgba(255, 45, 85, 0.12)',
+            borderWidth: 2.5,
+            pointBackgroundColor: '#ff2d55',
+            pointRadius: 4,
+            tension: 0.2,
+            fill: true
+        });
+    }
+
+    // Target reference line 100%
+    datasets.push({
+        label: 'Objectif (100%)',
+        data: sortedDates.map(() => 100),
+        borderColor: '#f43f5e',
+        borderWidth: 1.5,
+        borderDash: [4, 4],
+        pointRadius: 0,
+        fill: false
+    });
+
+    v360FocusChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: dateLabels,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        color: textColor,
+                        font: { family: 'JetBrains Mono', size: 10 }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ` ${ctx.dataset.label}: ${ctx.raw !== null ? ctx.raw + '%' : 'N/A'}`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: gridColor },
+                    ticks: { color: textSub, font: { size: 10 } }
+                },
+                y: {
+                    grid: { color: gridColor },
+                    ticks: {
+                        color: textSub,
+                        font: { size: 10 },
+                        callback: v => `${v}%`
+                    }
+                }
+            }
+        }
+    });
+}
+
 // Bind V360 Radar Mode Switchers
 document.addEventListener('DOMContentLoaded', () => {
     const btns = document.querySelectorAll('.v360-radar-mode-btn');
@@ -787,3 +969,4 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 });
+
