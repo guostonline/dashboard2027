@@ -847,6 +847,55 @@
                     <canvas id="v360-focus-chart"></canvas>
                 </div>
             </div>
+
+            <!-- ANOMALIES & TASKS ROW -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+                <!-- ANOMALIES TABLE -->
+                <div class="cyber-card table-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="tech-label"><i class="fa-solid fa-triangle-exclamation neon-text-pink"></i> ANOMALIES &amp; ÉCARTS DÉTECTÉS</span>
+                    </div>
+                    <div class="table-container" style="max-height: 320px; overflow-y: auto;">
+                        <table class="cyber-table" id="v360-anomalies-table">
+                            <thead>
+                                <tr>
+                                    <th>DATE</th>
+                                    <th>TYPE / CODE</th>
+                                    <th>DÉTAILS / MOTIF</th>
+                                    <th>STATUT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TASKS TABLE -->
+                <div class="cyber-card table-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="tech-label"><i class="fa-solid fa-list-check neon-text-green"></i> TÂCHES &amp; ACTIONS TERRAIN</span>
+                    </div>
+                    <div class="table-container" style="max-height: 320px; overflow-y: auto;">
+                        <table class="cyber-table" id="v360-tasks-table">
+                            <thead>
+                                <tr>
+                                    <th>TÂCHE</th>
+                                    <th>ÉCHÉANCE</th>
+                                    <th>PRIORITÉ</th>
+                                    <th>STATUT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
     </main>
 

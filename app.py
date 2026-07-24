@@ -2584,6 +2584,24 @@ def get_vendeur_360_endpoint():
                     "distance": dist,
                     "motif": motif
                 })
+
+        # Also fetch registered anomalies from anomalies table
+        try:
+            cursor.execute("""
+                SELECT id, date, vendeur, type_anomali, commentaire, tag
+                FROM anomalies
+                WHERE vendeur LIKE ? OR vendeur = ?
+            """, (f"%{vendeur_name}%", vendeur_name))
+            for ar in cursor.fetchall():
+                anomalies_list.append({
+                    "client_code": ar["type_anomali"] or "Anomalie",
+                    "client_nom": ar["commentaire"] or ar["tag"] or "Anomalie enregistrée",
+                    "date": ar["date"] or "",
+                    "distance": 0,
+                    "motif": ar["tag"] or ar["type_anomali"] or "Signalé"
+                })
+        except Exception as ex_anom:
+            print("Error fetching anomalies for Vendeur 360:", ex_anom)
                 
             if t_name not in tournees_map:
                 tournees_map[t_name] = {"total": 0, "ok": 0, "sans_ok": 0}

@@ -257,8 +257,66 @@ function renderVendeur360View(data) {
     // Render Tournées Breakdown
     renderV360TourneesTable(data.tournees || []);
 
+    // Render Anomalies & Tasks
+    renderV360AnomaliesTable(data.anomalies || []);
+    renderV360TasksTable(data.tasks || []);
+
     // Render Radar Chart
     renderV360RadarChart(score.breakdown || {});
+}
+
+function renderV360AnomaliesTable(anomalies) {
+    const tbody = document.querySelector('#v360-anomalies-table tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!anomalies || anomalies.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-sub);">Aucune anomalie détectée pour ce vendeur.</td></tr>`;
+        return;
+    }
+    anomalies.forEach(a => {
+        const tr = document.createElement('tr');
+        const d = a.date || a.created_at || '';
+        const dateFormatted = d ? d.substring(0, 10) : '-';
+        const typeStr = a.client_code || a.type_anomali || 'Anomalie';
+        const detailStr = a.client_nom || a.commentaire || a.tag || 'Visite hors zone (>100m)';
+        const statusStr = a.motif || a.tag || (a.distance > 0 ? `${a.distance}m` : 'Signalé');
+
+        tr.innerHTML = `
+            <td><code>${dateFormatted}</code></td>
+            <td><strong class="neon-text-pink">${typeStr}</strong></td>
+            <td>${detailStr}</td>
+            <td><span class="badge-pink">${statusStr}</span></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function renderV360TasksTable(tasks) {
+    const tbody = document.querySelector('#v360-tasks-table tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!tasks || tasks.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-sub);">Aucune tâche assignée à ce vendeur.</td></tr>`;
+        return;
+    }
+    tasks.forEach(t => {
+        const tr = document.createElement('tr');
+        const title = t.title || 'Tâche';
+        const dueDate = t.due_date ? t.due_date.substring(0, 10) : '-';
+        const priority = t.priority || 'Moyenne';
+        const status = t.status || 'Start';
+
+        const prioClass = priority.toLowerCase().includes('urgent') ? 'badge-pink' : 'badge-blue';
+        const statusClass = status === 'Done' ? 'neon-text-green' : (status === 'In progress' ? 'neon-text-amber' : 'neon-text-sub');
+
+        tr.innerHTML = `
+            <td><strong>${title}</strong></td>
+            <td><code>${dueDate}</code></td>
+            <td><span class="${prioClass}">${priority}</span></td>
+            <td><span class="${statusClass} font-weight-bold">${status}</span></td>
+        `;
+        tbody.appendChild(tr);
+    });
 }
 
 function renderV360TourneesTable(tournees) {
