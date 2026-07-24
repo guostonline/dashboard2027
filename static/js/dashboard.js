@@ -641,9 +641,13 @@ async function initClientsFacturationView() {
 async function initClientsAFacturerView() {
     const filterTourneeBtn = document.getElementById('af-filter-type-tournee');
     const filterVendeurBtn = document.getElementById('af-filter-type-vendeur');
+    const filterSecteurBtn = document.getElementById('af-filter-type-secteur');
+    const statusAllBtn = document.getElementById('af-status-all');
+    const statusActifBtn = document.getElementById('af-status-actif');
+    const statusInactifBtn = document.getElementById('af-status-inactif');
+    const entityLabel = document.getElementById('af-entity-label');
     const selectEntity = document.getElementById('af-select-entity');
     const datesContainer = document.getElementById('af-dates-container');
-    const entityLabel = document.getElementById('af-entity-label');
     const btnAnalyze = document.getElementById('af-btn-analyze');
     
     const resultsPlaceholder = document.getElementById('af-results-placeholder');
@@ -657,13 +661,15 @@ async function initClientsAFacturerView() {
     const kpiLoss = document.getElementById('af-kpi-loss');
     const kpiGain = document.getElementById('af-kpi-gain');
     const kpiNever = document.getElementById('af-kpi-never');
+    const kpiInactive = document.getElementById('af-kpi-inactive');
     const displayVendeur = document.getElementById('af-vendeur-display');
     const tableHeaders = document.getElementById('af-table-headers');
     const tbodyDetails = document.getElementById('af-details-tbody');
     const searchClientInput = document.getElementById('af-search-client');
     
     let dbData = null;
-    let filterMode = 'tournee';
+    let filterMode = 'secteur'; // 'secteur', 'tournee', 'vendeur'
+    let clientStatusMode = 'all'; // 'all', 'actif', 'inactif'
     let analysisResult = null;
     let activeFilter = 'all';
     
@@ -697,7 +703,10 @@ async function initClientsAFacturerView() {
         if (!dbData || !selectEntity) return;
         selectEntity.innerHTML = '';
         
-        const list = filterMode === 'tournee' ? dbData.tournees : dbData.vendeurs;
+        let list = [];
+        if (filterMode === 'tournee') list = dbData.tournees || [];
+        else if (filterMode === 'vendeur') list = dbData.vendeurs || [];
+        else if (filterMode === 'secteur') list = dbData.secteurs || [];
         
         if (list.length === 0) {
             selectEntity.innerHTML = '<option value="">Aucune donnée dans la base</option>';
@@ -705,7 +714,8 @@ async function initClientsAFacturerView() {
             return;
         }
         
-        selectEntity.innerHTML = '<option value="">-- Choisir option --</option>';
+        const placeholder = filterMode === 'secteur' ? '-- SÉLECTIONNER UN SECTEUR --' : filterMode === 'vendeur' ? '-- SÉLECTIONNER UN VENDEUR --' : '-- SÉLECTIONNER UNE TOURNÉE --';
+        selectEntity.innerHTML = `<option value="">${placeholder}</option>`;
         list.forEach(item => {
             const opt = document.createElement('option');
             opt.value = item.name;
@@ -713,48 +723,138 @@ async function initClientsAFacturerView() {
             selectEntity.appendChild(opt);
         });
         
-        if (datesContainer) datesContainer.innerHTML = "<span style=\"color: var(--text-muted); font-size: 0.8rem; font-style: italic;\">Veuillez d'abord sélectionner une option.</span>";
+        if (datesContainer) datesContainer.innerHTML = "<span style=\"color: var(--text-muted); font-size: 0.8rem; font-style: italic;\">Veuillez d'abord sélectionner un secteur.</span>";
     };
-    
+
+    const subTourneeWrapper = document.getElementById('af-sub-tournee-wrapper');
+    const selectSubTournee = document.getElementById('af-select-sub-tournee');
+
+    const setClientStatusInactif = () => {
+        clientStatusMode = 'inactif';
+        if (statusInactifBtn) statusInactifBtn.classList.add('is-active');
+        if (statusAllBtn) statusAllBtn.classList.remove('is-active');
+        if (statusActifBtn) statusActifBtn.classList.remove('is-active');
+    };
+
+    if (selectSubTournee) {
+        selectSubTournee.addEventListener('change', () => {
+            if (selectSubTournee.value !== 'ALL') {
+                setClientStatusInactif();
+            }
+            renderDatesList();
+        });
+    }
+
     const populateDatesCheckboxes = () => {
         if (!selectEntity || !datesContainer || !dbData) return;
         const val = selectEntity.value;
         datesContainer.innerHTML = '';
         
+        if (filterMode === 'tournee') {
+            setClientStatusInactif();
+        }
+
+        if (filterMode !== 'secteur' && subTourneeWrapper) {
+            subTourneeWrapper.style.display = 'none';
+        }
+
         if (!val) {
             datesContainer.innerHTML = "<span style=\"color: var(--text-muted); font-size: 0.8rem; font-style: italic;\">Veuillez d'abord sélectionner une option.</span>";
             return;
         }
         
-        const list = filterMode === 'tournee' ? dbData.tournees : dbData.vendeurs;
+        let list = [];
+        if (filterMode === 'tournee') list = dbData.tournees || [];
+        else if (filterMode === 'vendeur') list = dbData.vendeurs || [];
+        else if (filterMode === 'secteur') list = dbData.secteurs || [];
+
         const selectedItem = list.find(item => item.name === val);
         
+        if (!selectedItem) {
+            datesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Aucune donnée disponible.</span>';
+            return;
+        }
+
+        // Render Sub-Tournée selector if in Secteur mode (sorted by date)
+        if (filterMode === 'secteur' && subTourneeWrapper && selectSubTournee) {
+            const tourneesDetails = selectedItem.tournees_details || (selectedItem.tournees || []).map(tn => ({ name: tn, min_date: '9999-12-31' }));
+            subTourneeWrapper.style.display = 'block';
+            selectSubTournee.innerHTML = `<option value="ALL">-- TOUTES LES TOURNÉES DU SECTEUR (${tourneesDetails.length}) --</option>`;
+            tourneesDetails.forEach(tObj => {
+                const opt = document.createElement('option');
+                opt.value = tObj.name;
+                const dateSuffix = (tObj.min_date && tObj.min_date !== '9999-12-31') ? ` [Date: ${tObj.min_date.split('-').reverse().join('/')}]` : '';
+                opt.innerText = `${tObj.name}${dateSuffix}`;
+                selectSubTournee.appendChild(opt);
+            });
+        }
+
+        renderDatesList();
+    };
+
+    const renderDatesList = () => {
+        if (!selectEntity || !datesContainer || !dbData) return;
+        const val = selectEntity.value;
+        datesContainer.innerHTML = '';
+        if (!val) return;
+
+        let list = [];
+        if (filterMode === 'tournee') list = dbData.tournees || [];
+        else if (filterMode === 'vendeur') list = dbData.vendeurs || [];
+        else if (filterMode === 'secteur') list = dbData.secteurs || [];
+
+        const selectedItem = list.find(item => item.name === val);
         if (!selectedItem || !selectedItem.dates || selectedItem.dates.length === 0) {
             datesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Aucune date disponible.</span>';
             return;
         }
 
-        selectedItem.dates.forEach(d => {
+        let targetDates = selectedItem.dates;
+        let details = selectedItem.dates_details || [];
+
+        // If a specific sub-tournée is selected in Secteur mode
+        if (filterMode === 'secteur' && selectSubTournee && selectSubTournee.value !== 'ALL') {
+            const subTn = selectSubTournee.value;
+            const subDetails = details.filter(dt => dt.tournee === subTn);
+            const subDates = Array.from(new Set(subDetails.map(dt => dt.date))).sort();
+            if (subDates.length > 0) {
+                targetDates = subDates;
+                details = subDetails;
+            }
+        }
+
+        const isTourneeSel = (filterMode === 'tournee') || (filterMode === 'secteur' && selectSubTournee && selectSubTournee.value !== 'ALL');
+
+        targetDates.forEach(d => {
             const parts = d.split('-');
             const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
             
-            const details = selectedItem.dates_details || [];
-            const dDetail = details.find(dt => dt.date === d) || {};
-            const extraInfo = filterMode === 'vendeur' ? 
-                (dDetail.tournee ? `<span style="color: var(--neon-blue); font-size: 0.75rem; font-weight: normal; margin-left: 0.25rem;"><i class="fa-solid fa-route"></i> ${dDetail.tournee}</span>` : '') :
-                (dDetail.vendeur ? `<span style="color: var(--neon-green); font-size: 0.75rem; font-weight: normal; margin-left: 0.25rem;"><i class="fa-solid fa-user"></i> ${dDetail.vendeur}</span>` : '');
+            const dDetails = details.filter(dt => dt.date === d);
+            const tourneesForDate = Array.from(new Set(dDetails.map(dt => dt.tournee).filter(Boolean)));
+            const vendeursForDate = Array.from(new Set(dDetails.map(dt => dt.vendeur).filter(Boolean)));
+
+            let subTourneeLine = '';
+            if (tourneesForDate.length > 0) {
+                const tourneeText = tourneesForDate.length > 2 ? `${tourneesForDate.slice(0, 2).join(', ')} +${tourneesForDate.length - 2}` : tourneesForDate.join(', ');
+                subTourneeLine = `<div style="font-size: 0.70rem; color: var(--neon-blue); font-weight: normal; width: 100%; margin-top: 1px;"><i class="fa-solid fa-route"></i> ${tourneeText}</div>`;
+            } else if (vendeursForDate.length > 0 && filterMode === 'tournee') {
+                subTourneeLine = `<div style="font-size: 0.70rem; color: var(--neon-green); font-weight: normal; width: 100%; margin-top: 1px;"><i class="fa-solid fa-user"></i> ${vendeursForDate.join(', ')}</div>`;
+            }
 
             const div = document.createElement('div');
             div.style.display = 'flex';
-            div.style.alignItems = 'center';
+            div.style.alignItems = 'flex-start';
             div.style.gap = '0.5rem';
-            div.style.padding = '0.25rem 0';
+            div.style.padding = '0.35rem 0';
             div.style.borderBottom = '1px dashed rgba(255,255,255,0.05)';
             
+            const isCheckedAttr = isTourneeSel ? 'checked' : '';
+
             div.innerHTML = `
-                <input type="checkbox" id="af-date-${d}" class="af-date-checkbox" value="${d}" style="cursor: pointer; width: 16px; height: 16px; flex-shrink: 0;">
-                <label for="af-date-${d}" style="cursor: pointer; font-size: 0.82rem; font-family: var(--font-mono); color: var(--text-main); display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;">
-                    <strong>${formatted}</strong> ${extraInfo}
+                <input type="checkbox" id="af-date-${d}" class="af-date-checkbox" value="${d}" ${isCheckedAttr} style="cursor: pointer; width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;">
+                <label for="af-date-${d}" style="cursor: pointer; font-size: 0.82rem; font-family: var(--font-mono); color: var(--text-main); display: flex; flex-direction: column; width: 100%;">
+                    <strong>${formatted}</strong>
+                    ${subTourneeLine}
                 </label>
             `;
             datesContainer.appendChild(div);
@@ -766,7 +866,9 @@ async function initClientsAFacturerView() {
             filterMode = 'tournee';
             filterTourneeBtn.classList.add('is-active');
             filterVendeurBtn.classList.remove('is-active');
+            if (filterSecteurBtn) filterSecteurBtn.classList.remove('is-active');
             if (entityLabel) entityLabel.innerHTML = '<i class="fa-solid fa-route"></i> SÉLECTIONNER TOURNÉE';
+            setClientStatusInactif();
             populateEntityDropdown();
         });
         
@@ -774,36 +876,84 @@ async function initClientsAFacturerView() {
             filterMode = 'vendeur';
             filterVendeurBtn.classList.add('is-active');
             filterTourneeBtn.classList.remove('is-active');
+            if (filterSecteurBtn) filterSecteurBtn.classList.remove('is-active');
             if (entityLabel) entityLabel.innerHTML = '<i class="fa-solid fa-user-tie"></i> SÉLECTIONNER VENDEUR';
             populateEntityDropdown();
         });
+
+        if (filterSecteurBtn) {
+            filterSecteurBtn.addEventListener('click', () => {
+                filterMode = 'secteur';
+                filterSecteurBtn.classList.add('is-active');
+                filterTourneeBtn.classList.remove('is-active');
+                filterVendeurBtn.classList.remove('is-active');
+                if (entityLabel) entityLabel.innerHTML = '<i class="fa-solid fa-layer-group"></i> SÉLECTIONNER SECTEUR (ROLE)';
+                populateEntityDropdown();
+            });
+        }
     }
+
+    const statusBtns = [
+        { btn: statusAllBtn, val: 'all' },
+        { btn: statusActifBtn, val: 'actif' },
+        { btn: statusInactifBtn, val: 'inactif' }
+    ];
+    statusBtns.forEach(item => {
+        if (item.btn) {
+            item.btn.addEventListener('click', () => {
+                clientStatusMode = item.val;
+                statusBtns.forEach(s => { if (s.btn) s.btn.classList.remove('is-active'); });
+                item.btn.classList.add('is-active');
+            });
+        }
+    });
     
     if (selectEntity) {
-        selectEntity.addEventListener('change', populateDatesCheckboxes);
+        selectEntity.addEventListener('change', () => {
+            if (filterMode === 'tournee' && selectEntity.value) {
+                setClientStatusInactif();
+            }
+            populateDatesCheckboxes();
+        });
     }
     
     if (btnAnalyze) {
         btnAnalyze.addEventListener('click', async () => {
             const selectedVal = selectEntity ? selectEntity.value : '';
             if (!selectedVal) {
-                showToast("Veuillez sélectionner une tournée ou un vendeur.", "warning");
+                showToast("Veuillez sélectionner une option.", "warning");
                 return;
             }
             
             const checkboxes = document.querySelectorAll('.af-date-checkbox:checked');
-            const dates = Array.from(checkboxes).map(cb => cb.value).sort();
+            let dates = Array.from(checkboxes).map(cb => cb.value).sort();
             
-            if (dates.length < 1) {
-                showToast("Veuillez cocher au moins 1 date à analyser.", "warning");
-                return;
-            }
-            if (dates.length > 3) {
-                showToast("Vous pouvez sélectionner jusqu'à 3 dates maximum.", "warning");
-                return;
+            const isTourneeAnalysis = (filterMode === 'tournee') || (filterMode === 'secteur' && selectSubTournee && selectSubTournee.value !== 'ALL');
+
+            if (!isTourneeAnalysis) {
+                if (dates.length < 1) {
+                    showToast("Veuillez cocher au moins 1 date à analyser.", "warning");
+                    return;
+                }
+                if (dates.length > 3) {
+                    showToast("Vous pouvez sélectionner jusqu'à 3 dates maximum.", "warning");
+                    return;
+                }
             }
             
-            const payload = filterMode === 'tournee' ? { tournee: selectedVal, dates } : { vendeur: selectedVal, dates };
+            let payload = {};
+            if (filterMode === 'tournee') {
+                payload = { tournee: selectedVal, client_status: clientStatusMode, dates };
+            } else if (filterMode === 'vendeur') {
+                payload = { vendeur: selectedVal, client_status: clientStatusMode, dates };
+            } else if (filterMode === 'secteur') {
+                const subTn = selectSubTournee ? selectSubTournee.value : 'ALL';
+                if (subTn && subTn !== 'ALL') {
+                    payload = { tournee: subTn, client_status: clientStatusMode, dates };
+                } else {
+                    payload = { secteur: selectedVal, client_status: clientStatusMode, dates };
+                }
+            }
             
             btnAnalyze.disabled = true;
             btnAnalyze.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ANALYSE EN COURS...';
@@ -838,10 +988,11 @@ async function initClientsAFacturerView() {
         if (resultsWorkspace) resultsWorkspace.style.display = 'flex';
         
         if (kpiAtLeastOne) kpiAtLeastOne.innerText = data.summary.at_least_one || 0;
-        if (kpiAlways) kpiAlways.innerText = data.summary.always_ok;
-        if (kpiLoss) kpiLoss.innerText = data.summary.billing_loss;
-        if (kpiGain) kpiGain.innerText = data.summary.billing_gain;
-        if (kpiNever) kpiNever.innerText = data.summary.never_ok;
+        if (kpiAlways) kpiAlways.innerText = data.summary.always_ok || 0;
+        if (kpiLoss) kpiLoss.innerText = data.summary.billing_loss || 0;
+        if (kpiGain) kpiGain.innerText = data.summary.billing_gain || 0;
+        if (kpiNever) kpiNever.innerText = data.summary.never_ok || 0;
+        if (kpiInactive) kpiInactive.innerText = data.summary.total_inactive || 0;
         if (displayVendeur) displayVendeur.innerText = data.vendeur || 'N/A';
         
         if (tableHeaders) {
@@ -854,7 +1005,7 @@ async function initClientsAFacturerView() {
                 const parts = d.split('-');
                 const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
                 const dt = details[idx] || {};
-                const tourneeSub = dt.tournee ? `<div style="font-size:0.68rem; color:var(--neon-blue); font-weight:normal; margin-top:2px;"><i class="fa-solid fa-route"></i> ${dt.tournee}</div>` : '';
+                const tourneeSub = dt.tournee ? `<div style="font-size:0.68rem; color:var(--neon-blue); font-weight:normal; margin-top:3px;"><i class="fa-solid fa-route"></i> ${dt.tournee}</div>` : '';
                 head += `<th style="text-align: center;">Passage ${idx+1}<br><span style="font-size:0.75rem; color:var(--text-muted);">${formatted}</span>${tourneeSub}</th>`;
             });
             head += '<th style="text-align: center;">Nb Factures</th><th style="text-align: center;">Synthèse</th>';
@@ -862,14 +1013,16 @@ async function initClientsAFacturerView() {
             tableHeaders.appendChild(tr);
         }
         
-        activeFilter = 'all';
+        const isTourneeRes = (filterMode === 'tournee') || (data.metadata && data.metadata.tournee) || (clientStatusMode === 'inactif');
+        activeFilter = isTourneeRes ? 'inactifs' : 'all';
         if (searchClientInput) searchClientInput.value = '';
-        ['af-btn-all', 'af-btn-atleastone', 'af-btn-nofacture', 'af-btn-always', 'af-btn-loss', 'af-btn-gain', 'af-btn-never'].forEach(id => {
+        ['af-btn-all', 'af-btn-atleastone', 'af-btn-nofacture', 'af-btn-always', 'af-btn-loss', 'af-btn-gain', 'af-btn-never', 'af-btn-inactifs'].forEach(id => {
             const btn = document.getElementById(id);
             if (btn) btn.classList.remove('is-active');
         });
-        const btnAll = document.getElementById('af-btn-all');
-        if (btnAll) btnAll.classList.add('is-active');
+        const activeBtnId = isTourneeRes ? 'af-btn-inactifs' : 'af-btn-all';
+        const activeBtn = document.getElementById(activeBtnId);
+        if (activeBtn) activeBtn.classList.add('is-active');
         
         renderAFacturerTable();
     };
@@ -902,44 +1055,90 @@ async function initClientsAFacturerView() {
             filtered = filtered.filter(r => r.synthesis === 'Gagné (Facturé en fin)');
         } else if (activeFilter === 'never') {
             filtered = filtered.filter(r => r.synthesis === 'Jamais Facturé');
+        } else if (activeFilter === 'inactifs') {
+            filtered = filtered.filter(r => r.is_inactif === 1);
         }
         
         if (filtered.length === 0) {
             tbodyDetails.innerHTML = `<tr><td colspan="${analysisResult.dates.length + 4}" style="text-align: center; color: var(--text-muted);">Aucun client ne correspond à ces critères.</td></tr>`;
-            return;
-        }
-        
-        filtered.forEach(r => {
-            const tr = document.createElement('tr');
-            
-            let cells = `<td><code>${r.code}</code></td><td><strong>${r.name}</strong></td>`;
-            let okCount = 0;
-            
-            r.motifs.forEach(m => {
-                const isOk = m.toUpperCase() === 'OK';
-                if (isOk) okCount++;
-                const isNav = m === 'Non visité';
-                const mClass = isOk ? 'neon-text-green' : (isNav ? 'text-muted' : 'neon-text-pink');
-                const boldStart = isOk ? '<strong>' : '';
-                const boldEnd = isOk ? '</strong>' : '';
-                cells += `<td style="text-align: center;" class="${mClass}">${boldStart}${m}${boldEnd}</td>`;
-            });
-            
-            let synthClass = 'text-muted';
-            if (r.synthesis === 'Toujours Facturé') synthClass = 'neon-text-green';
-            if (r.synthesis === 'Perte de facturation') synthClass = 'neon-text-pink';
-            if (r.synthesis === 'Gagné (Facturé en fin)') synthClass = 'neon-text-blue';
-            if (r.synthesis === 'Jamais Facturé') synthClass = 'neon-text-amber';
-            
-            const badgeStyle = okCount > 0 ? 'background: rgba(0,230,118,0.15); color: var(--neon-green); border: 1px solid rgba(0,230,118,0.3);' : 'background: rgba(255,171,0,0.15); color: var(--neon-amber); border: 1px solid rgba(255,171,0,0.3);';
-            const factBadge = `<span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; ${badgeStyle}">${okCount} / ${analysisResult.dates.length}</span>`;
+        } else {
+            filtered.forEach(r => {
+                const tr = document.createElement('tr');
+                const inactifBadge = r.is_inactif === 1 ? '<span style="background: rgba(255,171,0,0.2); color: var(--neon-amber); border: 1px solid rgba(255,171,0,0.4); padding: 1px 6px; border-radius: 3px; font-size: 0.65rem; margin-left: 0.35rem; font-weight: bold;">INACTIF</span>' : '';
+                
+                let cells = `<td><code>${r.code}</code></td><td><strong>${r.name}</strong>${inactifBadge}</td>`;
+                let okCount = 0;
+                
+                r.motifs.forEach(m => {
+                    const isOk = m.toUpperCase() === 'OK';
+                    if (isOk) okCount++;
+                    const isNav = m === 'Non visité';
+                    const mClass = isOk ? 'neon-text-green' : (isNav ? 'text-muted' : 'neon-text-pink');
+                    const boldStart = isOk ? '<strong>' : '';
+                    const boldEnd = isOk ? '</strong>' : '';
+                    cells += `<td style="text-align: center;" class="${mClass}">${boldStart}${m}${boldEnd}</td>`;
+                });
+                
+                let synthClass = 'text-muted';
+                if (r.synthesis === 'Toujours Facturé') synthClass = 'neon-text-green';
+                if (r.synthesis === 'Perte de facturation') synthClass = 'neon-text-pink';
+                if (r.synthesis === 'Gagné (Facturé en fin)') synthClass = 'neon-text-blue';
+                if (r.synthesis === 'Jamais Facturé') synthClass = 'neon-text-amber';
+                
+                const badgeStyle = okCount > 0 ? 'background: rgba(0,230,118,0.15); color: var(--neon-green); border: 1px solid rgba(0,230,118,0.3);' : 'background: rgba(255,171,0,0.15); color: var(--neon-amber); border: 1px solid rgba(255,171,0,0.3);';
+                const factBadge = `<span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; ${badgeStyle}">${okCount} / ${analysisResult.dates.length}</span>`;
 
-            cells += `<td style="text-align: center;">${factBadge}</td>`;
-            cells += `<td style="text-align: center;"><span class="${synthClass}" style="font-weight: bold; text-transform: uppercase;">${r.synthesis}</span></td>`;
-            
-            tr.innerHTML = cells;
-            tbodyDetails.appendChild(tr);
+                cells += `<td style="text-align: center;">${factBadge}</td>`;
+                cells += `<td style="text-align: center;"><span class="${synthClass}" style="font-weight: bold; text-transform: uppercase;">${r.synthesis}</span></td>`;
+                
+                tr.innerHTML = cells;
+                tbodyDetails.appendChild(tr);
+            });
+        }
+
+        // Dynamically update top KPI statistics to match current filtered list!
+        let atLeastOneCnt = 0;
+        let alwaysCnt = 0;
+        let lossCnt = 0;
+        let gainCnt = 0;
+        let neverCnt = 0;
+        let inactiveCnt = 0;
+
+        filtered.forEach(r => {
+            const hasFact = r.has_facture || r.motifs.some(m => m && m.toUpperCase() === 'OK');
+            if (hasFact) atLeastOneCnt++;
+            if (r.synthesis === 'Toujours Facturé') alwaysCnt++;
+            if (r.synthesis === 'Perte de facturation') lossCnt++;
+            if (r.synthesis === 'Gagné (Facturé en fin)') gainCnt++;
+            if (r.synthesis === 'Jamais Facturé' || !hasFact) neverCnt++;
+            if (r.is_inactif === 1) inactiveCnt++;
         });
+
+        if (kpiAtLeastOne) kpiAtLeastOne.innerText = atLeastOneCnt;
+        if (kpiAlways) kpiAlways.innerText = alwaysCnt;
+        if (kpiLoss) kpiLoss.innerText = lossCnt;
+        if (kpiGain) kpiGain.innerText = gainCnt;
+        if (kpiNever) kpiNever.innerText = neverCnt;
+        if (kpiInactive) kpiInactive.innerText = inactiveCnt;
+
+        // Update active KPI card highlight outline
+        const cardHighlightMap = {
+            'atleastone': 'af-card-atleastone',
+            'always': 'af-card-always',
+            'loss': 'af-card-loss',
+            'gain': 'af-card-gain',
+            'never': 'af-card-never',
+            'nofacture': 'af-card-never',
+            'inactifs': 'af-card-inactifs'
+        };
+        Object.values(cardHighlightMap).forEach(cId => {
+            const c = document.getElementById(cId);
+            if (c) c.style.outline = 'none';
+        });
+        if (cardHighlightMap[activeFilter]) {
+            const activeCard = document.getElementById(cardHighlightMap[activeFilter]);
+            if (activeCard) activeCard.style.outline = '2px solid var(--neon-blue)';
+        }
     };
     
     const filterBtnMap = {
@@ -949,7 +1148,8 @@ async function initClientsAFacturerView() {
         'af-btn-always': 'always',
         'af-btn-loss': 'loss',
         'af-btn-gain': 'gain',
-        'af-btn-never': 'never'
+        'af-btn-never': 'never',
+        'af-btn-inactifs': 'inactifs'
     };
     
     Object.entries(filterBtnMap).forEach(([id, filter]) => {
@@ -963,6 +1163,25 @@ async function initClientsAFacturerView() {
                 });
                 btn.classList.add('is-active');
                 renderAFacturerTable();
+            });
+        }
+    });
+
+    const cardFilterMap = {
+        'af-card-atleastone': 'af-btn-atleastone',
+        'af-card-always': 'af-btn-always',
+        'af-card-loss': 'af-btn-loss',
+        'af-card-gain': 'af-btn-gain',
+        'af-card-never': 'af-btn-never',
+        'af-card-inactifs': 'af-btn-inactifs'
+    };
+
+    Object.entries(cardFilterMap).forEach(([cardId, btnId]) => {
+        const card = document.getElementById(cardId);
+        if (card) {
+            card.addEventListener('click', () => {
+                const btn = document.getElementById(btnId);
+                if (btn) btn.click();
             });
         }
     });
@@ -980,6 +1199,18 @@ async function initClientsAFacturerView() {
             
             const uploadModal = document.getElementById('visites-upload-modal');
             if (uploadModal) uploadModal.classList.add('open');
+        });
+    }
+
+    const importAcmBtn = document.getElementById('af-import-acm-btn');
+    if (importAcmBtn) {
+        importAcmBtn.addEventListener('click', () => {
+            initAcmUploadModal();
+            const uploadModal = document.getElementById('acm-upload-modal');
+            if (uploadModal) uploadModal.classList.add('open');
+            window.acmUploadCallback = async () => {
+                await loadAvailableVisites();
+            };
         });
     }
     
@@ -1343,23 +1574,28 @@ function initVisitesUploadModal() {
                     const result = await response.json();
 
                     if (result.status === 'success') {
-                        // Automatically register to DB
-                        const saveRes = await fetch('/api/clients/enregistrer_visites', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                metadata: result.metadata,
-                                clients_ok: result.clients_ok,
-                                clients_no_ok: result.clients_no_ok
-                            })
-                        });
-                        const saveJson = await saveRes.json();
-                        if (saveJson.status === 'success') {
+                        if (result.is_acm) {
                             successCount++;
-                            lastResultData = result;
+                            showToast(result.message, "success");
                         } else {
-                            failCount++;
-                            showToast(`Erreur d'enregistrement sur ${file.name}: ${saveJson.message}`, "error");
+                            // Automatically register to DB
+                            const saveRes = await fetch('/api/clients/enregistrer_visites', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    metadata: result.metadata,
+                                    clients_ok: result.clients_ok,
+                                    clients_no_ok: result.clients_no_ok
+                                })
+                            });
+                            const saveJson = await saveRes.json();
+                            if (saveJson.status === 'success') {
+                                successCount++;
+                                lastResultData = result;
+                            } else {
+                                failCount++;
+                                showToast(`Erreur d'enregistrement sur ${file.name}: ${saveJson.message}`, "error");
+                            }
                         }
                     } else {
                         failCount++;
@@ -1443,7 +1679,128 @@ function initVisitesUploadModal() {
     }
 
     window.resetVisitesUploadForm = resetUploadForm;
-}; // 'global', 'vendeur', 'secteur'
+}
+
+let acmUploadInitialized = false;
+function initAcmUploadModal() {
+    if (acmUploadInitialized) return;
+    acmUploadInitialized = true;
+
+    const uploadModal = document.getElementById('acm-upload-modal');
+    const closeUploadModalBtn = document.getElementById('close-acm-upload-modal');
+    const cancelUploadBtn = document.getElementById('cancel-acm-upload');
+    const dropzone = document.getElementById('acm-dropzone');
+    const fileInput = document.getElementById('acm-file-input');
+    const fileInfo = document.getElementById('acm-file-info');
+    const fileNameSpan = document.getElementById('acm-file-name');
+    const fileClearBtn = document.getElementById('acm-file-clear');
+    const submitUploadBtn = document.getElementById('submit-acm-upload');
+
+    let selectedAcmFile = null;
+
+    const resetForm = () => {
+        selectedAcmFile = null;
+        if (fileInput) fileInput.value = '';
+        if (fileInfo) fileInfo.style.display = 'none';
+        if (dropzone) dropzone.style.borderColor = 'var(--border-color)';
+        if (dropzone) dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+    };
+
+    [closeUploadModalBtn, cancelUploadBtn].forEach(btn => {
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (uploadModal) uploadModal.classList.remove('open');
+            });
+        }
+    });
+
+    if (dropzone && fileInput) {
+        dropzone.addEventListener('click', () => fileInput.click());
+
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'var(--neon-green)';
+            dropzone.style.backgroundColor = 'rgba(0, 230, 118, 0.05)';
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.style.borderColor = 'var(--border-color)';
+            dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'var(--border-color)';
+            dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleFileSelect(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+    }
+
+    const handleFileSelect = (file) => {
+        if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+            showToast("Le fichier ACM doit être au format Excel (.xlsx, .xls)", "error");
+            return;
+        }
+        selectedAcmFile = file;
+        if (fileNameSpan) fileNameSpan.innerText = `Fichier : ${file.name}`;
+        if (fileInfo) fileInfo.style.display = 'flex';
+    };
+
+    if (fileClearBtn) {
+        fileClearBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetForm();
+        });
+    }
+
+    if (submitUploadBtn) {
+        submitUploadBtn.addEventListener('click', async () => {
+            if (!selectedAcmFile) {
+                showToast("Veuillez sélectionner le fichier ACM (acm.xlsx).", "warning");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', selectedAcmFile);
+
+            submitUploadBtn.disabled = true;
+            submitUploadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> IMPORTATION...';
+
+            try {
+                const response = await fetch('/api/clients/import_acm', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    showToast(result.message, "success");
+                    if (uploadModal) uploadModal.classList.remove('open');
+                    resetForm();
+                    if (typeof window.acmUploadCallback === 'function') {
+                        await window.acmUploadCallback();
+                    }
+                } else {
+                    showToast("Erreur d'importation : " + result.message, "error");
+                }
+            } catch (err) {
+                console.error("Error importing ACM file:", err);
+                showToast("Erreur de connexion avec le serveur.", "error");
+            } finally {
+                submitUploadBtn.disabled = false;
+                submitUploadBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> IMPORTER EN BASE';
+            }
+        });
+    }
+}
 let currentFilterType = 'all'; // 'all', 'som', 'vmm'
 let quantiChartInstance = null;
 let qualiChartInstance = null;
@@ -3933,22 +4290,24 @@ function renderQuantiTable(records) {
         if (isGlobal) {
             headerRow.innerHTML = `
                 <th>Famille</th>
-                <th>Réalisé (DH)</th>
-                <th>Objectif (DH)</th>
+                <th>J-1</th>
+                <th>Réalisé (HT)</th>
+                <th>Objectif (HT)</th>
                 <th>% Taux</th>
-                <th>Réal 2025 (DH)</th>
-                <th>Obj Mois (DH)</th>
+                <th>Réal 2025 (HT)</th>
+                <th>Obj Mois (HT)</th>
                 <th>Reste à Faire (RAF)</th>
                 <th>RAF Jour</th>
             `;
         } else {
             headerRow.innerHTML = `
                 <th>Famille</th>
-                <th>Réalisé (DH)</th>
-                <th>Objectif (DH)</th>
+                <th>J-1</th>
+                <th>Réalisé (HT)</th>
+                <th>Objectif (HT)</th>
                 <th>% Taux</th>
-                <th>Réal 2025 (DH)</th>
-                <th>Obj Mois (DH)</th>
+                <th>Réal 2025 (HT)</th>
+                <th>Obj Mois (HT)</th>
                 <th>Reste à Faire (RAF)</th>
             `;
         }
@@ -3958,8 +4317,9 @@ function renderQuantiTable(records) {
     const families = {};
     records.forEach(r => {
         if (!families[r.famille]) {
-            families[r.famille] = { real: 0, obj: 0, real2025: 0, objMois: 0, raf: 0 };
+            families[r.famille] = { j1: 0, real: 0, obj: 0, real2025: 0, objMois: 0, raf: 0 };
         }
+        families[r.famille].j1 += (r.j1 || r.j_1 || 0);
         families[r.famille].real += r.real;
         families[r.famille].obj += r.obj;
         families[r.famille].real2025 += r.real_2025;
@@ -3969,11 +4329,14 @@ function renderQuantiTable(records) {
 
     const customOrder = [
         "LEVURE",
+        "MGM",
         "MOUSSES",
         "BOUILLON",
         "CONDIMENTS",
+        "SAUCES TACOS",
         "CONFITURE",
-        "CONSERVES"
+        "CONSERVES",
+        "MISWAK"
     ];
 
     const sortedFamilies = Object.keys(families).sort((a, b) => {
@@ -3994,7 +4357,6 @@ function renderQuantiTable(records) {
 
     sortedFamilies.forEach(fam => {
         const data = families[fam];
-        const pct = data.obj > 0 ? ((data.real / data.obj) - 1) * 100 : -100;
         const tr = document.createElement('tr');
         
         if (fam === 'C.A (ht)' || fam === 'C.A (TTC)') {
@@ -4003,14 +4365,21 @@ function renderQuantiTable(records) {
             tr.style.borderTop = '2px solid var(--neon-blue)';
         }
 
-        const pctClass = pct >= 0 ? 'neon-text-green' : (pct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
-        const pctSign = pct >= 0 ? '+' : '';
+        let pctText = '#DIV/0!';
+        let pctClass = '';
+        if (data.obj > 0) {
+            const pct = ((data.real / data.obj) - 1) * 100;
+            pctClass = pct >= 0 ? 'neon-text-green' : (pct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
+            const pctSign = pct >= 0 ? '+' : '';
+            pctText = `${pctSign}${pct.toFixed(0)}%`;
+        }
 
         let cellsHtml = `
             <td><strong>${fam}</strong></td>
+            <td><strong>${formatNumber(data.j1)}</strong></td>
             <td>${formatNumber(data.real)}</td>
             <td>${formatNumber(data.obj)}</td>
-            <td class="${pctClass}">${pctSign}${pct.toFixed(1)}%</td>
+            <td class="${pctClass}">${pctText}</td>
             <td>${formatNumber(data.real2025)}</td>
             <td>${formatNumber(data.objMois)}</td>
             <td class="neon-text-amber">${formatNumber(data.raf)}</td>
@@ -4027,7 +4396,7 @@ function renderQuantiTable(records) {
     });
 
     if (sortedFamilies.length === 0) {
-        const colspan = isGlobal ? 8 : 7;
+        const colspan = isGlobal ? 9 : 8;
         quantiTableBody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;">Aucune donnée disponible</td></tr>`;
     }
 }

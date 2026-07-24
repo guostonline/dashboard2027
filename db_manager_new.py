@@ -159,6 +159,9 @@ def save_quantitative_data(date, data_dict):
 
     for q in data_dict:
         if q.get("famille") and q.get("famille") != "C.A (ht)":
+            q_real = q.get("real", 0) or 0
+            q_obj = q.get("obj", 0) or 0
+            h_pct_val = 0.0 if (q_real == 0 and q_obj == 0) else q.get("h_pct", 0.0)
             cursor.execute("""
             INSERT OR REPLACE INTO quantitative_data
             (date, vendeur, famille, real, obj, percent, real_2025, h_2024, h_pct, encours, obj_mois, raf)
@@ -167,12 +170,12 @@ def save_quantitative_data(date, data_dict):
                 date,
                 q.get("vendeur", ""),
                 q.get("famille", ""),
-                q.get("real", 0),
-                q.get("obj", 0),
+                q_real,
+                q_obj,
                 q.get("percent", 0.0),
                 q.get("real_2025", 0),
                 q.get("h_2024", 0),
-                q.get("h_pct", 0.0),
+                h_pct_val,
                 q.get("encours", 0),
                 q.get("obj_mois", 0),
                 q.get("raf", 0)

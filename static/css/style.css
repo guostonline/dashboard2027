@@ -1151,8 +1151,11 @@ body.light-mode .bg-vignette {
 .table-container {
     width: 100%;
     overflow-x: auto;
-    max-height: 550px;
+    max-height: 750px;
+    min-height: 400px;
     overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
 }
 
 .cyber-table {
@@ -1163,7 +1166,7 @@ body.light-mode .bg-vignette {
 }
 
 .cyber-table th {
-    background: #0c1222; /* Fully opaque background to prevent row text overlap */
+    background: var(--card-bg, #0c1222); /* Opaque background matching card theme to prevent row overlap */
     font-family: var(--font-mono);
     color: var(--text-muted);
     font-weight: 600;

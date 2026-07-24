@@ -78,6 +78,7 @@ def init_db():
         date TEXT NOT NULL,
         vendeur TEXT NOT NULL,
         famille TEXT NOT NULL,
+        j1 INTEGER DEFAULT 0,
         real INTEGER DEFAULT 0,
         obj INTEGER DEFAULT 0,
         percent REAL DEFAULT 0.0,
@@ -210,6 +211,27 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_full_vendeur_som ON clients_full(vendeur_som)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_full_vendeur_vmm ON clients_full(vendeur_vmm)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_full_is_repeat ON clients_full(is_repeat)")
+
+    # 7b. Clients ACM - stores full master list of clients, Secteurs, Tournées, Active/Inactive status, and Turnover from acm.xlsx
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS clients_acm (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agence TEXT NOT NULL DEFAULT '',
+        role_vendeur TEXT NOT NULL DEFAULT '',
+        tournee TEXT NOT NULL DEFAULT '',
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        is_actif INTEGER NOT NULL DEFAULT 0,
+        is_inactif INTEGER NOT NULL DEFAULT 0,
+        ca_ht_y1 REAL NOT NULL DEFAULT 0.0,
+        ca_ht REAL NOT NULL DEFAULT 0.0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_acm_code ON clients_acm(code)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_acm_role ON clients_acm(role_vendeur)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_acm_tournee ON clients_acm(tournee)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_acm_inactif ON clients_acm(is_inactif)")
 
     # 8. FDV (Force De Vente) - the sales-force roster. One row per
     #    vendeur with their sector, contact info, status, etc. The
@@ -351,22 +373,25 @@ def init_db():
     if "file_content" not in meta_cols:
         cursor.execute("ALTER TABLE file_metadata ADD COLUMN file_content BLOB")
 
-    # Migration for converting HT to TTC in quantitative_data
-    cursor.execute("SELECT COUNT(*) FROM quantitative_data WHERE famille = 'C.A (ht)'")
+    # Migration for quantitative_data: add j1 column and convert TTC to HT if needed
+    cursor.execute("PRAGMA table_info(quantitative_data)")
+    q_cols = {row[1] for row in cursor.fetchall()}
+    if "j1" not in q_cols:
+        cursor.execute("ALTER TABLE quantitative_data ADD COLUMN j1 INTEGER DEFAULT 0")
+
+    cursor.execute("SELECT COUNT(*) FROM quantitative_data WHERE famille = 'C.A (TTC)'")
     if cursor.fetchone()[0] > 0:
-        print("[MIGRATION] Migrating database quantitative_data from HT to TTC...")
-        # Rename 'C.A (ht)' to 'C.A (TTC)'
-        cursor.execute("UPDATE quantitative_data SET famille = 'C.A (TTC)' WHERE famille = 'C.A (ht)'")
-        # Multiply all currency columns by 1.2
+        print("[MIGRATION] Migrating database quantitative_data from TTC back to HT...")
+        cursor.execute("UPDATE quantitative_data SET famille = 'C.A (ht)' WHERE famille = 'C.A (TTC)'")
         cursor.execute("""
             UPDATE quantitative_data
-            SET real = ROUND(real * 1.2),
-                obj = ROUND(obj * 1.2),
-                real_2025 = ROUND(real_2025 * 1.2),
-                h_2024 = ROUND(h_2024 * 1.2),
-                encours = ROUND(encours * 1.2),
-                obj_mois = ROUND(obj_mois * 1.2),
-                raf = ROUND(raf * 1.2)
+            SET real = ROUND(real / 1.2),
+                obj = ROUND(obj / 1.2),
+                real_2025 = ROUND(real_2025 / 1.2),
+                h_2024 = ROUND(h_2024 / 1.2),
+                encours = ROUND(encours / 1.2),
+                obj_mois = ROUND(obj_mois / 1.2),
+                raf = ROUND(raf / 1.2)
         """)
 
     # 14. Anomalies table
@@ -472,20 +497,24 @@ def save_quantitative_data(date, data_dict):
 
     for q in data_dict:
         if q.get("famille"):
+            q_real = q.get("real", 0) or 0
+            q_obj = q.get("obj", 0) or 0
+            h_pct_val = 0.0 if (q_real == 0 and q_obj == 0) else q.get("h_pct", 0.0)
             cursor.execute("""
             INSERT OR REPLACE INTO quantitative_data
-            (date, vendeur, famille, real, obj, percent, real_2025, h_2024, h_pct, encours, obj_mois, raf)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (date, vendeur, famille, j1, real, obj, percent, real_2025, h_2024, h_pct, encours, obj_mois, raf)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 date,
                 q.get("vendeur", ""),
                 q.get("famille", ""),
-                q.get("real", 0),
-                q.get("obj", 0),
+                q.get("j1", q.get("j_1", 0)),
+                q_real,
+                q_obj,
                 q.get("percent", 0.0),
                 q.get("real_2025", 0),
                 q.get("h_2024", 0),
-                q.get("h_pct", 0.0),
+                h_pct_val,
                 q.get("encours", 0),
                 q.get("obj_mois", 0),
                 q.get("raf", 0)
@@ -508,7 +537,7 @@ def get_quantitative_data(date, exclude_families=None):
     cursor = conn.cursor()
 
     query = """
-    SELECT vendeur, famille, real, obj, percent, real_2025, h_2024, h_pct, encours, obj_mois, raf
+    SELECT vendeur, famille, COALESCE(j1, 0) as j1, real, obj, percent, real_2025, h_2024, h_pct, encours, obj_mois, raf
     FROM quantitative_data
     WHERE date = ?
     """
@@ -953,7 +982,7 @@ def get_all_suivi_data_records():
     placeholders = ",".join(["?" for _ in dates])
 
     cursor.execute(
-        f"SELECT vendeur, famille, real, obj, percent, real_2025, h_2024, h_pct, "
+        f"SELECT vendeur, famille, COALESCE(j1, 0) as j1, real, obj, percent, real_2025, h_2024, h_pct, "
         f"encours, obj_mois, raf, date FROM quantitative_data WHERE date IN ({placeholders})",
         dates,
     )
@@ -2594,19 +2623,23 @@ def toggle_subtask_completed(subsub_id, completed):
 
 
 def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, records):
-    """Save raw visit report details to database, overwriting previous entries for the same date and vendeur."""
+    """Save raw visit report details to database, overwriting previous entries for the same dates and vendeur."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Clean previous records for this seller on this date
-        cursor.execute("""
-            DELETE FROM visites_rapports
-            WHERE vendeur = ? AND date_visite = ?
-        """, (vendeur, date_visite))
+        # Collect all unique dates present in records
+        unique_dates = list(set([r.get("date") for r in records if r.get("date")] + ([date_visite] if date_visite and date_visite != "N/A" else [])))
+        
+        # Clean previous records for this seller on these dates or file_name
+        if file_name and file_name != "upload.xlsx":
+            cursor.execute("DELETE FROM visites_rapports WHERE file_name = ?", (file_name,))
+        if vendeur and unique_dates:
+            placeholders = ",".join(["?" for _ in unique_dates])
+            cursor.execute(f"DELETE FROM visites_rapports WHERE vendeur = ? AND date_visite IN ({placeholders})", [vendeur] + unique_dates)
         
         # Insert new records
         for r in records:
-            # Parse distance safely
+            r_date = r.get("date") or date_visite
             dist_str = str(r.get("distance", "0")).replace("m", "").replace(" ", "").strip()
             try:
                 dist = int(dist_str)
@@ -2620,7 +2653,7 @@ def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, recor
             """, (
                 file_name,
                 vendeur,
-                date_visite,
+                r_date,
                 tournee,
                 agence,
                 r.get("code", ""),
@@ -2636,6 +2669,151 @@ def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, recor
     except Exception as e:
         print(f"Error saving visits rapport: {e}")
         return False
+    finally:
+        conn.close()
+
+
+def save_clients_acm(rows):
+    """Clear and bulk insert rows into clients_acm table."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM clients_acm")
+        cursor.execute("DELETE FROM sqlite_sequence WHERE name='clients_acm'")
+        
+        cursor.executemany("""
+            INSERT INTO clients_acm
+            (agence, role_vendeur, tournee, code, name, is_actif, is_inactif, ca_ht_y1, ca_ht)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [(
+            r.get("agence", ""),
+            r.get("role_vendeur", ""),
+            r.get("tournee", ""),
+            r.get("code", ""),
+            r.get("name", ""),
+            r.get("is_actif", 0),
+            r.get("is_inactif", 0),
+            r.get("ca_ht_y1", 0.0),
+            r.get("ca_ht", 0.0)
+        ) for r in rows])
+        
+        conn.commit()
+        return len(rows)
+    except Exception as e:
+        print(f"Error saving clients_acm: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
+def import_acm_file(file_path_or_stream):
+    """Parse and import acm.xlsx file into clients_acm."""
+    import pandas as pd
+    try:
+        if hasattr(file_path_or_stream, 'seek'):
+            file_path_or_stream.seek(0)
+        df = pd.read_excel(file_path_or_stream, skiprows=2)
+        col_map = {}
+        for c in df.columns:
+            cl = str(c).strip().lower()
+            if "agence" in cl: col_map["agence"] = c
+            elif "role" in cl: col_map["role"] = c
+            elif "tourne" in cl: col_map["tournee"] = c
+            elif "code" in cl: col_map["code"] = c
+            elif "nom" in cl: col_map["name"] = c
+            elif "inactif" in cl and "%" not in cl: col_map["inactif"] = c
+            elif "actif" in cl and "%" not in cl and "inactif" not in cl: col_map["actif"] = c
+            elif "y-1" in cl: col_map["ca_y1"] = c
+            elif "ca ht" in cl or "ca_ht" in cl: col_map["ca"] = c
+            
+        rows = []
+        for _, row in df.iterrows():
+            c_code = str(row[col_map["code"]]).strip() if "code" in col_map and pd.notna(row[col_map["code"]]) else ""
+            c_name = str(row[col_map["name"]]).strip() if "name" in col_map and pd.notna(row[col_map["name"]]) else ""
+            if not c_code or c_code.lower() in ("nan", "none", "null", ""):
+                continue
+                
+            agence = str(row[col_map["agence"]]).strip() if "agence" in col_map and pd.notna(row[col_map["agence"]]) else ""
+            role = str(row[col_map["role"]]).strip() if "role" in col_map and pd.notna(row[col_map["role"]]) else ""
+            tournee = str(row[col_map["tournee"]]).strip() if "tournee" in col_map and pd.notna(row[col_map["tournee"]]) else ""
+            
+            inactif_val = row[col_map["inactif"]] if "inactif" in col_map and pd.notna(row[col_map["inactif"]]) else 0
+            actif_val = row[col_map["actif"]] if "actif" in col_map and pd.notna(row[col_map["actif"]]) else 0
+            
+            try: is_inactif = 1 if float(inactif_val) > 0 else 0
+            except: is_inactif = 0
+            
+            try: is_actif = 1 if float(actif_val) > 0 else 0
+            except: is_actif = 0
+            
+            try: ca_y1 = float(row[col_map["ca_y1"]]) if "ca_y1" in col_map and pd.notna(row[col_map["ca_y1"]]) else 0.0
+            except: ca_y1 = 0.0
+            
+            try: ca = float(row[col_map["ca"]]) if "ca" in col_map and pd.notna(row[col_map["ca"]]) else 0.0
+            except: ca = 0.0
+            
+            rows.append({
+                "agence": agence,
+                "role_vendeur": role,
+                "tournee": tournee,
+                "code": c_code,
+                "name": c_name,
+                "is_actif": is_actif,
+                "is_inactif": is_inactif,
+                "ca_ht_y1": ca_y1,
+                "ca_ht": ca
+            })
+            
+        return save_clients_acm(rows)
+    except Exception as e:
+        print(f"Error importing ACM file: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
+
+
+def get_acm_stats():
+    """Return summary statistics for clients_acm."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(is_actif) as active,
+                SUM(is_inactif) as inactive,
+                COUNT(DISTINCT tournee) as tournees,
+                COUNT(DISTINCT role_vendeur) as secteurs,
+                ROUND(SUM(ca_ht), 2) as total_ca
+            FROM clients_acm
+        """)
+        row = cursor.fetchone()
+        return dict(row) if row else {"total": 0, "active": 0, "inactive": 0, "tournees": 0, "secteurs": 0, "total_ca": 0}
+    except Exception as e:
+        print(f"Error getting ACM stats: {e}")
+        return {"total": 0, "active": 0, "inactive": 0, "tournees": 0, "secteurs": 0, "total_ca": 0}
+    finally:
+        conn.close()
+
+
+def get_acm_tournees():
+    """Return list of distinct tournées from clients_acm."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT DISTINCT tournee FROM clients_acm WHERE tournee != '' ORDER BY tournee ASC")
+        return [row["tournee"] for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_acm_vendeurs():
+    """Return list of distinct vendeurs/roles from clients_acm."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT DISTINCT role_vendeur FROM clients_acm WHERE role_vendeur != '' ORDER BY role_vendeur ASC")
+        return [row["role_vendeur"] for row in cursor.fetchall()]
     finally:
         conn.close()
 

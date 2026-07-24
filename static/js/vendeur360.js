@@ -507,22 +507,26 @@ function renderV360QuantiChart(quantiRows) {
     });
 
     const labels = sorted.map(r => r.famille);
-    // Use percent vs H-1 (h_pct field) - already decimal e.g. 0.23 = +23%
+    // Use percent field for Realization vs Objective deviation (%) - already decimal e.g. -0.109 = -11%
     const values = sorted.map(r => {
-        const pct = r.h_pct !== undefined ? r.h_pct : r.percent;
+        if ((!r.real || r.real === 0) && (!r.obj || r.obj === 0)) {
+            return 0;
+        }
+        const pct = r.percent !== undefined ? r.percent : (r.obj > 0 ? (r.real / r.obj - 1.0) : 0);
         return Math.round((pct || 0) * 100);
     });
 
     const colors = values.map(v => {
-        if (v > 0) return '#22c55e';       // green
-        if (v > -15) return '#f59e0b';     // amber
-        return '#ef4444';                   // red
+        if (v > 0) return '#22c55e';       // green (exceeded objective)
+        if (v >= -15) return '#f59e0b';    // amber (near objective)
+        return '#ef4444';                  // red (behind objective)
     });
 
     // Update vendeur label
     const labelEl = document.getElementById('v360-quanti-vendeur-label');
     if (labelEl && quantiRows[0]) {
-        labelEl.textContent = (quantiRows[0].vendeur || '').toUpperCase();
+        const vName = (quantiRows[0].vendeur || '').toUpperCase();
+        labelEl.textContent = vName ? ` - ${vName}` : '';
     }
 
     v360QuantiChartInstance = new Chart(ctx, {
@@ -530,7 +534,7 @@ function renderV360QuantiChart(quantiRows) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Évolution vs H-1 (%)',
+                label: 'Écart / Objectif (%)',
                 data: values,
                 backgroundColor: colors,
                 borderRadius: 4,
@@ -575,7 +579,7 @@ function renderV360QuantiChart(quantiRows) {
                     }
                 }
             },
-            layout: { padding: { right: 40 } },
+            layout: { padding: { right: 40, left: 10 } },
             animation: {
                 duration: 600,
                 easing: 'easeOutQuart'
@@ -591,13 +595,25 @@ function renderV360QuantiChart(quantiRows) {
                     const bar = meta.data[i];
                     if (!bar) return;
                     const isPos = val >= 0;
-                    const x = isPos ? bar.x + 5 : bar.x - 5;
                     const y = bar.y;
                     ctx.fillStyle = isLight ? '#0f172a' : '#e2e8f0';
                     ctx.font = 'bold 10px JetBrains Mono, monospace';
-                    ctx.textAlign = isPos ? 'left' : 'right';
                     ctx.textBaseline = 'middle';
-                    ctx.fillText(`${val > 0 ? '+' : ''}${val}%`, x, y);
+
+                    if (isPos) {
+                        ctx.textAlign = 'left';
+                        ctx.fillText(`+${val}%`, bar.x + 5, y);
+                    } else {
+                        // For negative bars, if bar.x is near left axis margin, draw text inside or right of bar
+                        const minLeftX = (scales.x ? scales.x.left : 0) + 40;
+                        if (bar.x - 5 < minLeftX) {
+                            ctx.textAlign = 'left';
+                            ctx.fillText(`${val}%`, bar.x + 5, y);
+                        } else {
+                            ctx.textAlign = 'right';
+                            ctx.fillText(`${val}%`, bar.x - 5, y);
+                        }
+                    }
                 });
                 ctx.restore();
             }
@@ -652,7 +668,8 @@ function renderV360QualiChart(qualiRow) {
     // Update vendeur label
     const labelEl = document.getElementById('v360-quali-vendeur-label');
     if (labelEl && qualiRow.vendeur) {
-        labelEl.textContent = qualiRow.vendeur.toUpperCase();
+        const vName = qualiRow.vendeur.toUpperCase();
+        labelEl.textContent = vName ? ` - ${vName}` : '';
     }
 
     v360QualiChartInstance = new Chart(ctx, {

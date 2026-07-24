@@ -690,8 +690,8 @@ class ExcelProcessor:
             for _, row in df_quanti_clean.iterrows():
                 try:
                     famille_name = str(row.get("Famille", "")).strip()
-                    if famille_name.upper() == "C.A (HT)":
-                        famille_name = "C.A (TTC)"
+                    if famille_name.upper() == "C.A (TTC)":
+                        famille_name = "C.A (ht)"
                     exclude_set = {f.strip().upper() for f in self.exclude_families if f.strip()}
                     if famille_name.upper() in exclude_set:
                         continue
@@ -701,48 +701,50 @@ class ExcelProcessor:
                     if pd.isna(pct) or isinstance(pct, str):
                         pct = 0.0
                     
-                    # Convert to TTC by multiplying by 1.2
+                    # Read raw HT values directly from Excel (do not multiply by 1.2)
+                    raw_j1 = 0.0
+                    for k in ["J-1", "j-1", "J_1", "j_1"]:
+                        matching_col = next((c for c in row.index if str(c).strip().upper() == k), None)
+                        if matching_col and pd.notna(row.get(matching_col)):
+                            try:
+                                raw_j1 = float(row.get(matching_col))
+                            except Exception:
+                                pass
+                            break
+
                     raw_real = float(row.get("REAL", 0)) if pd.notna(row.get("REAL")) else 0.0
                     raw_obj = float(row.get("OBJ", 0)) if pd.notna(row.get("OBJ")) else 0.0
                     raw_real_2025 = float(row.get("REAL 2025", 0)) if pd.notna(row.get("REAL 2025")) else 0.0
                     raw_h_2024 = float(row.get("H 2024", 0)) if pd.notna(row.get("H 2024")) else 0.0
                     raw_encours = float(row.get("EnCours", 0)) if pd.notna(row.get("EnCours")) else 0.0
                     raw_obj_mois = float(row.get("OBJ MOIS", 0)) if pd.notna(row.get("OBJ MOIS")) else 0.0
-                    # Look up RAF column with support for "RAF TTC" (pre-tax-converted) and "RAF" (HT)
-                    raw_raf = 0.0
-                    is_already_ttc = False
                     
-                    # 1. Check for explicit RAF TTC headers
-                    for k in ["RAF TTC", "raf ttc", "RAF_TTC"]:
-                        # Perform case-insensitive header lookup if not exact
+                    raw_raf = 0.0
+                    for k in ["RAF", "raf", "RAF TTC", "raf ttc", "RAF_TTC"]:
                         matching_col = next((c for c in row.index if str(c).strip().upper() == k), None)
                         if matching_col and pd.notna(row.get(matching_col)):
-                            raw_raf = float(row.get(matching_col))
-                            is_already_ttc = True
-                            break
-                            
-                    # 2. Check for standard RAF headers
-                    if not is_already_ttc:
-                        for k in ["RAF", "raf"]:
-                            matching_col = next((c for c in row.index if str(c).strip().upper() == k), None)
-                            if matching_col and pd.notna(row.get(matching_col)):
+                            try:
                                 raw_raf = float(row.get(matching_col))
-                                break
-                    
-                    raf_ttc_val = raw_raf if is_already_ttc else raw_raf * 1.2
+                            except Exception:
+                                pass
+                            break
+
+                    raw_h_pct = float(row.get("H %", 0)) if pd.notna(row.get("H %")) and not isinstance(row.get("H %"), str) else 0.0
+                    h_pct_val = 0.0 if (int(round(raw_real)) == 0 and int(round(raw_obj)) == 0) else raw_h_pct
 
                     quanti_records.append({
                         "vendeur": str(row.get("Vendeur", "")).strip(),
                         "famille": famille_name,
-                        "real": int(round(raw_real * 1.2)),
-                        "obj": int(round(raw_obj * 1.2)),
+                        "j1": int(round(raw_j1)),
+                        "real": int(round(raw_real)),
+                        "obj": int(round(raw_obj)),
                         "percent": float(pct),
-                        "real_2025": int(round(raw_real_2025 * 1.2)),
-                        "h_2024": int(round(raw_h_2024 * 1.2)),
-                        "h_pct": float(row.get("H %", 0)) if pd.notna(row.get("H %")) and not isinstance(row.get("H %"), str) else 0.0,
-                        "encours": int(round(raw_encours * 1.2)),
-                        "obj_mois": int(round(raw_obj_mois * 1.2)),
-                        "raf": int(round(raf_ttc_val))
+                        "real_2025": int(round(raw_real_2025)),
+                        "h_2024": int(round(raw_h_2024)),
+                        "h_pct": h_pct_val,
+                        "encours": int(round(raw_encours)),
+                        "obj_mois": int(round(raw_obj_mois)),
+                        "raf": int(round(raw_raf))
                     })
                 except Exception as ex:
                     print(f"Error parsing row: {row}. Error: {ex}")

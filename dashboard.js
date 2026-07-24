@@ -1412,8 +1412,9 @@ function renderQuantiTable(records) {
     const families = {};
     records.forEach(r => {
         if (!families[r.famille]) {
-            families[r.famille] = { real: 0, obj: 0, real2025: 0, objMois: 0, raf: 0 };
+            families[r.famille] = { j1: 0, real: 0, obj: 0, real2025: 0, objMois: 0, raf: 0 };
         }
+        families[r.famille].j1 += (r.j1 || r.j_1 || 0);
         families[r.famille].real += r.real;
         families[r.famille].obj += r.obj;
         families[r.famille].real2025 += r.real_2025;
@@ -1423,16 +1424,19 @@ function renderQuantiTable(records) {
 
     const customOrder = [
         "LEVURE",
+        "MGM",
         "MOUSSES",
         "BOUILLON",
         "CONDIMENTS",
+        "SAUCES TACOS",
         "CONFITURE",
-        "CONSERVES"
+        "CONSERVES",
+        "MISWAK"
     ];
 
     const sortedFamilies = Object.keys(families).sort((a, b) => {
-        if (a === 'C.A (ht)') return 1;
-        if (b === 'C.A (ht)') return -1;
+        if (a === 'C.A (ht)' || a === 'C.A (TTC)') return 1;
+        if (b === 'C.A (ht)' || b === 'C.A (TTC)') return -1;
 
         const indexA = customOrder.indexOf(a.toUpperCase());
         const indexB = customOrder.indexOf(b.toUpperCase());
@@ -1448,23 +1452,29 @@ function renderQuantiTable(records) {
 
     sortedFamilies.forEach(fam => {
         const data = families[fam];
-        const pct = data.obj > 0 ? ((data.real / data.obj) - 1) * 100 : -100;
         const tr = document.createElement('tr');
         
-        if (fam === 'C.A (ht)') {
+        if (fam === 'C.A (ht)' || fam === 'C.A (TTC)') {
             tr.style.fontWeight = 'bold';
             tr.style.background = 'rgba(0,212,255,0.06)';
             tr.style.borderTop = '2px solid var(--neon-blue)';
         }
 
-        const pctClass = pct >= 0 ? 'neon-text-green' : 'neon-text-pink';
-        const pctSign = pct >= 0 ? '+' : '';
+        let pctText = '#DIV/0!';
+        let pctClass = '';
+        if (data.obj > 0) {
+            const pct = ((data.real / data.obj) - 1) * 100;
+            pctClass = pct >= 0 ? 'neon-text-green' : 'neon-text-pink';
+            const pctSign = pct >= 0 ? '+' : '';
+            pctText = `${pctSign}${pct.toFixed(0)}%`;
+        }
 
         tr.innerHTML = `
             <td><strong>${fam}</strong></td>
+            <td><strong>${formatNumber(data.j1)}</strong></td>
             <td>${formatNumber(data.real)}</td>
             <td>${formatNumber(data.obj)}</td>
-            <td class="${pctClass}">${pctSign}${pct.toFixed(1)}%</td>
+            <td class="${pctClass}">${pctText}</td>
             <td>${formatNumber(data.real2025)}</td>
             <td>${formatNumber(data.objMois)}</td>
             <td class="neon-text-amber">${formatNumber(data.raf)}</td>

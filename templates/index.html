@@ -475,12 +475,13 @@
                             <thead>
                                 <tr>
                                     <th>Famille</th>
-                                    <th id="th-quanti-real">Réalisé (TTC)</th>
-                                    <th id="th-quanti-obj">Objectif (TTC)</th>
+                                    <th>J-1</th>
+                                    <th id="th-quanti-real">Réalisé (HT)</th>
+                                    <th id="th-quanti-obj">Objectif (HT)</th>
                                     <th>% Taux</th>
-                                    <th id="th-quanti-real2025">Réal 2025 (TTC)</th>
-                                    <th id="th-quanti-objmois">Obj Mois (TTC)</th>
-                                    <th id="th-quanti-raf">Reste à Faire (TTC)</th>
+                                    <th id="th-quanti-real2025">Réal 2025 (HT)</th>
+                                    <th id="th-quanti-objmois">Obj Mois (HT)</th>
+                                    <th id="th-quanti-raf">Reste à Faire (RAF)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1025,6 +1026,10 @@
                     <i class="fa-solid fa-file-invoice-dollar neon-text-pink"></i> CLIENTS À FACTURER (HISTORIQUE PAR TOURNÉE)
                 </span>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <button id="af-import-acm-btn" class="cyber-btn" title="Charger le fichier master ACM (secteurs, tournées & clients inactifs)" style="height: 38px; border-color: var(--neon-green); color: var(--neon-green);">
+                        <i class="fa-solid fa-file-excel"></i>
+                        <span>CHARGER ACM</span>
+                    </button>
                     <button id="af-import-visites-btn" class="cyber-btn" title="Télécharger et enregistrer un rapport de visites Excel dans la base" style="height: 38px; border-color: var(--neon-blue);">
                         <i class="fa-solid fa-cloud-arrow-up"></i>
                         <span>UPLOAD EXCEL</span>
@@ -1041,23 +1046,39 @@
         <div style="display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; align-items: start;">
             
             <!-- LEFT PANEL: FILTERS AND SELECTION -->
-            <section class="cyber-card" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem; min-height: 500px;">
-                <div class="card-edge"></div>
-                
-                <!-- Filter type selector -->
+            <section class="cyber-card" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25                <!-- Filter type selector -->
                 <div>
                     <span class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-filter"></i> TYPE DE FILTRE</span>
                     <div style="display: flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 36px; background: var(--bg-color);">
-                        <button type="button" id="af-filter-type-tournee" class="cyber-btn-text is-active" style="flex: 1; font-size: 0.75rem; border: none; font-weight: bold; cursor: pointer;">PAR TOURNÉE</button>
-                        <button type="button" id="af-filter-type-vendeur" class="cyber-btn-text" style="flex: 1; font-size: 0.75rem; border: none; font-weight: bold; cursor: pointer; border-left: 1px solid var(--border-color);">PAR VENDEUR</button>
+                        <button type="button" id="af-filter-type-tournee" class="cyber-btn-text" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer;">PAR TOURNÉE</button>
+                        <button type="button" id="af-filter-type-vendeur" class="cyber-btn-text" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer; border-left: 1px solid var(--border-color);">PAR VENDEUR</button>
+                        <button type="button" id="af-filter-type-secteur" class="cyber-btn-text is-active" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer; border-left: 1px solid var(--border-color); color: var(--neon-blue);">PAR SECTEUR</button>
+                    </div>
+                </div>
+
+                <!-- Client status selector (ACM) -->
+                <div>
+                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-users-between-lines"></i> STATUT CLIENT (ACM)</span>
+                    <div style="display: flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 32px; background: var(--bg-color);">
+                        <button type="button" id="af-status-all" class="cyber-btn-text is-active" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer;">TOUS</button>
+                        <button type="button" id="af-status-actif" class="cyber-btn-text" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer; border-left: 1px solid var(--border-color); color: var(--neon-green);">ACTIFS</button>
+                        <button type="button" id="af-status-inactif" class="cyber-btn-text" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer; border-left: 1px solid var(--border-color); color: var(--neon-amber);">INACTIFS</button>
                     </div>
                 </div>
 
                 <!-- Entity selector -->
                 <div>
-                    <span class="tech-label" id="af-entity-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-route"></i> SÉLECTIONNER TOURNÉE</span>
+                    <span class="tech-label" id="af-entity-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-layer-group"></i> SÉLECTIONNER SECTEUR (ROLE)</span>
                     <select id="af-select-entity" class="cyber-select" style="width: 100%; text-transform: uppercase;">
                         <option value="">Chargement...</option>
+                    </select>
+                </div>
+
+                <!-- Sub Tournée Selector (shown in PAR SECTEUR mode) -->
+                <div id="af-sub-tournee-wrapper" style="display: none;">
+                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem; color: var(--neon-blue);"><i class="fa-solid fa-route"></i> TOURNÉE DU SECTEUR</span>
+                    <select id="af-select-sub-tournee" class="cyber-select" style="width: 100%; text-transform: uppercase; border-color: var(--neon-blue);">
+                        <option value="ALL">-- TOUTES LES TOURNÉES DU SECTEUR --</option>
                     </select>
                 </div>
 
@@ -1065,7 +1086,7 @@
                 <div style="flex-grow: 1; display: flex; flex-direction: column;">
                     <span class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-calendar-check"></i> CHOISIR PASSAGES (1 À 3 DATES)</span>
                     <div id="af-dates-container" style="border: 1px solid var(--border-color); border-radius: 4px; padding: 0.75rem; max-height: 280px; overflow-y: auto; background: rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 0.5rem; min-height: 150px;">
-                        <span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Veuillez d'abord sélectionner une tournée ou un vendeur.</span>
+                        <span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Veuillez d'abord sélectionner une option.</span>
                     </div>
                 </div>
 
@@ -1084,7 +1105,7 @@
                     <i class="fa-solid fa-chart-line" style="font-size: 3.5rem; color: var(--border-color); animation: pulse 2s infinite;"></i>
                     <h3 style="margin: 0; color: var(--text-muted); font-weight: normal;">Aucune analyse en cours</h3>
                     <p style="margin: 0; color: var(--text-muted); font-size: 0.85rem; max-width: 450px;">
-                        Sélectionnez une tournée ou un vendeur sur la gauche, cochez entre 1 et 3 passages (dates), puis cliquez sur <strong>ANALYSER PASSAGES</strong> pour afficher les résultats comparatifs.
+                        Sélectionnez une tournée, un vendeur ou un secteur sur la gauche, cochez entre 1 et 3 passages (dates), puis cliquez sur <strong>ANALYSER PASSAGES</strong> pour afficher les résultats comparatifs.
                     </p>
                 </section>
 
@@ -1092,40 +1113,47 @@
                 <div id="af-results-workspace" style="display: none; flex-direction: column; gap: 1.5rem;">
                     
                     <!-- KPI Cards row -->
-                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; width: 100%;">
-                        <div class="cyber-card summary-card glow-green" style="padding: 0.85rem 1rem;">
+                    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.65rem; width: 100%;">
+                        <div class="cyber-card summary-card glow-green" id="af-card-atleastone" style="padding: 0.75rem 0.85rem; cursor: pointer;" title="Cliquer pour filtrer les clients ayant au moins 1 facture">
                             <div class="card-edge"></div>
                             <div class="summary-content">
-                                <span class="summary-label" style="font-size: 0.62rem;"><i class="fa-solid fa-file-circle-check"></i> AU MOINS 1 FACTURE</span>
-                                <h3 class="summary-value neon-text-green" id="af-kpi-atleastone" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                                <span class="summary-label" style="font-size: 0.6rem;"><i class="fa-solid fa-file-circle-check"></i> AU MOINS 1 FACTURE</span>
+                                <h3 class="summary-value neon-text-green" id="af-kpi-atleastone" style="margin: 0.25rem 0 0 0; font-size: 1.3rem;">0</h3>
                             </div>
                         </div>
-                        <div class="cyber-card summary-card glow-green" style="padding: 0.85rem 1rem;">
+                        <div class="cyber-card summary-card glow-green" id="af-card-always" style="padding: 0.75rem 0.85rem; cursor: pointer;" title="Cliquer pour filtrer les clients toujours facturés">
                             <div class="card-edge"></div>
                             <div class="summary-content">
-                                <span class="summary-label" style="font-size: 0.62rem;">TOUJOURS FACTURÉ</span>
-                                <h3 class="summary-value neon-text-green" id="af-kpi-always" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                                <span class="summary-label" style="font-size: 0.6rem;">TOUJOURS FACTURÉ</span>
+                                <h3 class="summary-value neon-text-green" id="af-kpi-always" style="margin: 0.25rem 0 0 0; font-size: 1.3rem;">0</h3>
                             </div>
                         </div>
-                        <div class="cyber-card summary-card glow-pink" style="padding: 0.85rem 1rem;">
+                        <div class="cyber-card summary-card glow-pink" id="af-card-loss" style="padding: 0.75rem 0.85rem; cursor: pointer;" title="Cliquer pour filtrer les pertes de facturation">
                             <div class="card-edge"></div>
                             <div class="summary-content">
-                                <span class="summary-label" style="font-size: 0.62rem;">PERTES DE FACTURATION</span>
-                                <h3 class="summary-value neon-text-pink" id="af-kpi-loss" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                                <span class="summary-label" style="font-size: 0.6rem;">PERTES DE FACTURATION</span>
+                                <h3 class="summary-value neon-text-pink" id="af-kpi-loss" style="margin: 0.25rem 0 0 0; font-size: 1.3rem;">0</h3>
                             </div>
                         </div>
-                        <div class="cyber-card summary-card glow-blue" style="padding: 0.85rem 1rem;">
+                        <div class="cyber-card summary-card glow-blue" id="af-card-gain" style="padding: 0.75rem 0.85rem; cursor: pointer;" title="Cliquer pour filtrer les gains de facturation">
                             <div class="card-edge"></div>
                             <div class="summary-content">
-                                <span class="summary-label" style="font-size: 0.62rem;">GAINS DE FACTURATION</span>
-                                <h3 class="summary-value neon-text-blue" id="af-kpi-gain" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                                <span class="summary-label" style="font-size: 0.6rem;">GAINS DE FACTURATION</span>
+                                <h3 class="summary-value neon-text-blue" id="af-kpi-gain" style="margin: 0.25rem 0 0 0; font-size: 1.3rem;">0</h3>
                             </div>
                         </div>
-                        <div class="cyber-card summary-card glow-amber" style="padding: 0.85rem 1rem;">
+                        <div class="cyber-card summary-card glow-amber" id="af-card-never" style="padding: 0.75rem 0.85rem; cursor: pointer;" title="Cliquer pour filtrer les clients jamais facturés">
                             <div class="card-edge"></div>
                             <div class="summary-content">
-                                <span class="summary-label" style="font-size: 0.62rem;">JAMAIS FACTURÉ (0)</span>
-                                <h3 class="summary-value neon-text-amber" id="af-kpi-never" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                                <span class="summary-label" style="font-size: 0.6rem;">JAMAIS FACTURÉ (0)</span>
+                                <h3 class="summary-value neon-text-amber" id="af-kpi-never" style="margin: 0.25rem 0 0 0; font-size: 1.3rem;">0</h3>
+                            </div>
+                        </div>
+                        <div class="cyber-card summary-card glow-amber" id="af-card-inactifs" style="padding: 0.75rem 0.85rem; cursor: pointer;" title="Cliquer pour filtrer les clients inactifs">
+                            <div class="card-edge"></div>
+                            <div class="summary-content">
+                                <span class="summary-label" style="font-size: 0.6rem;"><i class="fa-solid fa-user-slash"></i> CLIENTS INACTIFS</span>
+                                <h3 class="summary-value neon-text-amber" id="af-kpi-inactive" style="margin: 0.25rem 0 0 0; font-size: 1.3rem;">0</h3>
                             </div>
                         </div>
                     </div>
@@ -1150,18 +1178,19 @@
 
                                 <!-- Filters -->
                                 <div class="cf-view-toggle" role="tablist" style="display: inline-flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 32px;">
-                                    <button type="button" class="cf-view-btn is-active" id="af-btn-all" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer;">TOUS</button>
-                                    <button type="button" class="cf-view-btn" id="af-btn-atleastone" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-green); font-weight: bold;" title="Clients ayant au moins 1 facture dans cette période">FACTURÉ (≥1)</button>
-                                    <button type="button" class="cf-view-btn" id="af-btn-nofacture" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-amber); font-weight: bold;" title="Clients n'ayant aucune facture dans cette période">AUCUNE FACTURE</button>
-                                    <button type="button" class="cf-view-btn" id="af-btn-always" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-green);">TOUJOURS</button>
-                                    <button type="button" class="cf-view-btn" id="af-btn-loss" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-pink);">PERTES</button>
-                                    <button type="button" class="cf-view-btn" id="af-btn-gain" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-blue);">GAINS</button>
-                                    <button type="button" class="cf-view-btn" id="af-btn-never" style="font-size: 0.7rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-amber);">JAMAIS</button>
+                                    <button type="button" class="cf-view-btn is-active" id="af-btn-all" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer;">TOUS</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-atleastone" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-green); font-weight: bold;" title="Clients ayant au moins 1 facture dans cette période">FACTURÉ (≥1)</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-nofacture" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-amber); font-weight: bold;" title="Clients n'having aucune facture dans cette période">AUCUNE FACTURE</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-always" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-green);">TOUJOURS</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-loss" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-pink);">PERTES</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-gain" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-blue);">GAINS</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-never" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-amber);">JAMAIS</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-inactifs" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-amber); font-weight: bold;" title="Clients marqués inactifs dans ACM">INACTIFS</button>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                        <div class="table-container" style="max-height: 750px; min-height: 480px; overflow-y: auto;">
                             <table class="cyber-table">
                                 <thead id="af-table-headers">
                                     <!-- Dynamic dates headers populated by JS -->
@@ -3750,6 +3779,33 @@
             <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
                 <button class="cyber-btn-secondary" id="cancel-visites-upload">ANNULER</button>
                 <button class="cyber-btn" id="submit-visites-upload" style="border-color: var(--neon-blue); color: var(--neon-blue);"><i class="fa-solid fa-circle-check"></i> ANALYSER</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== ACM UPLOAD MODAL ===== -->
+    <div class="modal-backdrop" id="acm-upload-modal">
+        <div class="cyber-modal" style="max-width: 520px; width: 95%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-file-excel neon-text-green"></i> IMPORTER ACM (SECTEURS, TOURNÉES & INACTIFS)</h3>
+                <button class="close-btn" id="close-acm-upload-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                <div class="upload-dropzone" id="acm-dropzone" style="border: 2px dashed var(--border-color); border-radius: 6px; padding: 2rem; text-align: center; cursor: pointer; background: rgba(0,0,0,0.2); transition: border-color 0.25s, background-color 0.25s;">
+                    <i class="fa-solid fa-file-excel" style="font-size: 2.5rem; color: var(--neon-green); margin-bottom: 1rem;"></i>
+                    <p style="margin: 0; color: var(--text-main); font-weight: bold;">Glissez-déposez le fichier ACM (acm.xlsx)</p>
+                    <p style="margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.8rem;">Contient la liste master des Secteurs, Tournées & Clients Inactifs (.xlsx, .xls)</p>
+                    <input type="file" id="acm-file-input" accept=".xlsx, .xls" style="display: none;">
+                </div>
+                <div id="acm-file-info" style="display: none; align-items: center; gap: 0.5rem; padding: 0.50rem 0.75rem; background: rgba(0,230,118,0.08); border: 1px solid var(--neon-green); border-radius: 4px; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-main);">
+                    <i class="fa-solid fa-check-circle" style="color: var(--neon-green);"></i>
+                    <span id="acm-file-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Fichier : </span>
+                    <button id="acm-file-clear" class="cyber-btn-text" style="color: var(--neon-pink); text-transform: uppercase;">Retirer</button>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button class="cyber-btn-secondary" id="cancel-acm-upload">ANNULER</button>
+                <button class="cyber-btn" id="submit-acm-upload" style="border-color: var(--neon-green); color: var(--neon-green); font-weight: bold;"><i class="fa-solid fa-cloud-arrow-up"></i> IMPORTER EN BASE</button>
             </div>
         </div>
     </div>

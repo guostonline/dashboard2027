@@ -8,6 +8,11 @@ import datetime
 from generate_report import generate_report
 import db_manager
 db_manager.init_db()
+if os.path.exists("acm.xlsx"):
+    try:
+        db_manager.import_acm_file("acm.xlsx")
+    except Exception as e:
+        print(f"Warning: Auto-import of acm.xlsx failed: {e}")
 
 app = Flask(__name__)
 
@@ -398,8 +403,12 @@ def get_all_data():
             if not data:
                 return jsonify({"status": "error", "message": f"Aucune donnée trouvée pour la date {date}."}), 404
         else:
-            processor = get_processor()
-            data = processor.get_data()
+            dates = db_manager.get_all_suivi_dates()
+            if dates:
+                data = db_manager.get_suivi_data(dates[0])
+            else:
+                processor = get_processor()
+                data = processor.get_data()
         
         # Include FDV roster for dynamic Chef de Zone mapping
         data["fdv"] = db_manager.get_fdv_list()
@@ -623,7 +632,41 @@ def analyse_visites_endpoint():
         file_content = file.read()
         file_stream = io.BytesIO(file_content)
         
-        # Read the file content into pandas
+        # Smart detection: Check if uploaded file is ACM Master file
+        file_name_lower = file.filename.lower()
+        file_stream.seek(0)
+        df_preview = pd.read_excel(file_stream, nrows=5)
+        preview_text = str(df_preview.columns.tolist() + df_preview.values.tolist()).lower()
+        
+        if "acm" in file_name_lower or "role vendeur" in preview_text or "nbr clts inactifs" in preview_text or "clts inactifs" in preview_text:
+            file_stream.seek(0)
+            count = db_manager.import_acm_file(file_stream)
+            if count > 0:
+                stats = db_manager.get_acm_stats()
+                return jsonify({
+                    "status": "success",
+                    "is_acm": True,
+                    "message": f"Fichier ACM détecté et importé avec succès ! ({count:,} clients, Secteurs & Tournées enregistrés en base)",
+                    "metadata": {
+                        "vendeur": "ACM MASTER",
+                        "date": "2026",
+                        "tournee": "Toutes Tournées",
+                        "file_name": file.filename
+                    },
+                    "summary": {
+                        "total": count,
+                        "ok": stats.get("active", 0),
+                        "no_ok": stats.get("inactive", 0),
+                        "acm": round((stats.get("active", 0) / count * 100), 1) if count > 0 else 0
+                    },
+                    "motifs": {"Clients Inactifs": stats.get("inactive", 0)},
+                    "distance": {"average": 0, "anomalies": 0},
+                    "clients_ok": [],
+                    "clients_no_ok": []
+                })
+
+        # Standard visit report processing
+        file_stream.seek(0)
         df_raw = pd.read_excel(file_stream, sheet_name=None)
         
         # Check sheet name
@@ -700,6 +743,14 @@ def analyse_visites_endpoint():
             'Heure Fin ': 'Heure Fin'
         })
         
+        date_col = None
+        for col in df_data.columns:
+            if "date" in str(col).lower():
+                date_col = col
+                break
+        if not date_col and 'col11' in df_data.columns:
+            date_col = 'col11'
+
         h_dep = 'Heure Début' if 'Heure Début' in df_data.columns else ('col13' if 'col13' in df_data.columns else None)
         h_fin = 'Heure Fin' if 'Heure Fin' in df_data.columns else ('col14' if 'col14' in df_data.columns else None)
         dist_col = 'Distance' if 'Distance' in df_data.columns else ('col18' if 'col18' in df_data.columns else None)
@@ -721,6 +772,11 @@ def analyse_visites_endpoint():
         for _, row in df_data.iterrows():
             c_code = str(row[client_col]).strip()
             c_name = str(row[nom_col]).strip() if nom_col else "N/A"
+            c_date = date_tournee.split(' à ')[0].strip() if ' à ' in str(date_tournee) else date_tournee
+            if date_col and pd.notna(row[date_col]):
+                raw_d = str(row[date_col]).strip()
+                if raw_d and raw_d.lower() not in ("nan", "none", "null", "nat"):
+                    c_date = raw_d.split(' ')[0].strip()
             c_h_dep = str(row[h_dep]).strip() if h_dep else ""
             c_h_fin = str(row[h_fin]).strip() if h_fin else ""
             c_time = f"{c_h_dep} - {c_h_fin}" if c_h_dep or c_h_fin else "N/A"
@@ -743,6 +799,7 @@ def analyse_visites_endpoint():
             client_record = {
                 "code": c_code,
                 "name": c_name,
+                "date": c_date,
                 "time": c_time,
                 "distance": f"{c_dist_str} m",
                 "motif": c_motif,
@@ -760,12 +817,15 @@ def analyse_visites_endpoint():
         avg_dist = round(sum_dist / valid_dist_count, 1) if valid_dist_count > 0 else 0
         acm_pct = round((ok_count / total_visits) * 100, 1) if total_visits > 0 else 0
 
+        all_row_dates = sorted(list(set(r["date"] for r in (clients_ok + clients_no_ok) if r.get("date") and r["date"] != "N/A")))
+        display_date = f"{all_row_dates[0]} à {all_row_dates[-1]}" if len(all_row_dates) > 1 else (all_row_dates[0] if len(all_row_dates) == 1 else date_tournee)
+
         return jsonify({
             "status": "success",
             "metadata": {
                 "agence": agence,
                 "vendeur": vendeur,
-                "date": date_tournee,
+                "date": display_date,
                 "tournee": tournee,
                 "file_name": file.filename
             },
@@ -825,6 +885,40 @@ def enregistrer_visites_endpoint():
     except Exception as e:
         import traceback
         traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/clients/import_acm", methods=["POST"])
+def import_acm_endpoint():
+    try:
+        if "file" not in request.files:
+            return jsonify({"status": "error", "message": "Aucun fichier fourni."}), 400
+        file = request.files["file"]
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            return jsonify({"status": "error", "message": "Le fichier doit être au format Excel (.xlsx, .xls)."}), 400
+            
+        count = db_manager.import_acm_file(file)
+        if count > 0:
+            stats = db_manager.get_acm_stats()
+            return jsonify({
+                "status": "success",
+                "message": f"{count:,} clients ACM (secteurs, tournées & inactifs) importés avec succès !",
+                "stats": stats
+            })
+        else:
+            return jsonify({"status": "error", "message": "Aucune donnée n'a pu être extraite du fichier ACM."}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/clients/acm_stats", methods=["GET"])
+def get_acm_stats_endpoint():
+    try:
+        stats = db_manager.get_acm_stats()
+        return jsonify({"status": "success", "stats": stats})
+    except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -1115,16 +1209,50 @@ def get_visites_disponibles_endpoint():
         conn = db_manager.get_db_connection()
         cursor = conn.cursor()
         
+        # 1. Fetch visits from DB
         cursor.execute("""
             SELECT DISTINCT tournee, date_visite, vendeur
             FROM visites_rapports
+            WHERE date_visite IS NOT NULL AND date_visite != ''
             ORDER BY tournee, date_visite ASC
         """)
         rows = cursor.fetchall()
+        
+        # 2. Fetch Secteur -> Tournee mapping from clients_acm
+        cursor.execute("""
+            SELECT role_vendeur, tournee 
+            FROM clients_acm 
+            WHERE role_vendeur != '' AND tournee != '' 
+            GROUP BY role_vendeur, tournee 
+            ORDER BY role_vendeur, tournee ASC
+        """)
+        st_rows = cursor.fetchall()
+        
+        secteur_to_tournees = {}
+        tournee_to_secteur = {}
+        for r in st_rows:
+            sec = r["role_vendeur"]
+            tn = r["tournee"]
+            if sec not in secteur_to_tournees:
+                secteur_to_tournees[sec] = []
+            secteur_to_tournees[sec].append(tn)
+            tournee_to_secteur[tn] = sec
+
+        cursor.execute("SELECT DISTINCT date_visite FROM visites_rapports WHERE date_visite IS NOT NULL AND date_visite != '' ORDER BY date_visite ASC")
+        all_dates = [r["date_visite"] for r in cursor.fetchall() if r["date_visite"]]
         conn.close()
         
         tournees_map = {}
         vendeurs_map = {}
+        secteurs_map = {}
+
+        # Initialize secteurs_map with tournees
+        for sec, t_list in secteur_to_tournees.items():
+            secteurs_map[sec] = {
+                "tournees": t_list,
+                "dates": set(),
+                "dates_details": []
+            }
         
         for row in rows:
             t_name = row["tournee"]
@@ -1133,31 +1261,77 @@ def get_visites_disponibles_endpoint():
             
             if t_name and t_name != "N/A":
                 if t_name not in tournees_map:
-                    tournees_map[t_name] = {"dates": [], "dates_details": []}
+                    tournees_map[t_name] = {"dates": set(), "dates_details": []}
                 if d_val not in tournees_map[t_name]["dates"]:
-                    tournees_map[t_name]["dates"].append(d_val)
+                    tournees_map[t_name]["dates"].add(d_val)
                     tournees_map[t_name]["dates_details"].append({"date": d_val, "tournee": t_name, "vendeur": v_name or ""})
                     
             if v_name and v_name != "N/A":
                 if v_name not in vendeurs_map:
-                    vendeurs_map[v_name] = {"dates": [], "dates_details": []}
+                    vendeurs_map[v_name] = {"dates": set(), "dates_details": []}
                 if d_val not in vendeurs_map[v_name]["dates"]:
-                    vendeurs_map[v_name]["dates"].append(d_val)
+                    vendeurs_map[v_name]["dates"].add(d_val)
                     vendeurs_map[v_name]["dates_details"].append({"date": d_val, "tournee": t_name or "", "vendeur": v_name})
 
-        # Sort dates ascending A to Z
-        for info in tournees_map.values():
-            info["dates"].sort()
-            info["dates_details"].sort(key=lambda x: x["date"])
+            sec = tournee_to_secteur.get(t_name)
+            if sec and sec in secteurs_map:
+                secteurs_map[sec]["dates"].add(d_val)
+                existing_d = [dt["date"] for dt in secteurs_map[sec]["dates_details"] if dt["tournee"] == t_name]
+                if d_val not in existing_d:
+                    secteurs_map[sec]["dates_details"].append({"date": d_val, "tournee": t_name, "vendeur": v_name or ""})
+
+        # Add ACM tournées if missing
+        for t in tournee_to_secteur.keys():
+            if t not in tournees_map:
+                tournees_map[t] = {"dates": set(), "dates_details": []}
+
+        # Build final lists
+        tournees_list = []
+        for t, info in sorted(tournees_map.items()):
+            dates_sorted = sorted(list(info["dates"]))
+            tournees_list.append({"name": t, "dates": dates_sorted, "dates_details": sorted(info["dates_details"], key=lambda x: x["date"])})
+
+        vendeurs_list = []
+        for v, info in sorted(vendeurs_map.items()):
+            dates_sorted = sorted(list(info["dates"]))
+            vendeurs_list.append({"name": v, "dates": dates_sorted, "dates_details": sorted(info["dates_details"], key=lambda x: x["date"])})
+
+        secteurs_list = []
+        for s, info in sorted(secteurs_map.items()):
+            dates_sorted = sorted(list(info["dates"]))
+            if not dates_sorted:
+                dates_sorted = list(all_dates)
+
+            # Build date-sorted tournées for this secteur
+            sec_tournees_objs = []
+            for t in info["tournees"]:
+                t_dates = sorted(list(tournees_map[t]["dates"])) if (t in tournees_map and tournees_map[t].get("dates")) else []
+                m_date = t_dates[0] if t_dates else "9999-12-31"
+                mx_date = t_dates[-1] if t_dates else "9999-12-31"
+                sec_tournees_objs.append({
+                    "name": t,
+                    "dates": t_dates,
+                    "min_date": m_date,
+                    "max_date": mx_date
+                })
             
-        for info in vendeurs_map.values():
-            info["dates"].sort()
-            info["dates_details"].sort(key=lambda x: x["date"])
-                    
+            # Sort tournees chronologically by min_date, then by name
+            sec_tournees_objs.sort(key=lambda x: (x["min_date"], x["name"]))
+            sorted_tournees = [x["name"] for x in sec_tournees_objs]
+
+            secteurs_list.append({
+                "name": s,
+                "tournees": sorted_tournees,
+                "tournees_details": sec_tournees_objs,
+                "dates": dates_sorted,
+                "dates_details": sorted(info["dates_details"], key=lambda x: x["date"])
+            })
+
         return jsonify({
             "status": "success",
-            "tournees": [{"name": t, "dates": info["dates"], "dates_details": info["dates_details"]} for t, info in tournees_map.items()],
-            "vendeurs": [{"name": v, "dates": info["dates"], "dates_details": info["dates_details"]} for v, info in vendeurs_map.items()]
+            "tournees": tournees_list,
+            "vendeurs": vendeurs_list,
+            "secteurs": secteurs_list
         })
     except Exception as e:
         import traceback
@@ -1170,16 +1344,27 @@ def compare_visites_db_endpoint():
         data = request.json or {}
         tournee = data.get("tournee")
         vendeur = data.get("vendeur")
+        secteur = data.get("secteur")
+        client_status = data.get("client_status", "all") # 'all', 'actif', 'inactif'
         dates = sorted(data.get("dates", []))
         
-        if not dates or len(dates) < 1:
-            return jsonify({"status": "error", "message": "Veuillez sélectionner au moins 1 date à analyser."}), 400
-            
-        if len(dates) > 3:
-            return jsonify({"status": "error", "message": "Vous pouvez comparer jusqu'à 3 dates au maximum."}), 400
-            
         conn = db_manager.get_db_connection()
         cursor = conn.cursor()
+
+        if tournee and (not dates or len(dates) < 1):
+            cursor.execute("SELECT DISTINCT date_visite FROM visites_rapports WHERE tournee = ? AND date_visite IS NOT NULL AND date_visite != '' ORDER BY date_visite ASC", (tournee,))
+            dates = [r["date_visite"] for r in cursor.fetchall() if r["date_visite"]]
+            if not dates:
+                cursor.execute("SELECT DISTINCT date_visite FROM visites_rapports WHERE date_visite IS NOT NULL AND date_visite != '' ORDER BY date_visite ASC LIMIT 3")
+                dates = [r["date_visite"] for r in cursor.fetchall() if r["date_visite"]]
+
+        if not dates or len(dates) < 1:
+            conn.close()
+            return jsonify({"status": "error", "message": "Veuillez sélectionner au moins 1 date à analyser."}), 400
+            
+        if not tournee and len(dates) > 3:
+            conn.close()
+            return jsonify({"status": "error", "message": "Vous pouvez comparer jusqu'à 3 dates au maximum."}), 400
         
         dates_data = []
         dates_details = []
@@ -1190,6 +1375,12 @@ def compare_visites_db_endpoint():
                     FROM visites_rapports
                     WHERE tournee = ? AND date_visite = ?
                 """, (tournee, d))
+            elif secteur:
+                cursor.execute("""
+                    SELECT client_code, client_nom, motif, note, vendeur, tournee
+                    FROM visites_rapports
+                    WHERE (vendeur = ? OR tournee IN (SELECT DISTINCT tournee FROM clients_acm WHERE role_vendeur = ?)) AND date_visite = ?
+                """, (secteur, secteur, d))
             else:
                 cursor.execute("""
                     SELECT client_code, client_nom, motif, note, vendeur, tournee
@@ -1198,15 +1389,13 @@ def compare_visites_db_endpoint():
                 """, (vendeur, d))
             rows = cursor.fetchall()
             t_found = (rows[0]["tournee"] if rows and rows[0]["tournee"] else (tournee or ""))
-            v_found = (rows[0]["vendeur"] if rows and rows[0]["vendeur"] else (vendeur or ""))
+            v_found = (rows[0]["vendeur"] if rows and rows[0]["vendeur"] else (vendeur or secteur or ""))
             dates_details.append({"date": d, "tournee": t_found, "vendeur": v_found})
             dates_data.append((d, rows))
             
         conn.close()
         
-        for d, rows in dates_data:
-            if len(rows) == 0:
-                return jsonify({"status": "error", "message": f"Aucune donnée de visite pour la date {d}."}), 400
+        # Allow dates with 0 visited rows so ACM clients (active/inactive) can still be analyzed
                 
         all_clients = {}
         for idx, (d, rows) in enumerate(dates_data):
@@ -1219,7 +1408,9 @@ def compare_visites_db_endpoint():
                     all_clients[code] = {
                         "code": code,
                         "name": name,
-                        "motifs": ["Non visité"] * len(dates)
+                        "motifs": ["Non visité"] * len(dates),
+                        "is_inactif": 0,
+                        "is_actif": 0
                     }
                 curr_m = all_clients[code]["motifs"][idx]
                 if curr_m.upper() == "OK":
@@ -1231,6 +1422,63 @@ def compare_visites_db_endpoint():
                 else:
                     all_clients[code]["motifs"][idx] = motif
                 
+        # Merge clients from ACM
+        acm_clients_map = {}
+        conn = db_manager.get_db_connection()
+        c_cursor = conn.cursor()
+        
+        if tournee:
+            c_cursor.execute("SELECT code, name, is_actif, is_inactif, role_vendeur, tournee FROM clients_acm WHERE tournee = ?", (tournee,))
+        elif secteur:
+            c_cursor.execute("SELECT code, name, is_actif, is_inactif, role_vendeur, tournee FROM clients_acm WHERE role_vendeur = ?", (secteur,))
+        elif vendeur:
+            v_code = vendeur.split()[0] if vendeur else ""
+            c_cursor.execute("SELECT code, name, is_actif, is_inactif, role_vendeur, tournee FROM clients_acm WHERE role_vendeur = ? OR role_vendeur LIKE ?", (vendeur, f"%{v_code}%"))
+            
+        for r in c_cursor.fetchall():
+            acm_clients_map[r["code"]] = dict(r)
+        conn.close()
+
+        for code, acm_info in acm_clients_map.items():
+            if client_status == "actif" and acm_info.get("is_actif") != 1:
+                continue
+            if client_status == "inactif" and acm_info.get("is_inactif") != 1:
+                continue
+
+            if code not in all_clients:
+                all_clients[code] = {
+                    "code": code,
+                    "name": acm_info["name"],
+                    "motifs": ["Non visité"] * len(dates),
+                    "is_inactif": acm_info.get("is_inactif", 0),
+                    "is_actif": acm_info.get("is_actif", 0)
+                }
+            else:
+                all_clients[code]["is_inactif"] = acm_info.get("is_inactif", 0)
+                all_clients[code]["is_actif"] = acm_info.get("is_actif", 0)
+
+        # Strict Tournée Filtering:
+        # If a specific tournée is selected, restrict all_clients ONLY to clients belonging to that tournée in clients_acm
+        if tournee:
+            conn = db_manager.get_db_connection()
+            acm_check_cursor = conn.cursor()
+            acm_check_cursor.execute("SELECT code FROM clients_acm WHERE tournee = ?", (tournee,))
+            tournee_acm_codes = set(r["code"] for r in acm_check_cursor.fetchall() if r["code"])
+            conn.close()
+
+            if tournee_acm_codes:
+                all_clients = {code: c_data for code, c_data in all_clients.items() if code in tournee_acm_codes}
+
+        # Filter out if client_status applies to existing visited clients
+        if client_status in ("actif", "inactif"):
+            filtered_ac = {}
+            for code, c in all_clients.items():
+                if client_status == "actif" and c.get("is_actif") == 1:
+                    filtered_ac[code] = c
+                elif client_status == "inactif" and c.get("is_inactif") == 1:
+                    filtered_ac[code] = c
+            all_clients = filtered_ac
+
         client_codes = list(all_clients.keys())
         localites_map = {}
         if client_codes:
@@ -1251,7 +1499,8 @@ def compare_visites_db_endpoint():
             "never_ok": 0,
             "inconsistent": 0,
             "at_least_one": 0,
-            "no_facture": 0
+            "no_facture": 0,
+            "total_inactive": 0
         }
         
         for code, c in all_clients.items():
@@ -1261,6 +1510,9 @@ def compare_visites_db_endpoint():
             has_fact = (facture_cnt >= 1)
             localite = localites_map.get(code, "")
             
+            if c.get("is_inactif") == 1:
+                summary_stats["total_inactive"] += 1
+
             if has_fact:
                 summary_stats["at_least_one"] += 1
             else:
@@ -1289,10 +1541,12 @@ def compare_visites_db_endpoint():
                 "motifs": motifs,
                 "synthesis": synth,
                 "facture_count": facture_cnt,
-                "has_facture": has_fact
+                "has_facture": has_fact,
+                "is_inactif": c.get("is_inactif", 0),
+                "is_actif": c.get("is_actif", 0)
             })
             
-        vendeur_name = vendeur or "N/A"
+        vendeur_name = vendeur or secteur or tournee or "N/A"
         for _, rows in dates_data:
             if len(rows) > 0 and rows[0]["vendeur"]:
                 vendeur_name = rows[0]["vendeur"]
@@ -1413,8 +1667,11 @@ def get_trends():
             quali_list = r["data"].get("qualitative", [])
             quali_list = [dict(i) if not isinstance(i, dict) else i for i in quali_list]
             
-            # Extract records for the selected family
-            family_records = [item for item in quanti if item["famille"].strip().upper() == family]
+            # Extract records for the selected family (handle C.A (TTC) and C.A (HT) interchangeably)
+            if family in ("C.A (TTC)", "C.A (HT)", "C.A(HT)", "C.A(TTC)"):
+                family_records = [item for item in quanti if item["famille"].strip().upper() in ("C.A (HT)", "C.A (TTC)", "C.A(HT)", "C.A(TTC)")]
+            else:
+                family_records = [item for item in quanti if item["famille"].strip().upper() == family]
             
             for item in family_records:
                 v = item["vendeur"].strip()
