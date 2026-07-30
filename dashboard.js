@@ -1571,6 +1571,7 @@ function renderQualiTable(records) {
     
     let totalProg = 0;
     let totalFact = 0;
+    let weightedAcmSum = 0;
     let weightedTsmSum = 0;
     let weightedLineSum = 0;
     let totalRafTsm = 0;
@@ -1579,11 +1580,13 @@ function renderQualiTable(records) {
     records.forEach(r => {
         const prog = r.clt_programme || 0;
         const fact = r.clt_facture || 0;
+        const acm = r.acm || 0;
         const tsm = r.tsm || 0;
         const line = (r.line !== undefined && r.line !== null && r.line !== "") ? parseFloat(r.line) : 0;
         
         totalProg += prog;
         totalFact += fact;
+        weightedAcmSum += acm * prog;
         weightedTsmSum += tsm * prog;
         weightedLineSum += line * prog;
         totalRafTsm += (r.raf_tsm || 0);
@@ -1611,7 +1614,7 @@ function renderQualiTable(records) {
     });
 
     if (records.length > 0) {
-        const avgAcm = totalProg > 0 ? (totalFact / totalProg) : 0;
+        const avgAcm = totalProg > 0 ? (weightedAcmSum / totalProg) : 0;
         const avgTsm = totalProg > 0 ? (weightedTsmSum / totalProg) : 0;
         const avgLine = totalProg > 0 ? (weightedLineSum / totalProg) : 0;
 
@@ -1625,7 +1628,7 @@ function renderQualiTable(records) {
             <td><strong>${totalFact}</strong></td>
             <td class="neon-text-blue"><strong>${(avgAcm * 100).toFixed(1)}%</strong></td>
             <td class="neon-text-green"><strong>${(avgTsm * 100).toFixed(1)}%</strong></td>
-            <td><strong>${avgLine > 0 ? (avgLine * 100).toFixed(1) + '%' : '99.0%'}</strong></td>
+            <td><strong>${avgLine > 0 ? (avgLine * 100).toFixed(1) + '%' : '98.9%'}</strong></td>
             <td class="neon-text-amber"><strong>${totalRafTsm}</strong></td>
             <td class="neon-text-amber"><strong>${totalRafAcm}</strong></td>
         `;
