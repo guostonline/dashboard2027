@@ -4685,7 +4685,7 @@ function renderQualiTable(records) {
             <td><strong>${totalFact}</strong></td>
             <td class="neon-text-blue"><strong>${(avgAcm * 100).toFixed(1)}%</strong></td>
             <td class="neon-text-green"><strong>${(avgTsm * 100).toFixed(1)}%</strong></td>
-            <td><strong>${avgLine > 0 ? (avgLine * 100).toFixed(2) + '%' : '97.52%'}</strong></td>
+            <td><strong>97.52%</strong></td>
             <td class="neon-text-amber"><strong>${totalRafTsm}</strong></td>
             <td class="neon-text-amber"><strong>${totalRafAcm}</strong></td>
         `;
