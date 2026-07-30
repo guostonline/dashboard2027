@@ -36,7 +36,8 @@ def load_config():
         "exclude_families": [],
         "theme": "theme-1",
         "light_mode": True,
-        "excluded_dates": []
+        "excluded_dates": [],
+        "google_sheet_url": ""
     }
     if os.path.exists(CONFIG_PATH):
         try:
@@ -279,6 +280,172 @@ def tasks_page():
     theme = config.get("theme", "theme-1")
     light_mode = config.get("light_mode", False)
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="tasks")
+
+@app.route("/engagement")
+def engagement_page():
+    config = load_config()
+    theme = config.get("theme", "theme-1")
+    light_mode = config.get("light_mode", False)
+    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="engagement")
+
+@app.route("/api/engagements", methods=["GET"])
+def api_engagements_list():
+    try:
+        engagements = db_manager.get_all_engagements()
+        return jsonify({"status": "success", "engagements": engagements})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/engagements", methods=["POST"])
+def api_engagements_create():
+    try:
+        data = request.get_json() or {}
+        vendeur = (data.get("vendeur") or "").strip()
+        periode = (data.get("periode") or "Jour").strip()
+        date_engagement = (data.get("date_engagement") or "").strip()
+        items = data.get("items") or []
+        
+        if not vendeur:
+            return jsonify({"status": "error", "message": "Veuillez sélectionner un vendeur."}), 400
+        if periode not in ["Jour", "Semaine", "Mois"]:
+            return jsonify({"status": "error", "message": "Période invalide."}), 400
+        if not date_engagement:
+            from datetime import date
+            date_engagement = date.today().strftime("%Y-%m-%d")
+            
+        engagement_id = db_manager.create_engagement(vendeur, periode, date_engagement, items)
+        return jsonify({
+            "status": "success",
+            "message": "Engagement créé avec succès.",
+            "engagement_id": engagement_id
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/engagements/<int:engagement_id>", methods=["DELETE"])
+def api_engagements_delete(engagement_id):
+    try:
+        success = db_manager.delete_engagement(engagement_id)
+        if success:
+            return jsonify({"status": "success", "message": "Engagement supprimé avec succès."})
+        else:
+            return jsonify({"status": "error", "message": "Erreur lors de la suppression."}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/engagements/<int:engagement_id>", methods=["PUT", "POST"])
+def api_engagements_update(engagement_id):
+    try:
+        data = request.get_json() or {}
+        vendeur = (data.get("vendeur") or "").strip()
+        periode = (data.get("periode") or "Jour").strip()
+        date_engagement = (data.get("date_engagement") or "").strip()
+        items = data.get("items") or []
+        
+        if not vendeur:
+            return jsonify({"status": "error", "message": "Veuillez sélectionner un vendeur."}), 400
+        if periode not in ["Jour", "Semaine", "Mois"]:
+            return jsonify({"status": "error", "message": "Période invalide."}), 400
+        if not date_engagement:
+            from datetime import date
+            date_engagement = date.today().strftime("%Y-%m-%d")
+            
+        db_manager.update_engagement(engagement_id, vendeur, periode, date_engagement, items)
+        return jsonify({
+            "status": "success",
+            "message": "Engagement mis à jour avec succès."
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/vendeurs/raf", methods=["GET"])
+def api_vendeur_raf():
+    try:
+        vendeur = request.args.get("vendeur", "").strip()
+        if not vendeur:
+            return jsonify({"status": "error", "message": "Vendeur non spécifié"}), 400
+
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get latest date in quantitative_data
+        cursor.execute("SELECT date FROM quantitative_data ORDER BY date DESC LIMIT 1")
+        latest_date_row = cursor.fetchone()
+        if not latest_date_row:
+            conn.close()
+            return jsonify({"status": "success", "vendeur": vendeur, "raf_total": 0, "raf_jour": 0, "rest_days": 20, "ca": {"obj_mois": 0, "real": 0, "raf": 0, "raf_jour": 0}, "familles": {}})
+            
+        latest_date = latest_date_row[0]
+        
+        # Get rest_days for latest_date
+        cursor.execute("SELECT rest_days FROM settings WHERE date = ?", (latest_date,))
+        setting_row = cursor.fetchone()
+        rest_days = setting_row[0] if (setting_row and setting_row[0] is not None) else 20
+        if rest_days <= 0:
+            rest_days = 20
+
+        # Query quantitative rows for vendeur
+        v_code = vendeur.split()[0].upper() if vendeur else ""
+        cursor.execute(
+            "SELECT famille, real, obj, obj_mois, raf FROM quantitative_data WHERE date = ? AND (vendeur = ? OR vendeur LIKE ?)",
+            (latest_date, vendeur, f"{v_code}%")
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+
+        ca_info = {"obj_mois": 0, "real": 0, "raf": 0, "raf_jour": 0}
+        familles_info = {}
+
+        for r in rows:
+            fam = r.get("famille", "")
+            fam_upper = fam.upper()
+            real = float(r.get("real") or 0)
+            obj_mois = float(r.get("obj_mois") or r.get("obj") or 0)
+            raf = float(r.get("raf") or max(0, obj_mois - real))
+            raf_jour = round(raf / rest_days, 2) if rest_days > 0 else 0
+
+            if "C.A" in fam_upper or "CA" in fam_upper:
+                ca_info = {
+                    "obj_mois": obj_mois,
+                    "real": real,
+                    "raf": raf,
+                    "raf_jour": raf_jour
+                }
+            else:
+                familles_info[fam] = {
+                    "obj_mois": obj_mois,
+                    "real": real,
+                    "raf": raf,
+                    "raf_jour": raf_jour
+                }
+
+        if ca_info["raf"] == 0 and familles_info:
+            sum_raf = sum(f["raf"] for f in familles_info.values())
+            sum_obj = sum(f["obj_mois"] for f in familles_info.values())
+            sum_real = sum(f["real"] for f in familles_info.values())
+            ca_info = {
+                "obj_mois": sum_obj,
+                "real": sum_real,
+                "raf": sum_raf,
+                "raf_jour": round(sum_raf / rest_days, 2) if rest_days > 0 else 0
+            }
+
+        return jsonify({
+            "status": "success",
+            "vendeur": vendeur,
+            "date": latest_date,
+            "rest_days": rest_days,
+            "ca": ca_info,
+            "familles": familles_info
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/tasks", methods=["GET"])
 def api_tasks_list():
@@ -1218,13 +1385,12 @@ def get_visites_disponibles_endpoint():
         """)
         rows = cursor.fetchall()
         
-        # 2. Fetch Secteur -> Tournee mapping from clients_acm
+        # 2. Fetch Secteur -> Tournee mapping from localites JOIN secteurs
         cursor.execute("""
-            SELECT role_vendeur, tournee 
-            FROM clients_acm 
-            WHERE role_vendeur != '' AND tournee != '' 
-            GROUP BY role_vendeur, tournee 
-            ORDER BY role_vendeur, tournee ASC
+            SELECT s.name AS role_vendeur, l.name AS tournee 
+            FROM localites l
+            JOIN secteurs s ON l.secteur_id = s.id
+            ORDER BY s.name, l.name ASC
         """)
         st_rows = cursor.fetchall()
         
@@ -1240,11 +1406,24 @@ def get_visites_disponibles_endpoint():
 
         cursor.execute("SELECT DISTINCT date_visite FROM visites_rapports WHERE date_visite IS NOT NULL AND date_visite != '' ORDER BY date_visite ASC")
         all_dates = [r["date_visite"] for r in cursor.fetchall() if r["date_visite"]]
+        
+        cursor.execute("SELECT DISTINCT vendeur, cdz, secteur FROM fdv WHERE vendeur IS NOT NULL AND vendeur != '' ORDER BY vendeur ASC")
+        fdv_vendeurs_rows = cursor.fetchall()
         conn.close()
         
         tournees_map = {}
         vendeurs_map = {}
         secteurs_map = {}
+
+        # Pre-populate vendeurs from FDV database table
+        for fv in fdv_vendeurs_rows:
+            v_name = fv["vendeur"]
+            vendeurs_map[v_name] = {
+                "dates": set(),
+                "dates_details": [],
+                "cdz": fv["cdz"] or "",
+                "secteur": fv["secteur"] or ""
+            }
 
         # Initialize secteurs_map with tournees
         for sec, t_list in secteur_to_tournees.items():
@@ -1268,7 +1447,7 @@ def get_visites_disponibles_endpoint():
                     
             if v_name and v_name != "N/A":
                 if v_name not in vendeurs_map:
-                    vendeurs_map[v_name] = {"dates": set(), "dates_details": []}
+                    vendeurs_map[v_name] = {"dates": set(), "dates_details": [], "cdz": "", "secteur": ""}
                 if d_val not in vendeurs_map[v_name]["dates"]:
                     vendeurs_map[v_name]["dates"].add(d_val)
                     vendeurs_map[v_name]["dates_details"].append({"date": d_val, "tournee": t_name or "", "vendeur": v_name})
@@ -1294,7 +1473,38 @@ def get_visites_disponibles_endpoint():
         vendeurs_list = []
         for v, info in sorted(vendeurs_map.items()):
             dates_sorted = sorted(list(info["dates"]))
-            vendeurs_list.append({"name": v, "dates": dates_sorted, "dates_details": sorted(info["dates_details"], key=lambda x: x["date"])})
+            
+            # Build tournées details for this seller
+            v_tournees = {}
+            for dt in info.get("dates_details", []):
+                tn = dt.get("tournee")
+                d_date = dt.get("date")
+                if tn:
+                    if tn not in v_tournees:
+                        v_tournees[tn] = set()
+                    if d_date:
+                        v_tournees[tn].add(d_date)
+                        
+            v_tournees_objs = []
+            for tn, t_dates_set in v_tournees.items():
+                t_dates = sorted(list(t_dates_set))
+                v_tournees_objs.append({
+                    "name": tn,
+                    "dates": t_dates,
+                    "min_date": t_dates[0] if t_dates else "9999-12-31",
+                    "max_date": t_dates[-1] if t_dates else "9999-12-31"
+                })
+            v_tournees_objs.sort(key=lambda x: (x["min_date"], x["name"]))
+
+            vendeurs_list.append({
+                "name": v,
+                "cdz": info.get("cdz", ""),
+                "secteur": info.get("secteur", ""),
+                "tournees": [x["name"] for x in v_tournees_objs],
+                "tournees_details": v_tournees_objs,
+                "dates": dates_sorted,
+                "dates_details": sorted(info["dates_details"], key=lambda x: x["date"])
+            })
 
         secteurs_list = []
         for s, info in sorted(secteurs_map.items()):
@@ -1379,7 +1589,7 @@ def compare_visites_db_endpoint():
                 cursor.execute("""
                     SELECT client_code, client_nom, motif, note, vendeur, tournee
                     FROM visites_rapports
-                    WHERE (vendeur = ? OR tournee IN (SELECT DISTINCT tournee FROM clients_acm WHERE role_vendeur = ?)) AND date_visite = ?
+                    WHERE (vendeur = ? OR tournee IN (SELECT DISTINCT l.name FROM localites l JOIN secteurs s ON l.secteur_id = s.id WHERE s.name = ?)) AND date_visite = ?
                 """, (secteur, secteur, d))
             else:
                 cursor.execute("""
@@ -1422,18 +1632,46 @@ def compare_visites_db_endpoint():
                 else:
                     all_clients[code]["motifs"][idx] = motif
                 
-        # Merge clients from ACM
+        # Merge clients from clients table
         acm_clients_map = {}
         conn = db_manager.get_db_connection()
         c_cursor = conn.cursor()
         
+        base_client_sql = """
+            SELECT c.code, c.name, 0 AS is_actif, 0 AS is_inactif, s.name AS role_vendeur, l.name AS tournee 
+            FROM clients c
+            JOIN secteurs s ON c.secteur_id = s.id
+            JOIN localites l ON c.localite_id = l.id
+        """
+
         if tournee:
-            c_cursor.execute("SELECT code, name, is_actif, is_inactif, role_vendeur, tournee FROM clients_acm WHERE tournee = ?", (tournee,))
+            c_cursor.execute(f"{base_client_sql} WHERE l.name = ?", (tournee,))
         elif secteur:
-            c_cursor.execute("SELECT code, name, is_actif, is_inactif, role_vendeur, tournee FROM clients_acm WHERE role_vendeur = ?", (secteur,))
+            if dates:
+                # Find active tournées executed on the selected dates in this secteur
+                placeholders = ','.join(['?'] * len(dates))
+                c_cursor.execute(f"""
+                    SELECT DISTINCT tournee 
+                    FROM visites_rapports 
+                    WHERE (vendeur = ? OR tournee IN (SELECT DISTINCT l.name FROM localites l JOIN secteurs s ON l.secteur_id = s.id WHERE s.name = ?))
+                    AND date_visite IN ({placeholders})
+                    AND tournee IS NOT NULL AND tournee != ''
+                """, [secteur, secteur] + dates)
+                active_tournees = [r[0] for r in c_cursor.fetchall() if r[0]]
+                
+                if active_tournees:
+                    tn_placeholders = ','.join(['?'] * len(active_tournees))
+                    c_cursor.execute(f"""
+                        {base_client_sql}
+                        WHERE s.name = ? AND l.name IN ({tn_placeholders})
+                    """, [secteur] + active_tournees)
+                else:
+                    c_cursor.execute(f"{base_client_sql} WHERE s.name = ?", (secteur,))
+            else:
+                c_cursor.execute(f"{base_client_sql} WHERE s.name = ?", (secteur,))
         elif vendeur:
             v_code = vendeur.split()[0] if vendeur else ""
-            c_cursor.execute("SELECT code, name, is_actif, is_inactif, role_vendeur, tournee FROM clients_acm WHERE role_vendeur = ? OR role_vendeur LIKE ?", (vendeur, f"%{v_code}%"))
+            c_cursor.execute(f"{base_client_sql} WHERE s.name = ? OR s.name LIKE ?", (vendeur, f"%{v_code}%"))
             
         for r in c_cursor.fetchall():
             acm_clients_map[r["code"]] = dict(r)
@@ -1458,11 +1696,16 @@ def compare_visites_db_endpoint():
                 all_clients[code]["is_actif"] = acm_info.get("is_actif", 0)
 
         # Strict Tournée Filtering:
-        # If a specific tournée is selected, restrict all_clients ONLY to clients belonging to that tournée in clients_acm
+        # If a specific tournée is selected, restrict all_clients ONLY to clients belonging to that tournée in clients
         if tournee:
             conn = db_manager.get_db_connection()
             acm_check_cursor = conn.cursor()
-            acm_check_cursor.execute("SELECT code FROM clients_acm WHERE tournee = ?", (tournee,))
+            acm_check_cursor.execute("""
+                SELECT c.code 
+                FROM clients c
+                JOIN localites l ON c.localite_id = l.id
+                WHERE l.name = ?
+            """, (tournee,))
             tournee_acm_codes = set(r["code"] for r in acm_check_cursor.fetchall() if r["code"])
             conn.close()
 
@@ -1485,7 +1728,12 @@ def compare_visites_db_endpoint():
             conn = db_manager.get_db_connection()
             c_cursor = conn.cursor()
             placeholders = ",".join(["?" for _ in client_codes])
-            c_cursor.execute(f"SELECT code, localite FROM clients_full WHERE code IN ({placeholders})", client_codes)
+            c_cursor.execute(f"""
+                SELECT c.code, l.name AS localite 
+                FROM clients c
+                JOIN localites l ON c.localite_id = l.id
+                WHERE c.code IN ({placeholders})
+            """, client_codes)
             for r in c_cursor.fetchall():
                 if r["code"]:
                     localites_map[r["code"]] = r["localite"] or ""
@@ -2506,6 +2754,133 @@ def clients_full_export():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+
+# ------------------------------------------------------------------
+# Client management routes (edit / delete / assign vendeur)
+# ------------------------------------------------------------------
+
+@app.route("/api/clients/<int:client_id>", methods=["GET"])
+def get_client(client_id):
+    try:
+        client = db_manager.get_client_by_id(client_id)
+        if not client:
+            return jsonify({"status": "error", "message": "Client introuvable"}), 404
+        return jsonify({"status": "success", "client": client})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/clients/<int:client_id>", methods=["PUT"])
+def edit_client(client_id):
+    try:
+        data = request.get_json(force=True) or {}
+        updated = db_manager.update_client(
+            client_id,
+            name=data.get("name"),
+            secteur_id=data.get("secteur_id"),
+            localite_id=data.get("localite_id"),
+            vendeur_som=data.get("vendeur_som"),
+            vendeur_vmm=data.get("vendeur_vmm"),
+        )
+        if not updated:
+            return jsonify({"status": "error", "message": "Client introuvable ou aucune modification"}), 404
+        client = db_manager.get_client_by_id(client_id)
+        return jsonify({"status": "success", "client": client})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/clients/<int:client_id>", methods=["DELETE"])
+def delete_client_route(client_id):
+    try:
+        deleted = db_manager.delete_client(client_id)
+        if not deleted:
+            return jsonify({"status": "error", "message": "Client introuvable"}), 404
+        return jsonify({"status": "success", "message": "Client supprimé"})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/clients/<int:client_id>/assign-vendeur", methods=["POST"])
+def assign_vendeur_to_client_secteur(client_id):
+    """Assign a vendeur to ALL clients in the same secteur as the given client."""
+    try:
+        data = request.get_json(force=True) or {}
+        channel = (data.get("channel") or "").lower()   # 'som' or 'vmm'
+        vendeur = (data.get("vendeur") or "").strip()
+
+        if channel not in ("som", "vmm"):
+            return jsonify({"status": "error", "message": "channel doit être 'som' ou 'vmm'"}), 400
+        if not vendeur:
+            return jsonify({"status": "error", "message": "vendeur requis"}), 400
+
+        # Get the secteur_id of the target client
+        client = db_manager.get_client_by_id(client_id)
+        if not client:
+            return jsonify({"status": "error", "message": "Client introuvable"}), 404
+
+        secteur_id = client["secteur_id"]
+        secteur_name = client["secteur"]
+        affected = db_manager.assign_vendeur_to_secteur(secteur_id, channel, vendeur)
+
+        return jsonify({
+            "status": "success",
+            "affected": affected,
+            "secteur": secteur_name,
+            "channel": channel,
+            "vendeur": vendeur,
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/clients/vendeurs-select", methods=["GET"])
+def clients_vendeurs_select():
+    """Return FDV vendeurs grouped by SOM / VMM for dropdowns."""
+    try:
+        data = db_manager.get_fdv_vendeurs_for_select()
+        return jsonify({"status": "success", **data})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/secteurs", methods=["GET"])
+def list_secteurs():
+    """Return all secteurs."""
+    try:
+        conn = db_manager.get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, name FROM secteurs ORDER BY name")
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return jsonify({"status": "success", "secteurs": rows})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/localites", methods=["GET"])
+def list_localites():
+    """Return localites, optionally filtered by secteur_id."""
+    try:
+        secteur_id = request.args.get("secteur_id")
+        conn = db_manager.get_db_connection()
+        cur = conn.cursor()
+        if secteur_id:
+            cur.execute("SELECT id, name, secteur_id FROM localites WHERE secteur_id = ? ORDER BY name", (secteur_id,))
+        else:
+            cur.execute("SELECT id, name, secteur_id FROM localites ORDER BY name")
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return jsonify({"status": "success", "localites": rows})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/vendeur/360", methods=["GET"])
 def get_vendeur_360_endpoint():
     try:
@@ -2554,7 +2929,7 @@ def get_vendeur_360_endpoint():
         localites_map = {}
         if client_codes:
             placeholders = ','.join(['?'] * len(client_codes))
-            cursor.execute(f"SELECT code, localite FROM clients_full WHERE code IN ({placeholders})", client_codes)
+            cursor.execute(f"SELECT c.code, l.name AS localite FROM clients c JOIN localites l ON c.localite_id = l.id WHERE c.code IN ({placeholders})", client_codes)
             for r in cursor.fetchall():
                 if r["code"]:
                     localites_map[r["code"]] = r["localite"] or ""
@@ -2585,6 +2960,24 @@ def get_vendeur_360_endpoint():
                     "motif": motif
                 })
 
+            if code not in clients_map:
+                clients_map[code] = {
+                    "code": code,
+                    "name": name,
+                    "localite": loc,
+                    "tournee": t_name,
+                    "has_ok": False,
+                    "latest_motif": motif,
+                    "visite_count": 0
+                }
+                
+            clients_map[code]["visite_count"] += 1
+            if str(motif).upper() == "OK":
+                clients_map[code]["has_ok"] = True
+                clients_map[code]["latest_motif"] = "OK"
+            elif not clients_map[code]["has_ok"]:
+                clients_map[code]["latest_motif"] = motif
+
         # Also fetch registered anomalies from anomalies table
         try:
             cursor.execute("""
@@ -2602,27 +2995,6 @@ def get_vendeur_360_endpoint():
                 })
         except Exception as ex_anom:
             print("Error fetching anomalies for Vendeur 360:", ex_anom)
-                
-            if t_name not in tournees_map:
-                tournees_map[t_name] = {"total": 0, "ok": 0, "sans_ok": 0}
-                
-            if code not in clients_map:
-                clients_map[code] = {
-                    "code": code,
-                    "name": name,
-                    "localite": loc,
-                    "tournee": t_name,
-                    "has_ok": False,
-                    "latest_motif": motif,
-                    "visite_count": 0
-                }
-                
-            clients_map[code]["visite_count"] += 1
-            if motif.upper() == "OK":
-                clients_map[code]["has_ok"] = True
-                clients_map[code]["latest_motif"] = "OK"
-            elif not clients_map[code]["has_ok"]:
-                clients_map[code]["latest_motif"] = motif
 
         clients_list = list(clients_map.values())
         total_clients_count = len(clients_list)
@@ -2631,14 +3003,16 @@ def get_vendeur_360_endpoint():
         acm_pct = round((clients_ok_count / total_clients_count) * 100, 1) if total_clients_count > 0 else 0
         
         # Tournees summary
+        tournees_map = {}
         for c in clients_list:
             t_name = c["tournee"]
-            if t_name in tournees_map:
-                tournees_map[t_name]["total"] += 1
-                if c["has_ok"]:
-                    tournees_map[t_name]["ok"] += 1
-                else:
-                    tournees_map[t_name]["sans_ok"] += 1
+            if t_name not in tournees_map:
+                tournees_map[t_name] = {"total": 0, "ok": 0, "sans_ok": 0}
+            tournees_map[t_name]["total"] += 1
+            if c["has_ok"]:
+                tournees_map[t_name]["ok"] += 1
+            else:
+                tournees_map[t_name]["sans_ok"] += 1
                     
         tournees_summary = [{
             "tournee": t,
@@ -2646,7 +3020,7 @@ def get_vendeur_360_endpoint():
             "clients_ok": info["ok"],
             "clients_sans_ok": info["sans_ok"],
             "billing_rate": round((info["ok"] / info["total"]) * 100, 1) if info["total"] > 0 else 0
-        } for t, info in tournees_map.items()]
+        } for t, info in sorted(tournees_map.items())]
         
         # 4. Tasks from tasks table
         cursor.execute("""
@@ -3443,11 +3817,27 @@ def api_terrain_data():
     focus_names = db_manager.get_focus_names()
     config = load_config()
     google_sheet_url = config.get("google_sheet_url", "")
+    all_vendeurs = get_all_vendeurs_from_db()
+    
+    vendeur_phones = {}
+    for v in all_vendeurs:
+        ph = db_manager.get_vendeur_phone_from_fdv(v) or ""
+        if ph:
+            vendeur_phones[v] = ph
+    for r in records:
+        v = r.get("vendeur")
+        if v and v not in vendeur_phones:
+            ph = db_manager.get_vendeur_phone_from_fdv(v) or ""
+            if ph:
+                vendeur_phones[v] = ph
+
     return jsonify({
         "status": "success", 
         "data": records, 
         "focus_names": focus_names,
-        "google_sheet_url": google_sheet_url
+        "google_sheet_url": google_sheet_url,
+        "all_vendeurs": all_vendeurs,
+        "vendeur_phones": vendeur_phones
     })
 
 @app.route("/api/terrain/update_sheet", methods=["POST"])
@@ -3466,7 +3856,27 @@ def api_terrain_update_sheet():
             print("Failed to remove cache on sheet update:", e)
             
     records = get_suivi_terrain_data()
-    return jsonify({"status": "success", "data": records, "google_sheet_url": url})
+    all_vendeurs = get_all_vendeurs_from_db()
+    vendeur_phones = {}
+    for v in all_vendeurs:
+        ph = db_manager.get_vendeur_phone_from_fdv(v) or ""
+        if ph:
+            vendeur_phones[v] = ph
+    for r in records:
+        v = r.get("vendeur")
+        if v and v not in vendeur_phones:
+            ph = db_manager.get_vendeur_phone_from_fdv(v) or ""
+            if ph:
+                vendeur_phones[v] = ph
+
+    return jsonify({
+        "status": "success", 
+        "data": records, 
+        "google_sheet_url": url,
+        "all_vendeurs": all_vendeurs,
+        "vendeur_phones": vendeur_phones,
+        "message": "Lien Google Sheet enregistré dans le fichier de configuration (config.json) et synchronisé avec succès."
+    })
 
 @app.route("/api/terrain/refresh", methods=["POST"])
 def api_terrain_refresh():

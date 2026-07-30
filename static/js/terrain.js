@@ -1,7 +1,49 @@
 let terrainRawData = [];
 let terrainFilteredData = [];
+let terrainAllVendeurs = [];
+let terrainVendeurPhones = {};
+let selectedAnomalyMonth = "";
 let terrainChartInstance = null;
 let terrainFocusNames = {"GLACE": "GLACE", "TOMATE_FRITO": "TOMATE FRITO"};
+
+const DAY_NAMES_FR = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+function getVendeurCode(vName) {
+    if (!vName) return "";
+    const clean = vName.trim().toUpperCase();
+    const match = clean.match(/^([A-Z]\d{1,3})\b/);
+    return match ? match[1] : clean.replace(/[^A-Z0-9]/g, '');
+}
+
+function isSameVendeur(name1, name2) {
+    if (!name1 || !name2) return false;
+    const n1 = name1.trim().toUpperCase();
+    const n2 = name2.trim().toUpperCase();
+    if (n1 === n2) return true;
+    
+    const code1 = getVendeurCode(n1);
+    const code2 = getVendeurCode(n2);
+    if (code1 && code2 && code1 === code2) return true;
+
+    return false;
+}
+
+function deduplicateVendeurs(vendeurs) {
+    const mapByCode = new Map();
+    vendeurs.forEach(v => {
+        if (!v) return;
+        const code = getVendeurCode(v);
+        if (!mapByCode.has(code)) {
+            mapByCode.set(code, v);
+        } else {
+            const existing = mapByCode.get(code);
+            if (existing.length > v.length) {
+                mapByCode.set(code, v);
+            }
+        }
+    });
+    return Array.from(mapByCode.values()).sort();
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     // Only initialize if the terrain-container exists in the DOM
@@ -32,6 +74,8 @@ function fetchTerrainData() {
         .then(res => {
             if (res.status === 'success') {
                 terrainRawData = res.data;
+                terrainAllVendeurs = res.all_vendeurs || [];
+                terrainVendeurPhones = res.vendeur_phones || {};
                 terrainFilteredData = [...terrainRawData];
                 if (res.focus_names) {
                     terrainFocusNames = res.focus_names;
@@ -92,7 +136,7 @@ function populateTerrainFilters() {
         return dateA - dateB;
     });
     
-    const vendeurs = [...new Set(terrainRawData.map(r => r.vendeur))].sort();
+    const vendeurs = deduplicateVendeurs(terrainRawData.map(r => r.vendeur));
     const activites = [...new Set(terrainRawData.map(r => r.activite))].sort();
 
     dates.forEach(d => {
@@ -171,6 +215,14 @@ function setupTerrainEventListeners() {
     if (resetBtn) resetBtn.addEventListener('click', resetAll);
     if (tableResetBtn) tableResetBtn.addEventListener('click', resetAll);
 
+    const anomalyMonthSelect = document.getElementById('terrain-anomalies-month-select');
+    if (anomalyMonthSelect) {
+        anomalyMonthSelect.addEventListener('change', (e) => {
+            selectedAnomalyMonth = e.target.value;
+            renderTerrainAnomalies();
+        });
+    }
+
     if (sheetUpdateBtn) {
         sheetUpdateBtn.addEventListener('click', () => {
             const urlInput = document.getElementById('terrain-sheet-url');
@@ -193,13 +245,15 @@ function setupTerrainEventListeners() {
                 sheetUpdateBtn.innerHTML = originalContent;
                 if (res.status === 'success') {
                     terrainRawData = res.data;
+                    terrainAllVendeurs = res.all_vendeurs || terrainAllVendeurs;
+                    terrainVendeurPhones = res.vendeur_phones || terrainVendeurPhones;
                     terrainFilteredData = [...terrainRawData];
                     
                     // Populate filters & render view
                     populateTerrainFilters();
                     renderTerrainView();
                     
-                    alert("Lien Google Sheet mis à jour et synchronisé avec succès !");
+                    alert(res.message || "Lien Google Sheet enregistré dans le fichier de configuration (config.json) et synchronisé avec succès !");
                 } else {
                     alert("Erreur: " + (res.message || "Impossible de mettre à jour le lien."));
                 }
@@ -221,7 +275,7 @@ function applyTerrainFilters() {
 
     terrainFilteredData = terrainRawData.filter(r => {
         const matchesDate = !dateVal || r.date === dateVal;
-        const matchesVendeur = !vendeurVal || r.vendeur === vendeurVal;
+        const matchesVendeur = !vendeurVal || isSameVendeur(r.vendeur, vendeurVal);
         const matchesActivite = !activiteVal || r.activite === activiteVal;
         return matchesDate && matchesVendeur && matchesActivite;
     });
@@ -332,6 +386,219 @@ function renderTerrainView() {
 
     // 3. Render Chart
     renderTerrainChart();
+
+    // 4. Render Anomalies Section (Missing reports per seller, excluding Sundays)
+    renderTerrainAnomalies();
+}
+
+function renderTerrainAnomalies() {
+    const anomaliesTableBody = document.querySelector('#terrain-anomalies-table tbody');
+    if (!anomaliesTableBody) return;
+
+    if (!terrainRawData || terrainRawData.length === 0) {
+        anomaliesTableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Aucune donnée terrain disponible pour calculer les anomalies.</td></tr>`;
+        return;
+    }
+
+    // 1. Identify all months present in raw data (format: MM/YYYY)
+    const monthsMap = {};
+    terrainRawData.forEach(r => {
+        if (!r.date) return;
+        const parts = r.date.split('/');
+        if (parts.length === 3) {
+            const mKey = `${parts[1]}/${parts[2]}`;
+            if (!monthsMap[mKey]) monthsMap[mKey] = [];
+            monthsMap[mKey].push(r);
+        }
+    });
+
+    const monthKeys = Object.keys(monthsMap).sort((a,b) => {
+        const [mA, yA] = a.split('/').map(Number);
+        const [mB, yB] = b.split('/').map(Number);
+        return (yA - yB) || (mA - mB);
+    });
+
+    if (monthKeys.length === 0) return;
+
+    // Populate month select dropdown
+    const monthSelect = document.getElementById('terrain-anomalies-month-select');
+    if (monthSelect) {
+        const currentSelected = monthSelect.value;
+        monthSelect.innerHTML = monthKeys.map(m => {
+            const [mNum, yNum] = m.split('/').map(Number);
+            const monthName = new Date(yNum, mNum - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+            return `<option value="${m}">${monthName.toUpperCase()} (${m})</option>`;
+        }).join('');
+
+        if (currentSelected && monthKeys.includes(currentSelected)) {
+            monthSelect.value = currentSelected;
+            selectedAnomalyMonth = currentSelected;
+        } else {
+            selectedAnomalyMonth = monthKeys[monthKeys.length - 1]; // latest month
+            monthSelect.value = selectedAnomalyMonth;
+        }
+    } else if (!selectedAnomalyMonth) {
+        selectedAnomalyMonth = monthKeys[monthKeys.length - 1];
+    }
+
+    const [targetM, targetY] = selectedAnomalyMonth.split('/').map(Number);
+
+    // 2. Find max day present in dataset for this month to avoid flagging future days
+    let maxDay = 0;
+    const recordsInMonth = monthsMap[selectedAnomalyMonth] || [];
+    recordsInMonth.forEach(r => {
+        const d = parseInt(r.date.split('/')[0], 10);
+        if (d > maxDay) maxDay = d;
+    });
+
+    const daysInMonth = new Date(targetY, targetM, 0).getDate();
+    const daysToAnalyze = Math.min(daysInMonth, maxDay || daysInMonth);
+
+    // 3. Build list of mandatory working days (excluding Sundays / Day 0)
+    const workingDays = [];
+    for (let day = 1; day <= daysToAnalyze; day++) {
+        const dateObj = new Date(targetY, targetM - 1, day);
+        if (dateObj.getDay() !== 0) { // 0 = Sunday / Dimanche -> EXCLUDE
+            const dateStr = `${String(day).padStart(2, '0')}/${String(targetM).padStart(2, '0')}/${targetY}`;
+            workingDays.push({
+                dateStr: dateStr,
+                dayName: DAY_NAMES_FR[dateObj.getDay()],
+                dayNum: day
+            });
+        }
+    }
+
+    // 4. Determine list of vendeurs to evaluate
+    const filterVendeur = document.getElementById('terrain-filter-vendeur')?.value || "";
+    let rawVendeurs = [];
+
+    if (terrainAllVendeurs && terrainAllVendeurs.length > 0) {
+        rawVendeurs = [...new Set([...terrainAllVendeurs, ...terrainRawData.map(r => r.vendeur)])];
+    } else {
+        rawVendeurs = [...new Set(terrainRawData.map(r => r.vendeur))];
+    }
+
+    let vendeursList = deduplicateVendeurs(rawVendeurs);
+
+    if (filterVendeur) {
+        vendeursList = vendeursList.filter(v => isSameVendeur(v, filterVendeur));
+    }
+
+    // 5. Build submission map: submittedMap[code][dateStr] = true
+    const submittedMap = {};
+    recordsInMonth.forEach(r => {
+        if (!r.vendeur || !r.date) return;
+        const code = getVendeurCode(r.vendeur);
+        if (!submittedMap[code]) submittedMap[code] = {};
+        submittedMap[code][r.date] = true;
+    });
+
+    // 6. Compute anomalies per vendeur
+    const vendorResults = [];
+    let totalMissingCount = 0;
+    let vendorsWithAnomaliesCount = 0;
+
+    vendeursList.forEach(vName => {
+        const code = getVendeurCode(vName);
+        const vSubmitted = submittedMap[code] || {};
+
+        let sentCount = 0;
+        const missingDates = [];
+
+        workingDays.forEach(wd => {
+            if (vSubmitted[wd.dateStr]) {
+                sentCount++;
+            } else {
+                missingDates.push(wd);
+            }
+        });
+
+        const missingCount = missingDates.length;
+        if (missingCount > 0) {
+            vendorsWithAnomaliesCount++;
+            totalMissingCount += missingCount;
+        }
+
+        const pct = workingDays.length > 0 ? Math.round((sentCount / workingDays.length) * 100) : 100;
+
+        vendorResults.push({
+            vendeur: vName,
+            sentCount: sentCount,
+            totalWorkingDays: workingDays.length,
+            missingCount: missingCount,
+            missingDates: missingDates,
+            pct: pct
+        });
+    });
+
+    // Sort: highest missing count first
+    vendorResults.sort((a,b) => b.missingCount - a.missingCount || a.vendeur.localeCompare(b.vendeur));
+
+    // 7. Update Summary Bar KPIs
+    const kpiWorkDays = document.getElementById('anomalies-kpi-working-days');
+    const kpiVendorsCount = document.getElementById('anomalies-kpi-vendeurs-count');
+    const kpiTotalMissing = document.getElementById('anomalies-kpi-total-missing');
+    const badgeEl = document.getElementById('terrain-anomalies-badge');
+
+    if (kpiWorkDays) kpiWorkDays.innerText = `${workingDays.length} j`;
+    if (kpiVendorsCount) kpiVendorsCount.innerText = vendorsWithAnomaliesCount;
+    if (kpiTotalMissing) kpiTotalMissing.innerText = totalMissingCount;
+    if (badgeEl) badgeEl.innerText = `${vendorsWithAnomaliesCount} vendeur(s) en anomalie`;
+
+    // 8. Render Table
+    if (vendorResults.length === 0) {
+        anomaliesTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Aucun vendeur trouvé.</td></tr>`;
+        return;
+    }
+
+    const monthSelectEl = document.getElementById('terrain-anomalies-month-select');
+    const selectedMonthName = (monthSelectEl && monthSelectEl.options[monthSelectEl.selectedIndex]) 
+        ? monthSelectEl.options[monthSelectEl.selectedIndex].text 
+        : selectedAnomalyMonth;
+
+    anomaliesTableBody.innerHTML = vendorResults.map(res => {
+        let statusBadge = "";
+        if (res.missingCount === 0) {
+            statusBadge = `<span class="badge-green"><i class="fa-solid fa-circle-check"></i> 100% Conforme</span>`;
+        } else if (res.missingCount <= 3) {
+            statusBadge = `<span class="badge-amber"><i class="fa-solid fa-triangle-exclamation"></i> ${res.missingCount} manqué(s)</span>`;
+        } else {
+            statusBadge = `<span class="badge-pink"><i class="fa-solid fa-circle-exclamation"></i> ${res.missingCount} manqués (Alerte)</span>`;
+        }
+
+        const dateTags = res.missingDates.length > 0 
+            ? res.missingDates.map(d => `<span class="anomaly-date-chip" title="Absence de déclaration le ${d.dayName} ${d.dateStr}">${d.dayName} ${d.dateStr.substring(0,5)}</span>`).join('')
+            : `<span style="color: var(--neon-green); font-size: 0.78rem;"><i class="fa-solid fa-circle-check"></i> Aucun retard / envoi complet</span>`;
+
+        // Generate WhatsApp button and prefilled message
+        let actionCell = "";
+        if (res.missingCount === 0) {
+            actionCell = `<span class="rp-wa-ok-badge" title="Aucun rappel nécessaire"><i class="fa-solid fa-check"></i> Conforme</span>`;
+        } else {
+            const rawPhone = terrainVendeurPhones[res.vendeur] || terrainVendeurPhones[getVendeurCode(res.vendeur)] || "";
+            const phoneDigits = rawPhone.replace(/\D/g, '');
+            const datesListStr = res.missingDates.map(d => `- ${d.dayName} ${d.dateStr}`).join('\n');
+            const message = `Bonjour ${res.vendeur},\n\nSauf erreur de notre part, nous constatons qu'il manque ${res.missingCount} déclaration(s) terrain pour le mois de ${selectedMonthName} (dimanches exclus) aux dates suivantes :\n${datesListStr}\n\nMerci de régulariser vos déclarations au plus vite.`;
+            const waHref = phoneDigits ? `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}` : `https://wa.me/?text=${encodeURIComponent(message)}`;
+            
+            actionCell = `
+                <a href="${waHref}" target="_blank" class="rp-wa-reminder-btn" title="Envoyer un rappel WhatsApp à ${res.vendeur}">
+                    <i class="fa-brands fa-whatsapp"></i> Rappel WA
+                </a>
+            `;
+        }
+
+        return `
+            <tr>
+                <td><strong style="color: var(--text-main);">${res.vendeur}</strong></td>
+                <td><span style="font-family: var(--font-mono); font-weight: bold; color: var(--text-main);">${res.sentCount} / ${res.totalWorkingDays} j</span></td>
+                <td><span style="font-family: var(--font-mono); font-weight: bold; color: ${res.missingCount > 0 ? 'var(--neon-pink)' : 'var(--neon-green)'}">${res.missingCount} j</span></td>
+                <td>${statusBadge}</td>
+                <td><div style="display: flex; flex-wrap: wrap; gap: 4px; max-width: 500px;">${dateTags}</div></td>
+                <td style="text-align: center; vertical-align: middle;">${actionCell}</td>
+            </tr>
+        `;
+    }).join('');
 }
 
 function renderTerrainChart() {

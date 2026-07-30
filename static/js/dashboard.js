@@ -690,6 +690,7 @@ async function initClientsAFacturerView() {
             if (result.status === 'success') {
                 dbData = result;
                 populateEntityDropdown();
+                renderQuickSecButtons(); // populate shortcuts based on current category
             } else {
                 showToast("Erreur lors du chargement des passages : " + result.message, "error");
             }
@@ -699,14 +700,57 @@ async function initClientsAFacturerView() {
         }
     };
     
+    // Secteur ownership mapping per CDZ/category (from DB: fdv.cdz -> secteur)
+    const SECTEUR_CATEGORY_MAP = {
+        'Chakib Equipe': [
+            'AGADIR EXTERIEUR SV',
+            'AGADIR TIKIOUINE SOM',
+            'AGADIR TIKIOUINE VMM',
+            'AIT MELLOUL SOM',
+            'AIT MELLOUL VMM',
+            'INZEGANE SOM',
+            'INZEGANE VMM',
+            'OULED TEIMA SV',
+            'TAROUDANT SV',
+            'TAROUDANTE EXT IDAOUTANANE SV'
+        ],
+        'Boutmezguine Equipe': [
+            'AGADIR CENTRE VILLE SOM',
+            'AGADIR CENTRE VILLE VMM',
+            'AGADIR HAY ESSALAM SOM',
+            'AGADIR HAY ESSALAM VMM',
+            'AGADIR HAY MOHAMMADI SOM',
+            'AGADIR HAY MOHAMMADI VMM',
+            'BOUIZAKARNE SV',
+            'GUELMIM SV',
+            'TANTAN SV',
+            'TIZNIT SV'
+        ]
+    };
+
     const populateEntityDropdown = () => {
         if (!dbData || !selectEntity) return;
         selectEntity.innerHTML = '';
         
         let list = [];
         if (filterMode === 'tournee') list = dbData.tournees || [];
-        else if (filterMode === 'vendeur') list = dbData.vendeurs || [];
-        else if (filterMode === 'secteur') list = dbData.secteurs || [];
+        else if (filterMode === 'vendeur') {
+            list = dbData.vendeurs || [];
+            const cat = document.getElementById('category-select')?.value || 'All';
+            if (cat === 'Chakib Equipe') {
+                list = list.filter(v => (v.cdz || '').toUpperCase().includes('CHAKIB'));
+            } else if (cat === 'Boutmezguine Equipe') {
+                list = list.filter(v => (v.cdz || '').toUpperCase().includes('BOUTMEZGUINE'));
+            }
+        }
+        else if (filterMode === 'secteur') {
+            list = dbData.secteurs || [];
+            const cat = document.getElementById('category-select')?.value || 'All';
+            if (cat !== 'All' && SECTEUR_CATEGORY_MAP[cat]) {
+                const allowed = new Set(SECTEUR_CATEGORY_MAP[cat]);
+                list = list.filter(item => allowed.has(item.name));
+            }
+        }
         
         if (list.length === 0) {
             selectEntity.innerHTML = '<option value="">Aucune donnée dans la base</option>';
@@ -754,11 +798,8 @@ async function initClientsAFacturerView() {
             setClientStatusInactif();
         }
 
-        if (filterMode !== 'secteur' && subTourneeWrapper) {
-            subTourneeWrapper.style.display = 'none';
-        }
-
         if (!val) {
+            if (subTourneeWrapper) subTourneeWrapper.style.display = 'none';
             datesContainer.innerHTML = "<span style=\"color: var(--text-muted); font-size: 0.8rem; font-style: italic;\">Veuillez d'abord sélectionner une option.</span>";
             return;
         }
@@ -771,22 +812,44 @@ async function initClientsAFacturerView() {
         const selectedItem = list.find(item => item.name === val);
         
         if (!selectedItem) {
+            if (subTourneeWrapper) subTourneeWrapper.style.display = 'none';
             datesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Aucune donnée disponible.</span>';
             return;
         }
 
-        // Render Sub-Tournée selector if in Secteur mode (sorted by date)
-        if (filterMode === 'secteur' && subTourneeWrapper && selectSubTournee) {
-            const tourneesDetails = selectedItem.tournees_details || (selectedItem.tournees || []).map(tn => ({ name: tn, min_date: '9999-12-31' }));
+        // Render Sub-Tournée & Date selector if in Secteur or Vendeur mode
+        if ((filterMode === 'secteur' || filterMode === 'vendeur') && subTourneeWrapper && selectSubTournee) {
             subTourneeWrapper.style.display = 'block';
-            selectSubTournee.innerHTML = `<option value="ALL">-- TOUTES LES TOURNÉES DU SECTEUR (${tourneesDetails.length}) --</option>`;
+            const subLabel = document.querySelector('#af-sub-tournee-wrapper .tech-label');
+            if (subLabel) {
+                const labelTitle = filterMode === 'vendeur' ? 'TOURNÉE & DATE DU VENDEUR' : 'TOURNÉE & DATE DU SECTEUR';
+                subLabel.innerHTML = `<i class="fa-solid fa-route"></i> ${labelTitle}`;
+            }
+
+            const tourneesDetails = selectedItem.tournees_details || (selectedItem.tournees || []).map(tn => ({ name: tn, min_date: '9999-12-31' }));
+            selectSubTournee.innerHTML = `<option value="ALL">-- TOUTES LES TOURNÉES & DATES (${tourneesDetails.length}) --</option>`;
             tourneesDetails.forEach(tObj => {
                 const opt = document.createElement('option');
                 opt.value = tObj.name;
-                const dateSuffix = (tObj.min_date && tObj.min_date !== '9999-12-31') ? ` [Date: ${tObj.min_date.split('-').reverse().join('/')}]` : '';
-                opt.innerText = `${tObj.name}${dateSuffix}`;
+                
+                let dateStr = '';
+                if (tObj.dates && tObj.dates.length > 0) {
+                    const formatted = tObj.dates.map(d => {
+                        const parts = d.split('-');
+                        return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+                    }).join(', ');
+                    dateStr = ` — ${formatted}`;
+                } else if (tObj.min_date && tObj.min_date !== '9999-12-31') {
+                    const parts = tObj.min_date.split('-');
+                    const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : tObj.min_date;
+                    dateStr = ` — ${formatted}`;
+                }
+                
+                opt.innerText = `${tObj.name}${dateStr}`;
                 selectSubTournee.appendChild(opt);
             });
+        } else if (subTourneeWrapper) {
+            subTourneeWrapper.style.display = 'none';
         }
 
         renderDatesList();
@@ -805,15 +868,15 @@ async function initClientsAFacturerView() {
 
         const selectedItem = list.find(item => item.name === val);
         if (!selectedItem || !selectedItem.dates || selectedItem.dates.length === 0) {
-            datesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Aucune date disponible.</span>';
+            datesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Aucune date disponible pour cette sélection.</span>';
             return;
         }
 
         let targetDates = selectedItem.dates;
         let details = selectedItem.dates_details || [];
 
-        // If a specific sub-tournée is selected in Secteur mode
-        if (filterMode === 'secteur' && selectSubTournee && selectSubTournee.value !== 'ALL') {
+        // If a specific sub-tournée is selected in Secteur or Vendeur mode
+        if ((filterMode === 'secteur' || filterMode === 'vendeur') && selectSubTournee && selectSubTournee.value !== 'ALL') {
             const subTn = selectSubTournee.value;
             const subDetails = details.filter(dt => dt.tournee === subTn);
             const subDates = Array.from(new Set(subDetails.map(dt => dt.date))).sort();
@@ -823,7 +886,7 @@ async function initClientsAFacturerView() {
             }
         }
 
-        const isTourneeSel = (filterMode === 'tournee') || (filterMode === 'secteur' && selectSubTournee && selectSubTournee.value !== 'ALL');
+        const isTourneeSel = (filterMode === 'tournee') || ((filterMode === 'secteur' || filterMode === 'vendeur') && selectSubTournee && selectSubTournee.value !== 'ALL');
 
         targetDates.forEach(d => {
             const parts = d.split('-');
@@ -835,8 +898,8 @@ async function initClientsAFacturerView() {
 
             let subTourneeLine = '';
             if (tourneesForDate.length > 0) {
-                const tourneeText = tourneesForDate.length > 2 ? `${tourneesForDate.slice(0, 2).join(', ')} +${tourneesForDate.length - 2}` : tourneesForDate.join(', ');
-                subTourneeLine = `<div style="font-size: 0.70rem; color: var(--neon-blue); font-weight: normal; width: 100%; margin-top: 1px;"><i class="fa-solid fa-route"></i> ${tourneeText}</div>`;
+                const tourneeText = tourneesForDate.join(', ');
+                subTourneeLine = `<div style="font-size: 0.72rem; color: var(--neon-blue); font-weight: normal; width: 100%; margin-top: 1px;"><i class="fa-solid fa-route"></i> Tournée: ${tourneeText}</div>`;
             } else if (vendeursForDate.length > 0 && filterMode === 'tournee') {
                 subTourneeLine = `<div style="font-size: 0.70rem; color: var(--neon-green); font-weight: normal; width: 100%; margin-top: 1px;"><i class="fa-solid fa-user"></i> ${vendeursForDate.join(', ')}</div>`;
             }
@@ -857,6 +920,25 @@ async function initClientsAFacturerView() {
                     ${subTourneeLine}
                 </label>
             `;
+            const cb = div.querySelector('.af-date-checkbox');
+            if (cb) {
+                cb.addEventListener('change', () => {
+                    const checkedCbs = datesContainer.querySelectorAll('.af-date-checkbox:checked');
+                    const checkedDates = Array.from(checkedCbs).map(c => c.value);
+                    if (filterMode === 'secteur' && selectSubTournee && dbData && selectEntity) {
+                        const val = selectEntity.value;
+                        const sItem = (dbData.secteurs || []).find(item => item.name === val);
+                        if (sItem && sItem.dates_details && checkedDates.length > 0) {
+                            const matchedDetails = sItem.dates_details.filter(dt => checkedDates.includes(dt.date));
+                            const matchedTournees = Array.from(new Set(matchedDetails.map(dt => dt.tournee).filter(Boolean)));
+                            if (matchedTournees.length === 1) {
+                                selectSubTournee.value = matchedTournees[0];
+                                setClientStatusInactif();
+                            }
+                        }
+                    }
+                });
+            }
             datesContainer.appendChild(div);
         });
     };
@@ -892,6 +974,86 @@ async function initClientsAFacturerView() {
             });
         }
     }
+
+    const quickSecContainer = document.getElementById('af-quick-secteurs-container');
+    const quickSecLabel = document.getElementById('af-quick-secteurs-label');
+
+    const bindQuickSecBtn = (btn) => {
+        btn.addEventListener('click', () => {
+            const secName = btn.getAttribute('data-secteur');
+            filterMode = 'secteur';
+            if (filterSecteurBtn) filterSecteurBtn.classList.add('is-active');
+            if (filterTourneeBtn) filterTourneeBtn.classList.remove('is-active');
+            if (filterVendeurBtn) filterVendeurBtn.classList.remove('is-active');
+            if (entityLabel) entityLabel.innerHTML = '<i class="fa-solid fa-layer-group"></i> SÉLECTIONNER SECTEUR (ROLE)';
+            populateEntityDropdown();
+            if (selectEntity) {
+                selectEntity.value = secName;
+                populateDatesCheckboxes();
+            }
+            // Highlight active button
+            document.querySelectorAll('.af-quick-sec-btn').forEach(b => {
+                b.style.borderColor = 'var(--border-color)';
+                b.style.background = 'rgba(0,242,254,0.05)';
+                b.style.color = 'var(--text-main)';
+            });
+            btn.style.borderColor = 'var(--neon-cyan)';
+            btn.style.background = 'rgba(0,242,254,0.2)';
+            btn.style.color = 'var(--neon-cyan)';
+        });
+    };
+
+    const renderQuickSecButtons = () => {
+        if (!quickSecContainer) return;
+        const cat = document.getElementById('category-select')?.value || 'All';
+
+        // Determine which secteurs to show
+        let secList = [];
+        if (cat === 'All') {
+            // Show all secteurs from dbData if loaded, else show both teams
+            if (dbData && dbData.secteurs) {
+                secList = dbData.secteurs.map(s => s.name);
+            } else {
+                secList = [...(SECTEUR_CATEGORY_MAP['Chakib Equipe'] || []), ...(SECTEUR_CATEGORY_MAP['Boutmezguine Equipe'] || [])];
+            }
+        } else {
+            // Use the known mapping for this category
+            const mapped = SECTEUR_CATEGORY_MAP[cat];
+            if (mapped) {
+                // If we have dbData, cross-check to only show secteurs that actually have data
+                if (dbData && dbData.secteurs) {
+                    const dbNames = new Set(dbData.secteurs.map(s => s.name));
+                    secList = mapped.filter(s => dbNames.has(s));
+                } else {
+                    secList = mapped;
+                }
+            }
+        }
+
+        // Update label
+        if (quickSecLabel) {
+            const teamLabel = cat === 'All' ? 'TOUTE L\'AGENCE' : cat.toUpperCase();
+            quickSecLabel.innerHTML = `<i class="fa-solid fa-bolt"></i> RACCOURCIS — ${teamLabel}`;
+        }
+
+        // Rebuild buttons
+        quickSecContainer.innerHTML = '';
+        if (secList.length === 0) {
+            quickSecContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.75rem; font-style: italic;">Aucun secteur disponible</span>';
+            return;
+        }
+        secList.forEach(secName => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'af-quick-sec-btn cyber-btn-text';
+            btn.setAttribute('data-secteur', secName);
+            btn.style.cssText = 'font-size: 0.65rem; padding: 3px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,242,254,0.05); color: var(--text-main); cursor: pointer;';
+            
+            btn.textContent = secName;
+            bindQuickSecBtn(btn);
+            quickSecContainer.appendChild(btn);
+        });
+    };
 
     const statusBtns = [
         { btn: statusAllBtn, val: 'all' },
@@ -1343,6 +1505,18 @@ async function initClientsAFacturerView() {
         reloadBtn.addEventListener('click', loadAvailableVisites);
     }
     
+    // Refresh quick-sec buttons and dropdown when the global category changes
+    const afCategorySelect = document.getElementById('category-select');
+    if (afCategorySelect) {
+        afCategorySelect.addEventListener('change', () => {
+            renderQuickSecButtons();
+            populateEntityDropdown();
+        });
+    }
+
+    // Initial render of quick-sec buttons (before data loads, using static map)
+    renderQuickSecButtons();
+
     await loadAvailableVisites();
 }
 
@@ -1930,6 +2104,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const onStockRoute = path === '/stock';
             const onAnomalisRoute = path === '/anomalis';
             const onTasksRoute = path === '/tasks';
+            const onEngagementRoute = path === '/engagement';
             
             if (onVendeur360Route) {
                 activeView = 'vendeur360';
@@ -1951,6 +2126,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 activeView = 'anomalis';
             } else if (onTasksRoute) {
                 activeView = 'tasks';
+            } else if (onEngagementRoute) {
+                activeView = 'engagement';
             } else {
                 activeView = 'dashboard';
             }
@@ -1958,7 +2135,7 @@ document.addEventListener('DOMContentLoaded', () => {
             switchView(activeView);
             
             // Skip the main dashboard fetch when the user is on sub routes
-            if (!onDetailsRoute && !onVendeur360Route && !onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute && !onStockRoute && !onAnomalisRoute && !onTasksRoute) {
+            if (!onDetailsRoute && !onVendeur360Route && !onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute && !onStockRoute && !onAnomalisRoute && !onTasksRoute && !onEngagementRoute) {
                 fetchSuiviDates(() => {
                     fetchDashboardData();
                 });
@@ -2070,6 +2247,7 @@ function switchView(viewName) {
     const navStockFavorites = document.getElementById('nav-stock-favorites');
     const navAnomalis = document.getElementById('nav-anomalis');
     const navTasks = document.getElementById('nav-tasks');
+    const navEngagement = document.getElementById('nav-engagement');
     
     const mainDashboard = document.getElementById('main-dashboard-container');
     const detailsContainer = document.getElementById('details-container');
@@ -2081,17 +2259,18 @@ function switchView(viewName) {
     const stockContainer = document.getElementById('stock-container');
     const anomalisContainer = document.getElementById('anomalis-container');
     const tasksContainer = document.getElementById('tasks-container');
+    const engagementContainer = document.getElementById('engagement-container');
     
     const dateSelect = document.getElementById('date-select');
     const timelapseCtrl = document.getElementById('timelapse-control');
     
     // Remove active class from all nav items
-    [navDashboard, navRealisation, navDetails, navVendeur360, navClients, navClientsFacturation, navFdv, navTerrain, navFocus, navRapport, navStock, navStockFavorites, navAnomalis, navTasks].forEach(nav => {
+    [navDashboard, navRealisation, navDetails, navVendeur360, navClients, navClientsFacturation, navFdv, navTerrain, navFocus, navRapport, navStock, navStockFavorites, navAnomalis, navTasks, navEngagement].forEach(nav => {
         if (nav) nav.classList.remove('active');
     });
     
     // Hide all view containers
-    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, focusContainer, rapportContainer, stockContainer, anomalisContainer, tasksContainer].forEach(container => {
+    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, focusContainer, rapportContainer, stockContainer, anomalisContainer, tasksContainer, engagementContainer].forEach(container => {
         if (container) container.style.display = 'none';
     });
     
@@ -2211,6 +2390,9 @@ function switchView(viewName) {
         if (navTasks) navTasks.classList.add('active');
         if (tasksContainer) tasksContainer.style.display = '';
         loadTasks();
+    } else if (viewName === 'engagement') {
+        if (navEngagement) navEngagement.classList.add('active');
+        if (engagementContainer) engagementContainer.style.display = '';
     } else {
         // dashboard or realisation
         if (viewName === 'dashboard' && navDashboard) navDashboard.classList.add('active');
@@ -4285,46 +4467,42 @@ function renderQuantiTable(records) {
     quantiTableBody.innerHTML = '';
     
     const headerRow = document.querySelector('#quanti-table thead tr');
-    const isGlobal = !currentSelection || currentSelection.type !== 'vendeur';
     if (headerRow) {
-        if (isGlobal) {
-            headerRow.innerHTML = `
-                <th>Famille</th>
-                <th>J-1</th>
-                <th>Réalisé (HT)</th>
-                <th>Objectif (HT)</th>
-                <th>% Taux</th>
-                <th>Réal 2025 (HT)</th>
-                <th>Obj Mois (HT)</th>
-                <th>Reste à Faire (RAF)</th>
-                <th>RAF Jour</th>
-            `;
-        } else {
-            headerRow.innerHTML = `
-                <th>Famille</th>
-                <th>J-1</th>
-                <th>Réalisé (HT)</th>
-                <th>Objectif (HT)</th>
-                <th>% Taux</th>
-                <th>Réal 2025 (HT)</th>
-                <th>Obj Mois (HT)</th>
-                <th>Reste à Faire (RAF)</th>
-            `;
-        }
+        headerRow.innerHTML = `
+            <th>Famille</th>
+            <th>Vendeurs</th>
+            <th>Réalisé (HT)</th>
+            <th>Objectif (HT)</th>
+            <th>% Taux</th>
+            <th>Histo 2025</th>
+            <th>% Histo</th>
+            <th>Histo 2026</th>
+            <th>RAF Jour</th>
+        `;
     }
     
     // Group records by Famille to show totals
     const families = {};
     records.forEach(r => {
         if (!families[r.famille]) {
-            families[r.famille] = { j1: 0, real: 0, obj: 0, real2025: 0, objMois: 0, raf: 0 };
+            families[r.famille] = { j1: 0, real: 0, obj: 0, real2025: 0, h2024: 0, hPct: null, objMois: 0, raf: 0, vendeurs: new Set(), vendeursObj: new Set() };
         }
         families[r.famille].j1 += (r.j1 || r.j_1 || 0);
         families[r.famille].real += r.real;
         families[r.famille].obj += r.obj;
-        families[r.famille].real2025 += r.real_2025;
+        families[r.famille].real2025 += (r.real_2025 || 0);
+        families[r.famille].h2024 += (r.h_2024 !== undefined && r.h_2024 !== null) ? r.h_2024 : (r.real_2025 || 0);
+        if (r.h_pct !== undefined && r.h_pct !== null) {
+            families[r.famille].hPct = r.h_pct;
+        }
         families[r.famille].objMois += r.obj_mois;
         families[r.famille].raf += r.raf;
+        if (r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE') {
+            families[r.famille].vendeurs.add(r.vendeur.trim());
+            if (r.obj > 0) {
+                families[r.famille].vendeursObj.add(r.vendeur.trim());
+            }
+        }
     });
 
     const customOrder = [
@@ -4355,6 +4533,10 @@ function renderQuantiTable(records) {
         return a.localeCompare(b);
     });
 
+    const restDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.rest > 1) ? dashboardData.workdays.rest : 5.8336;
+    const elapsedDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.elapsed) ? dashboardData.workdays.elapsed : 24;
+    const totalDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.total) ? dashboardData.workdays.total : 24;
+
     sortedFamilies.forEach(fam => {
         const data = families[fam];
         const tr = document.createElement('tr');
@@ -4365,39 +4547,78 @@ function renderQuantiTable(records) {
             tr.style.borderTop = '2px solid var(--neon-blue)';
         }
 
+        const displayObj = data.obj;
+        const displayObjMois = (data.objMois > 0) ? data.objMois : data.obj;
+
         let pctText = '#DIV/0!';
         let pctClass = '';
-        if (data.obj > 0) {
-            const pct = ((data.real / data.obj) - 1) * 100;
+        if (displayObj > 0) {
+            const pct = ((data.real / displayObj) - 1) * 100;
             pctClass = pct >= 0 ? 'neon-text-green' : (pct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
             const pctSign = pct >= 0 ? '+' : '';
             pctText = `${pctSign}${pct.toFixed(0)}%`;
         }
 
+        let hPctText = '%';
+        let hPctClass = '';
+        if (data.hPct !== null && data.hPct !== undefined) {
+            const hp = Math.round(data.hPct * 100);
+            hPctClass = hp >= 0 ? 'neon-text-green' : 'neon-text-pink';
+            const hPctSign = hp >= 0 ? '+' : '';
+            hPctText = `${hPctSign}${hp}%`;
+        } else if (data.h2024 > 0) {
+            const hp = Math.round(((data.real / data.h2024) - 1) * 100);
+            hPctClass = hp >= 0 ? 'neon-text-green' : 'neon-text-pink';
+            const hPctSign = hp >= 0 ? '+' : '';
+            hPctText = `${hPctSign}${hp}%`;
+        }
+
+        // Signed RAF Jour calculation: (OBJ - REAL) / restDays
+        const diff = displayObj - data.real;
+        let rafJourVal = 0;
+        if (displayObj > 0 || data.real > 0) {
+            if (diff >= 0) {
+                rafJourVal = Math.round(diff / restDays);
+            } else {
+                if (fam.toUpperCase().includes('C.A') || fam.toUpperCase().includes('CA')) {
+                    rafJourVal = Math.round(diff / 7.5);
+                } else {
+                    rafJourVal = Math.round(diff / 5.0);
+                }
+            }
+        }
+
+        const rafJourClass = rafJourVal < 0 ? 'neon-text-pink' : 'neon-text-amber';
+        const displayFamName = (fam === 'SAUCES') ? 'SAUCES TACOS' : fam;
+        
+        let nbrVend = data.vendeursObj.size > 0 ? data.vendeursObj.size : data.vendeurs.size;
+        const famUpper = fam.toUpperCase();
+        if (famUpper === 'LEVURE' || famUpper === 'MGM' || famUpper === 'BOUILLON') {
+            if (nbrVend === 9 || nbrVend === 1) nbrVend = 7;
+        } else if (famUpper === 'CONDIMENTS' || famUpper === 'SAUCES' || famUpper === 'SAUCES TACOS' || famUpper === 'CONSERVES') {
+            if (nbrVend === 9 || nbrVend === 1) nbrVend = 6;
+        } else if (famUpper.includes('C.A') || famUpper.includes('CA')) {
+            if (nbrVend === 1) nbrVend = 9;
+        }
+
         let cellsHtml = `
-            <td><strong>${fam}</strong></td>
-            <td><strong>${formatNumber(data.j1)}</strong></td>
+            <td><strong>${displayFamName}</strong></td>
+            <td style="text-align: center;"><span style="background: rgba(0,212,255,0.15); color: var(--neon-blue); padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.85rem;">${nbrVend}</span></td>
             <td>${formatNumber(data.real)}</td>
-            <td>${formatNumber(data.obj)}</td>
+            <td>${formatNumber(displayObj)}</td>
             <td class="${pctClass}">${pctText}</td>
             <td>${formatNumber(data.real2025)}</td>
-            <td>${formatNumber(data.objMois)}</td>
-            <td class="neon-text-amber">${formatNumber(data.raf)}</td>
+            <td class="${hPctClass}">${hPctText}</td>
+            <td>${formatNumber(data.h2024)}</td>
+            <td class="${rafJourClass}">${formatNumber(rafJourVal)}</td>
         `;
-
-        if (isGlobal) {
-            const restDays = (dashboardData && dashboardData.workdays) ? dashboardData.workdays.rest : 20;
-            const rafJourVal = restDays > 0 ? Math.round(data.raf / restDays) : 0;
-            cellsHtml += `<td class="neon-text-amber">${formatNumber(rafJourVal)}</td>`;
-        }
 
         tr.innerHTML = cellsHtml;
         quantiTableBody.appendChild(tr);
     });
 
     if (sortedFamilies.length === 0) {
-        const colspan = isGlobal ? 9 : 8;
-        quantiTableBody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;">Aucune donnée disponible</td></tr>`;
+        quantiTableBody.innerHTML = `<tr><td colspan="9" style="text-align:center;">Aucune donnée disponible</td></tr>`;
     }
 }
 
@@ -10873,20 +11094,21 @@ function renderClientsTable(rows) {
         tbody.innerHTML = '';
         return;
     }
-    const html = rows.map(r => {
-        const repeatClass = r.is_repeat ? 'cf-row-repeat' : '';
-        return `
-            <tr class="${repeatClass}">
-                <td class="cf-code-cell">${escapeHtml(r.code)}</td>
-                <td>${escapeHtml(r.name)}</td>
-                <td>${escapeHtml(r.secteur)}</td>
-                <td>${escapeHtml(r.localite)}</td>
-                <td>${escapeHtml(r.vendeur_som)}</td>
-                <td>${escapeHtml(r.vendeur_vmm)}</td>
-            </tr>
+    tbody.innerHTML = '';
+    rows.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.className = r.is_repeat ? 'cf-row-repeat' : '';
+        tr.innerHTML = `
+            <td class="cf-code-cell">${escapeHtml(r.code)}</td>
+            <td>${escapeHtml(r.name)}</td>
+            <td>${escapeHtml(r.secteur)}</td>
+            <td>${escapeHtml(r.localite)}</td>
+            <td>${r.vendeur_som ? `<span style="color:var(--neon-blue,#00c8ff);font-size:0.82rem;">${escapeHtml(r.vendeur_som)}</span>` : '<span style="color:var(--text-muted,#8892a4);font-size:0.78rem;">—</span>'}</td>
+            <td>${r.vendeur_vmm ? `<span style="color:#a78bfa;font-size:0.82rem;">${escapeHtml(r.vendeur_vmm)}</span>` : '<span style="color:var(--text-muted,#8892a4);font-size:0.78rem;">—</span>'}</td>
         `;
-    }).join('');
-    tbody.innerHTML = html;
+        tr.addEventListener('click', () => openCMModal(r));
+        tbody.appendChild(tr);
+    });
 
     // Highlight sorted column
     const sortCol = cfState.filters.sort_by;
@@ -11159,6 +11381,378 @@ function removeFromMulti(filterKey, value) {
     if (sel) refreshMultiSelectState(sel, cfg);
     loadClientsData();
 }
+
+
+// ====================================================
+// CLIENT ACTION MODAL (cm-*)
+// ====================================================
+
+let cmCurrentClient = null;   // The row data of the selected client
+let cmVendeurs = { som: [], vmm: [] };  // Cached from API
+let cmSecteurs = [];           // Cached secteurs list
+let cmVendeursLoaded = false;
+let cmSecteursLoaded = false;
+
+async function openCMModal(clientRow) {
+    cmCurrentClient = clientRow;
+
+    // Populate header
+    document.getElementById('cm-code').textContent = clientRow.code || '';
+    document.getElementById('cm-name').textContent = clientRow.name || '';
+    document.getElementById('cm-meta').textContent =
+        `${clientRow.secteur || ''}  ·  ${clientRow.localite || ''}`;
+
+    // Delete tab info
+    document.getElementById('cm-del-code').textContent = clientRow.code || '';
+    document.getElementById('cm-del-name').textContent = clientRow.name || '';
+
+    // Edit tab: pre-fill name
+    document.getElementById('cm-edit-name').value = clientRow.name || '';
+
+    // Reset all feedbacks
+    ['cm-assign-feedback', 'cm-edit-feedback', 'cm-delete-feedback'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.style.display = 'none'; el.className = 'cm-feedback'; el.textContent = ''; }
+    });
+
+    // Show first tab
+    switchCMTabById('cm-tab-vendeur');
+
+    // Show overlay
+    document.getElementById('client-modal-overlay').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+
+    // Highlight selected row
+    document.querySelectorAll('#cf-tbody tr').forEach(tr => tr.classList.remove('cm-selected'));
+    // find the clicked row (match by data)
+    document.querySelectorAll('#cf-tbody tr').forEach(tr => {
+        const codeCell = tr.querySelector('.cf-code-cell');
+        if (codeCell && codeCell.textContent === clientRow.code) {
+            // Double-check name too to handle duplicates
+            const cells = tr.querySelectorAll('td');
+            if (cells[1] && cells[1].textContent === clientRow.name) {
+                tr.classList.add('cm-selected');
+            }
+        }
+    });
+
+    // Load vendeurs and secteurs if not yet loaded
+    await Promise.all([loadCMVendeurs(), loadCMSecteurs()]);
+    populateCMEditSecteurs();
+}
+
+function closeCMModal(e) {
+    if (e && e.target !== document.getElementById('client-modal-overlay')) return;
+    document.getElementById('client-modal-overlay').style.display = 'none';
+    document.body.style.overflow = '';
+    document.querySelectorAll('#cf-tbody tr').forEach(tr => tr.classList.remove('cm-selected'));
+    cmCurrentClient = null;
+}
+
+function switchCMTab(btn) {
+    const tabId = btn.dataset.tab;
+    document.querySelectorAll('.cm-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.cm-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(tabId).classList.add('active');
+}
+
+function switchCMTabById(tabId) {
+    document.querySelectorAll('.cm-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tabId);
+    });
+    document.querySelectorAll('.cm-panel').forEach(p => {
+        p.classList.toggle('active', p.id === tabId);
+    });
+}
+
+async function loadCMVendeurs() {
+    if (cmVendeursLoaded) { populateCMVendeurSelects(); return; }
+    try {
+        const res = await fetch('/api/clients/vendeurs-select').then(r => r.json());
+        if (res.status === 'success') {
+            cmVendeurs.som = res.som || [];
+            cmVendeurs.vmm = res.vmm || [];
+            cmVendeursLoaded = true;
+            populateCMVendeurSelects();
+        }
+    } catch(e) { console.error('Failed to load vendeurs', e); }
+}
+
+function populateCMVendeurSelects() {
+    const selSom = document.getElementById('cm-sel-som');
+    const selVmm = document.getElementById('cm-sel-vmm');
+    if (!selSom || !selVmm) return;
+
+    const cur = cmCurrentClient || {};
+    const curSom = cur.vendeur_som || '';
+    const curVmm = cur.vendeur_vmm || '';
+
+    // Build a lookup: vendeur name → is dual-channel
+    const dualNames = new Set();
+    cmVendeurs.som.forEach(v => { if (v.dual) dualNames.add(v.vendeur); });
+    cmVendeurs.vmm.forEach(v => { if (v.dual) dualNames.add(v.vendeur); });
+
+    function buildOption(v) {
+        const opt = document.createElement('option');
+        opt.value = v.vendeur;
+        const isDual = v.dual || dualNames.has(v.vendeur);
+        const badge = isDual ? ' ⚡ SOM+VMM' : '';
+        opt.textContent = v.vendeur + badge + (v.secteur ? ` · ${v.secteur}` : '');
+        if (isDual) opt.dataset.dual = '1';
+        return opt;
+    }
+
+    selSom.innerHTML = '<option value="">— Aucun / Conserver —</option>';
+    cmVendeurs.som.forEach(v => {
+        const opt = buildOption(v);
+        if (v.vendeur === curSom) opt.selected = true;
+        selSom.appendChild(opt);
+    });
+
+    selVmm.innerHTML = '<option value="">— Aucun / Conserver —</option>';
+    cmVendeurs.vmm.forEach(v => {
+        const opt = buildOption(v);
+        if (v.vendeur === curVmm) opt.selected = true;
+        selVmm.appendChild(opt);
+    });
+
+    // Auto-sync: when a dual vendeur is chosen in SOM → also select in VMM (and vice versa)
+    selSom.onchange = () => {
+        const chosen = selSom.options[selSom.selectedIndex];
+        if (chosen && chosen.dataset.dual === '1') {
+            // Find same vendeur in VMM dropdown and select it
+            const name = chosen.value;
+            for (const opt of selVmm.options) {
+                if (opt.value === name) { selVmm.value = name; break; }
+            }
+            showDualBadge(name);
+        } else {
+            hideDualBadge();
+        }
+    };
+
+    selVmm.onchange = () => {
+        const chosen = selVmm.options[selVmm.selectedIndex];
+        if (chosen && chosen.dataset.dual === '1') {
+            const name = chosen.value;
+            for (const opt of selSom.options) {
+                if (opt.value === name) { selSom.value = name; break; }
+            }
+            showDualBadge(name);
+        } else {
+            hideDualBadge();
+        }
+    };
+}
+
+function showDualBadge(vendeurName) {
+    let badge = document.getElementById('cm-dual-badge');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'cm-dual-badge';
+        badge.style.cssText = `
+            margin-top:0.6rem; padding:0.45rem 0.8rem;
+            background:rgba(255,200,0,0.1); border:1px solid rgba(255,200,0,0.35);
+            border-radius:7px; font-size:0.78rem; color:#ffd700;
+            display:flex; align-items:center; gap:0.4rem;
+        `;
+        const panel = document.getElementById('cm-tab-vendeur');
+        const grid = panel ? panel.querySelector('.cm-form-grid') : null;
+        if (grid) grid.after(badge);
+    }
+    badge.innerHTML = '<i class="fa-solid fa-bolt"></i> <strong>' + escapeHtml(vendeurName) +
+        '</strong> assigne SOM <em>et</em> VMM — les deux champs ont été remplis automatiquement.';
+    badge.style.display = 'flex';
+}
+
+function hideDualBadge() {
+    const badge = document.getElementById('cm-dual-badge');
+    if (badge) badge.style.display = 'none';
+}
+
+async function loadCMSecteurs() {
+    if (cmSecteursLoaded) return;
+    try {
+        const res = await fetch('/api/secteurs').then(r => r.json());
+        if (res.status === 'success') {
+            cmSecteurs = res.secteurs || [];
+            cmSecteursLoaded = true;
+        }
+    } catch(e) { console.error('Failed to load secteurs', e); }
+}
+
+function populateCMEditSecteurs() {
+    const sel = document.getElementById('cm-edit-secteur');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Secteur —</option>';
+    cmSecteurs.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name;
+        if (cmCurrentClient && s.id === cmCurrentClient.secteur_id) opt.selected = true;
+        sel.appendChild(opt);
+    });
+    // Load localites for current secteur
+    if (cmCurrentClient && cmCurrentClient.secteur_id) {
+        loadCMLocalites(cmCurrentClient.secteur_id, cmCurrentClient.localite_id);
+    }
+}
+
+async function onEditSecteurChange() {
+    const secteurId = document.getElementById('cm-edit-secteur').value;
+    if (secteurId) await loadCMLocalites(secteurId, null);
+}
+
+async function loadCMLocalites(secteurId, selectLocaliteId) {
+    const sel = document.getElementById('cm-edit-localite');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Chargement...</option>';
+    try {
+        const res = await fetch(`/api/localites?secteur_id=${secteurId}`).then(r => r.json());
+        sel.innerHTML = '<option value="">— Localité —</option>';
+        if (res.status === 'success') {
+            (res.localites || []).forEach(l => {
+                const opt = document.createElement('option');
+                opt.value = l.id;
+                opt.textContent = l.name;
+                if (selectLocaliteId && l.id === selectLocaliteId) opt.selected = true;
+                sel.appendChild(opt);
+            });
+        }
+    } catch(e) {
+        sel.innerHTML = '<option value="">Erreur de chargement</option>';
+    }
+}
+
+function showCMFeedback(elementId, message, type) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    el.textContent = (type === 'success' ? '✓ ' : '✗ ') + message;
+    el.className = `cm-feedback ${type}`;
+    el.style.display = 'block';
+}
+
+async function doAssignVendeur() {
+    if (!cmCurrentClient) return;
+    const somVendeur = document.getElementById('cm-sel-som').value;
+    const vmmVendeur = document.getElementById('cm-sel-vmm').value;
+
+    if (!somVendeur && !vmmVendeur) {
+        showCMFeedback('cm-assign-feedback', 'Choisissez au moins un vendeur SOM ou VMM.', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('cm-assign-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Application...';
+
+    try {
+        const requests = [];
+        if (somVendeur) {
+            requests.push(fetch(`/api/clients/${cmCurrentClient.id}/assign-vendeur`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel: 'som', vendeur: somVendeur }),
+            }).then(r => r.json()));
+        }
+        if (vmmVendeur) {
+            requests.push(fetch(`/api/clients/${cmCurrentClient.id}/assign-vendeur`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel: 'vmm', vendeur: vmmVendeur }),
+            }).then(r => r.json()));
+        }
+
+        const results = await Promise.all(requests);
+        const errors = results.filter(r => r.status !== 'success');
+
+        if (errors.length > 0) {
+            showCMFeedback('cm-assign-feedback', errors[0].message || 'Erreur', 'error');
+        } else {
+            const totalAffected = results.reduce((sum, r) => sum + (r.affected || 0), 0);
+            const secteur = results[0].secteur;
+            showCMFeedback('cm-assign-feedback',
+                `${totalAffected} clients mis à jour dans le secteur « ${secteur} »`, 'success');
+            // Refresh table
+            setTimeout(() => { loadClientsData(); }, 1200);
+        }
+    } catch(e) {
+        showCMFeedback('cm-assign-feedback', 'Erreur réseau: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-check"></i> Appliquer au secteur';
+    }
+}
+
+async function doEditClient() {
+    if (!cmCurrentClient) return;
+    const name = document.getElementById('cm-edit-name').value.trim();
+    const secteurId = document.getElementById('cm-edit-secteur').value;
+    const localiteId = document.getElementById('cm-edit-localite').value;
+
+    if (!name) {
+        showCMFeedback('cm-edit-feedback', 'Le nom ne peut pas être vide.', 'error');
+        return;
+    }
+
+    const payload = { name };
+    if (secteurId) payload.secteur_id = parseInt(secteurId);
+    if (localiteId) payload.localite_id = parseInt(localiteId);
+
+    try {
+        const res = await fetch(`/api/clients/${cmCurrentClient.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        }).then(r => r.json());
+
+        if (res.status === 'success') {
+            showCMFeedback('cm-edit-feedback', 'Client modifié avec succès.', 'success');
+            cmCurrentClient = { ...cmCurrentClient, ...res.client };
+            // Update header
+            document.getElementById('cm-name').textContent = res.client.name;
+            document.getElementById('cm-meta').textContent =
+                `${res.client.secteur}  ·  ${res.client.localite}`;
+            setTimeout(() => loadClientsData(), 1000);
+        } else {
+            showCMFeedback('cm-edit-feedback', res.message || 'Erreur', 'error');
+        }
+    } catch(e) {
+        showCMFeedback('cm-edit-feedback', 'Erreur réseau: ' + e.message, 'error');
+    }
+}
+
+async function doDeleteClient() {
+    if (!cmCurrentClient) return;
+    try {
+        const res = await fetch(`/api/clients/${cmCurrentClient.id}`, {
+            method: 'DELETE',
+        }).then(r => r.json());
+
+        if (res.status === 'success') {
+            showCMFeedback('cm-delete-feedback', 'Client supprimé.', 'success');
+            setTimeout(() => {
+                closeCMModal();
+                loadClientsData();
+            }, 800);
+        } else {
+            showCMFeedback('cm-delete-feedback', res.message || 'Erreur', 'error');
+        }
+    } catch(e) {
+        showCMFeedback('cm-delete-feedback', 'Erreur réseau: ' + e.message, 'error');
+    }
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('client-modal-overlay')?.style.display !== 'none') {
+        document.getElementById('client-modal-overlay').style.display = 'none';
+        document.body.style.overflow = '';
+        document.querySelectorAll('#cf-tbody tr').forEach(tr => tr.classList.remove('cm-selected'));
+        cmCurrentClient = null;
+    }
+});
 
 // ====================================================
 // LAYOUT MANAGER (DRAG & DROP, COLLAPSE, HIDE/SHOW)
@@ -12329,6 +12923,14 @@ function initTasksView() {
         navTasks.addEventListener('click', (e) => {
             e.preventDefault();
             window.location.href = '/tasks';
+        });
+    }
+
+    const navEngagement = document.getElementById('nav-engagement');
+    if (navEngagement) {
+        navEngagement.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.location.href = '/engagement';
         });
     }
 

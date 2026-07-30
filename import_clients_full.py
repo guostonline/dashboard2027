@@ -33,33 +33,42 @@ def import_all(file_path):
     df = pd.read_excel(file_path)
     print(f"Rows: {len(df)} | Columns: {list(df.columns)}")
 
-    # Identify the locality column regardless of encoding mojibake
+    # Flex column detection (supports both clients.xlsx and acm.xlsx)
+    code_col = None
+    name_col = None
+    secteur_col = None
     localite_col = None
+
     for c in df.columns:
-        cl = c.lower()
-        if "ocalit" in cl or "localite" in cl:
+        cl = str(c).lower()
+        if not code_col and ("client" in cl or "code" in cl):
+            if "nom" not in cl and "name" not in cl:
+                code_col = c
+        if not name_col and ("nom" in cl or "name" in cl or "client" in cl):
+            if "code" not in cl:
+                name_col = c
+        if not secteur_col and ("role" in cl or "secteur" in cl):
+            secteur_col = c
+        if not localite_col and ("tourne" in cl or "localit" in cl):
             localite_col = c
-            break
 
-    required = ["Secteur", "Client", "Nom"]
-    if localite_col is None:
-        print("[ERROR] Could not find a 'Localité' column in the file.")
+    if not code_col or not name_col:
+        print("[ERROR] Could not find 'Client Code' or 'Client Nom' columns.")
         return False
-    for r in required:
-        if r not in df.columns:
-            print(f"[ERROR] Missing required column: {r}")
-            return False
 
+    print(f"  Code column: {repr(code_col)}")
+    print(f"  Name column: {repr(name_col)}")
+    print(f"  Secteur column: {repr(secteur_col)}")
     print(f"  Localité column: {repr(localite_col)}")
     print()
 
     # Build the row list
     rows = []
     for idx, row in df.iterrows():
-        code = _clean(row["Client"])
-        name = _clean(row["Nom"])
-        secteur = _clean(row["Secteur"], default="NON DEFINI")
-        localite = _clean(row[localite_col], default="")
+        code = _clean(row[code_col])
+        name = _clean(row[name_col])
+        secteur = _clean(row[secteur_col], default="NON DEFINI") if secteur_col else "NON DEFINI"
+        localite = _clean(row[localite_col], default="") if localite_col else ""
 
         if not code or not name:
             continue

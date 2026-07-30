@@ -188,50 +188,50 @@ def init_db():
     )
     """)
 
-    # 7. Clients (full) - stores ALL rows from clients.xlsx, including duplicates.
-    #    `is_repeat` is computed on import (OUI when the same `code` appears
-    #    in more than one row in the source Excel).
+    # 7. Normalized Relational Database Model
+    # 7a. Secteurs (Role Vendeur from acm.xlsx)
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS clients_full (
+    CREATE TABLE IF NOT EXISTS secteurs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    )
+    """)
+
+    # 7b. Localités (Tournée from acm.xlsx, linked to secteurs)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS localites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        secteur_id INTEGER NOT NULL,
+        FOREIGN KEY (secteur_id) REFERENCES secteurs(id) ON DELETE CASCADE,
+        UNIQUE(name, secteur_id)
+    )
+    """)
+
+    # 7c. Clients (Code Client, Nom Client from acm.xlsx, linked to secteurs and localites)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS clients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         code TEXT NOT NULL,
         name TEXT NOT NULL,
-        secteur TEXT NOT NULL,
-        localite TEXT NOT NULL DEFAULT '',
+        secteur_id INTEGER NOT NULL,
+        localite_id INTEGER NOT NULL,
         vendeur_som TEXT NOT NULL DEFAULT '',
         vendeur_vmm TEXT NOT NULL DEFAULT '',
-        is_repeat INTEGER NOT NULL DEFAULT 0,
-        row_index INTEGER NOT NULL DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        FOREIGN KEY (secteur_id) REFERENCES secteurs(id) ON DELETE CASCADE,
+        FOREIGN KEY (localite_id) REFERENCES localites(id) ON DELETE CASCADE
     )
     """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_full_code ON clients_full(code)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_full_secteur ON clients_full(secteur)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_full_localite ON clients_full(localite)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_full_vendeur_som ON clients_full(vendeur_som)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_full_vendeur_vmm ON clients_full(vendeur_vmm)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_full_is_repeat ON clients_full(is_repeat)")
-
-    # 7b. Clients ACM - stores full master list of clients, Secteurs, Tournées, Active/Inactive status, and Turnover from acm.xlsx
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS clients_acm (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        agence TEXT NOT NULL DEFAULT '',
-        role_vendeur TEXT NOT NULL DEFAULT '',
-        tournee TEXT NOT NULL DEFAULT '',
-        code TEXT NOT NULL,
-        name TEXT NOT NULL,
-        is_actif INTEGER NOT NULL DEFAULT 0,
-        is_inactif INTEGER NOT NULL DEFAULT 0,
-        ca_ht_y1 REAL NOT NULL DEFAULT 0.0,
-        ca_ht REAL NOT NULL DEFAULT 0.0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_acm_code ON clients_acm(code)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_acm_role ON clients_acm(role_vendeur)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_acm_tournee ON clients_acm(tournee)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_acm_inactif ON clients_acm(is_inactif)")
+    # Migration: add vendeur columns if upgrading from older schema
+    cursor.execute("PRAGMA table_info(clients)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    if 'vendeur_som' not in existing_cols:
+        cursor.execute("ALTER TABLE clients ADD COLUMN vendeur_som TEXT NOT NULL DEFAULT ''")
+    if 'vendeur_vmm' not in existing_cols:
+        cursor.execute("ALTER TABLE clients ADD COLUMN vendeur_vmm TEXT NOT NULL DEFAULT ''")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_code ON clients(code)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_secteur ON clients(secteur_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_localite ON clients(localite_id)")
 
     # 8. FDV (Force De Vente) - the sales-force roster. One row per
     #    vendeur with their sector, contact info, status, etc. The
@@ -462,6 +462,30 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_visites_vendeur ON visites_rapports(vendeur)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_visites_date ON visites_rapports(date_visite)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_visites_client ON visites_rapports(client_code)")
+
+    # 17. Engagements and Engagement Items tables
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS engagements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vendeur TEXT NOT NULL,
+        periode TEXT NOT NULL,
+        date_engagement TEXT NOT NULL,
+        total_dh REAL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS engagement_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        engagement_id INTEGER NOT NULL,
+        category TEXT NOT NULL,
+        title TEXT NOT NULL,
+        amount_dh REAL NOT NULL DEFAULT 0,
+        FOREIGN KEY(engagement_id) REFERENCES engagements(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_engagements_vendeur ON engagements(vendeur)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_engagements_date ON engagements(date_engagement)")
 
     conn.commit()
     conn.close()
@@ -1352,11 +1376,7 @@ def get_clients_full(
     page=1,
     per_page=25,
 ):
-    """List clients_full with server-side filtering, search, sorting and pagination.
-
-    `is_repeat` accepts: None (all), 1 (only repeats), 0 (only unique).
-    `unique` (bool) returns one row per `code` (the row with the smallest `id`).
-    """
+    """List clients with server-side filtering, search, sorting and pagination using relational model."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -1365,104 +1385,56 @@ def get_clients_full(
 
     if search:
         like = f"%{search.strip()}%"
-        where_parts.append("(code LIKE ? OR name LIKE ? OR localite LIKE ?)")
-        params.extend([like, like, like])
+        where_parts.append("(c.code LIKE ? OR c.name LIKE ? OR l.name LIKE ? OR s.name LIKE ?)")
+        params.extend([like, like, like, like])
 
     if secteurs:
         placeholders = ",".join(["?" for _ in secteurs])
-        where_parts.append(f"secteur IN ({placeholders})")
+        where_parts.append(f"s.name IN ({placeholders})")
         params.extend(secteurs)
 
     if localites:
         placeholders = ",".join(["?" for _ in localites])
-        where_parts.append(f"localite IN ({placeholders})")
+        where_parts.append(f"l.name IN ({placeholders})")
         params.extend(localites)
-
-    if vendeurs_som:
-        placeholders = ",".join(["?" for _ in vendeurs_som])
-        where_parts.append(f"vendeur_som IN ({placeholders})")
-        params.extend(vendeurs_som)
-
-    if vendeurs_vmm:
-        placeholders = ",".join(["?" for _ in vendeurs_vmm])
-        where_parts.append(f"vendeur_vmm IN ({placeholders})")
-        params.extend(vendeurs_vmm)
-
-    if is_repeat is not None:
-        where_parts.append("is_repeat = ?")
-        params.append(1 if is_repeat else 0)
 
     where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
 
-    # When `unique=True`, group by code and pick one representative row
-    # (the one with the smallest id) for each code.
-    if unique:
-        # Aggregate the matching rows and keep the earliest one per code.
-        # We use a subquery to find min(id) for each code under the filter,
-        # then join back to fetch the full row.
-        if where_parts:
-            inner_where = where_clause
-            outer_where = "WHERE id IN (SELECT MIN(id) FROM clients_full " + inner_where + " GROUP BY code)"
-            count_query = (
-                f"SELECT COUNT(*) AS c FROM (SELECT code FROM clients_full "
-                f"{inner_where} GROUP BY code)"
-            )
-            count_params = list(params)
-        else:
-            outer_where = ""
-            count_query = "SELECT COUNT(DISTINCT code) AS c FROM clients_full"
-            count_params = []
-    else:
-        outer_where = ""
-        count_query = f"SELECT COUNT(*) AS c FROM clients_full {where_clause}"
-        count_params = list(params)
-
-    cursor.execute(count_query, count_params)
+    # Count query
+    count_query = f"""
+        SELECT COUNT(*) AS c 
+        FROM clients c
+        JOIN secteurs s ON c.secteur_id = s.id
+        JOIN localites l ON c.localite_id = l.id
+        {where_clause}
+    """
+    cursor.execute(count_query, params)
     total = cursor.fetchone()["c"]
 
-    # Whitelist of sortable columns to avoid SQL injection
     sort_columns = {
-        "code": "code",
-        "name": "name",
-        "secteur": "secteur",
-        "localite": "localite",
-        "vendeur_som": "vendeur_som",
-        "vendeur_vmm": "vendeur_vmm",
-        "is_repeat": "is_repeat",
-        "row_index": "row_index",
+        "code": "c.code",
+        "name": "c.name",
+        "secteur": "s.name",
+        "localite": "l.name",
+        "row_index": "c.id",
     }
-    sort_col = sort_columns.get(sort_by, "row_index")
+    sort_col = sort_columns.get(sort_by, "c.id")
     sort_direction = "DESC" if (sort_dir or "").upper() == "DESC" else "ASC"
 
-    # Paginated rows
     page = max(1, int(page or 1))
     per_page = max(1, min(int(per_page or 25), 500))
     offset = (page - 1) * per_page
 
-    if unique:
-        if where_parts:
-            list_query = (
-                f"SELECT id, code, name, secteur, localite, vendeur_som, vendeur_vmm, "
-                f"is_repeat, row_index FROM clients_full "
-                f"WHERE id IN (SELECT MIN(id) FROM clients_full {where_clause} GROUP BY code) "
-                f"ORDER BY {sort_col} {sort_direction}, id {sort_direction} "
-                f"LIMIT ? OFFSET ?"
-            )
-        else:
-            list_query = (
-                f"SELECT id, code, name, secteur, localite, vendeur_som, vendeur_vmm, "
-                f"is_repeat, row_index FROM clients_full "
-                f"WHERE id IN (SELECT MIN(id) FROM clients_full GROUP BY code) "
-                f"ORDER BY {sort_col} {sort_direction}, id {sort_direction} "
-                f"LIMIT ? OFFSET ?"
-            )
-    else:
-        list_query = (
-            f"SELECT id, code, name, secteur, localite, vendeur_som, vendeur_vmm, "
-            f"is_repeat, row_index FROM clients_full {where_clause} "
-            f"ORDER BY {sort_col} {sort_direction}, id {sort_direction} "
-            f"LIMIT ? OFFSET ?"
-        )
+    list_query = f"""
+        SELECT c.id, c.code, c.name, s.name AS secteur, l.name AS localite,
+               c.vendeur_som, c.vendeur_vmm, 0 AS is_repeat, c.id AS row_index
+        FROM clients c
+        JOIN secteurs s ON c.secteur_id = s.id
+        JOIN localites l ON c.localite_id = l.id
+        {where_clause}
+        ORDER BY {sort_col} {sort_direction}, c.id {sort_direction}
+        LIMIT ? OFFSET ?
+    """
     cursor.execute(list_query, params + [per_page, offset])
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
@@ -1477,51 +1449,52 @@ def get_clients_full(
 
 
 def get_clients_full_filters():
-    """Return distinct values for each filterable field."""
+    """Return distinct values for filterable fields from secteurs and localites."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    def distinct(col):
-        cursor.execute(
-            f"SELECT DISTINCT {col} AS v FROM clients_full "
-            f"WHERE {col} IS NOT NULL AND {col} != '' "
-            f"ORDER BY {col} COLLATE NOCASE ASC"
-        )
-        return [r["v"] for r in cursor.fetchall()]
+    cursor.execute("SELECT DISTINCT name FROM secteurs WHERE name IS NOT NULL AND name != '' ORDER BY name ASC")
+    secteurs_list = [r["name"] for r in cursor.fetchall()]
 
-    result = {
-        "secteurs": distinct("secteur"),
-        "localites": distinct("localite"),
-        "vendeurs_som": distinct("vendeur_som"),
-        "vendeurs_vmm": distinct("vendeur_vmm"),
-    }
+    cursor.execute("SELECT DISTINCT name FROM localites WHERE name IS NOT NULL AND name != '' ORDER BY name ASC")
+    localites_list = [r["name"] for r in cursor.fetchall()]
+
     conn.close()
-    return result
+    return {
+        "secteurs": secteurs_list,
+        "localites": localites_list,
+        "vendeurs_som": [],
+        "vendeurs_vmm": [],
+    }
 
 
 def get_clients_full_stats():
-    """Return summary statistics for the clients_full table."""
+    """Return summary statistics for the clients table."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*) AS c FROM clients_full")
+    cursor.execute("SELECT COUNT(*) AS c FROM clients")
     total = cursor.fetchone()["c"]
-    cursor.execute("SELECT COUNT(*) AS c FROM clients_full WHERE is_repeat = 1")
-    repeats = cursor.fetchone()["c"]
-    cursor.execute("SELECT COUNT(DISTINCT code) AS c FROM clients_full")
+    
+    cursor.execute("SELECT COUNT(DISTINCT code) AS c FROM clients")
     unique_codes = cursor.fetchone()["c"]
 
-    cursor.execute(
-        "SELECT secteur, COUNT(*) AS c FROM clients_full "
-        "GROUP BY secteur ORDER BY c DESC"
-    )
+    cursor.execute("""
+        SELECT s.name AS secteur, COUNT(*) AS c 
+        FROM clients c
+        JOIN secteurs s ON c.secteur_id = s.id 
+        GROUP BY s.name ORDER BY c DESC
+    """)
     by_secteur = [dict(r) for r in cursor.fetchall()]
 
-    cursor.execute(
-        "SELECT vendeur_som, vendeur_vmm, COUNT(*) AS c FROM clients_full "
-        "GROUP BY vendeur_som, vendeur_vmm ORDER BY c DESC"
-    )
-    by_vendeur = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return {
+        "total": total,
+        "repeats": 0,
+        "unique_codes": unique_codes,
+        "by_secteur": by_secteur,
+        "by_vendeur": [],
+    }
 
     conn.close()
     return {
@@ -1532,6 +1505,113 @@ def get_clients_full_stats():
         "by_secteur": by_secteur,
         "by_vendeur": by_vendeur,
     }
+
+
+
+# ------------------------------------------------------------------
+# Client management (edit, delete, vendeur assignment)
+# ------------------------------------------------------------------
+
+def get_client_by_id(client_id):
+    """Return a single client row with secteur and localite names."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT c.id, c.code, c.name, s.name AS secteur, l.name AS localite,
+               c.vendeur_som, c.vendeur_vmm, c.secteur_id, c.localite_id
+        FROM clients c
+        JOIN secteurs s ON c.secteur_id = s.id
+        JOIN localites l ON c.localite_id = l.id
+        WHERE c.id = ?
+    """, (client_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_client(client_id, name=None, secteur_id=None, localite_id=None,
+                  vendeur_som=None, vendeur_vmm=None):
+    """Update editable fields on a single client."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    sets = []
+    params = []
+    if name is not None:
+        sets.append("name = ?"); params.append(name.strip())
+    if secteur_id is not None:
+        sets.append("secteur_id = ?"); params.append(secteur_id)
+    if localite_id is not None:
+        sets.append("localite_id = ?"); params.append(localite_id)
+    if vendeur_som is not None:
+        sets.append("vendeur_som = ?"); params.append(vendeur_som.strip())
+    if vendeur_vmm is not None:
+        sets.append("vendeur_vmm = ?"); params.append(vendeur_vmm.strip())
+    if not sets:
+        conn.close()
+        return False
+    params.append(client_id)
+    cursor.execute(f"UPDATE clients SET {', '.join(sets)} WHERE id = ?", params)
+    conn.commit()
+    affected = cursor.rowcount
+    conn.close()
+    return affected > 0
+
+
+def delete_client(client_id):
+    """Delete a single client row."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM clients WHERE id = ?", (client_id,))
+    conn.commit()
+    affected = cursor.rowcount
+    conn.close()
+    return affected > 0
+
+
+def assign_vendeur_to_secteur(secteur_id, channel, vendeur_name):
+    """
+    Assign a vendeur to ALL clients in a given secteur for one channel.
+    channel: 'som' | 'vmm'
+    """
+    col = "vendeur_som" if channel == "som" else "vendeur_vmm"
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"UPDATE clients SET {col} = ? WHERE secteur_id = ?",
+        (vendeur_name.strip(), secteur_id)
+    )
+    conn.commit()
+    affected = cursor.rowcount
+    conn.close()
+    return affected
+
+
+def get_fdv_vendeurs_for_select():
+    """Return vendeurs grouped by channel for dropdowns (SOM and VMM).
+    Each entry includes a 'dual' flag that is True when the vendeur handles both channels.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT vendeur, role, secteur FROM fdv ORDER BY role, vendeur"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    som = []
+    vmm = []
+    for r in rows:
+        role = (r["role"] or "").strip().upper()
+        is_dual = "SOM" in role and "VMM" in role
+        entry = {
+            "vendeur": r["vendeur"],
+            "secteur": r["secteur"],
+            "dual": is_dual,   # True → handles both SOM and VMM
+        }
+        if "SOM" in role:
+            som.append(entry)
+        if "VMM" in role:
+            vmm.append(entry)
+    return {"som": som, "vmm": vmm}
 
 
 # ------------------------------------------------------------------
@@ -1924,7 +2004,18 @@ def get_vendeur_phone_from_fdv(vendeur_name):
             )
             row = cursor.fetchone()
             
-        conn.close()
+        # 3. Match by Vendeur Code prefix (e.g., E14, K60, D48)
+        if not row:
+            import re
+            m = re.match(r'^([A-Za-z0-9]{2,4})\b', v_str.strip())
+            if m:
+                v_code = m.group(1).upper()
+                cursor.execute(
+                    "SELECT whatsapp, telephone FROM fdv WHERE "
+                    "UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ?",
+                    (f"{v_code} %", f"{v_code}-%")
+                )
+                row = cursor.fetchone()
         
         if row:
             raw_phone = row["whatsapp"] if (row["whatsapp"] and str(row["whatsapp"]).strip()) else row["telephone"]
@@ -2673,98 +2764,97 @@ def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, recor
         conn.close()
 
 
-def save_clients_acm(rows):
-    """Clear and bulk insert rows into clients_acm table."""
+def save_relational_acm(df):
+    """Populate secteurs, localites, and clients tables from pandas DataFrame."""
+    import pandas as pd
     conn = get_db_connection()
+    conn.execute("PRAGMA foreign_keys = ON;")
     cursor = conn.cursor()
     try:
-        cursor.execute("DELETE FROM clients_acm")
-        cursor.execute("DELETE FROM sqlite_sequence WHERE name='clients_acm'")
-        
-        cursor.executemany("""
-            INSERT INTO clients_acm
-            (agence, role_vendeur, tournee, code, name, is_actif, is_inactif, ca_ht_y1, ca_ht)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [(
-            r.get("agence", ""),
-            r.get("role_vendeur", ""),
-            r.get("tournee", ""),
-            r.get("code", ""),
-            r.get("name", ""),
-            r.get("is_actif", 0),
-            r.get("is_inactif", 0),
-            r.get("ca_ht_y1", 0.0),
-            r.get("ca_ht", 0.0)
-        ) for r in rows])
-        
+        col_map = {}
+        for c in df.columns:
+            cl = str(c).strip().lower()
+            if "role" in cl: col_map["role"] = c
+            elif "tourne" in cl: col_map["tournee"] = c
+            elif "code" in cl: col_map["code"] = c
+            elif "nom" in cl: col_map["name"] = c
+
+        # 1. Populate Secteurs
+        unique_secteurs = sorted([str(s).strip() for s in df[col_map["role"]].dropna().unique() if str(s).strip()])
+        for sec in unique_secteurs:
+            cursor.execute("INSERT OR IGNORE INTO secteurs (name) VALUES (?)", (sec,))
         conn.commit()
-        return len(rows)
+
+        cursor.execute("SELECT name, id FROM secteurs")
+        secteur_id_map = {r["name"]: r["id"] for r in cursor.fetchall()}
+
+        # 2. Populate Localites
+        localite_pairs = df[[col_map["tournee"], col_map["role"]]].drop_duplicates().dropna()
+        localite_id_map = {}
+        for _, row in localite_pairs.iterrows():
+            loc_name = str(row[col_map["tournee"]]).strip()
+            sec_name = str(row[col_map["role"]]).strip()
+            if loc_name and sec_name in secteur_id_map:
+                sec_id = secteur_id_map[sec_name]
+                try:
+                    cursor.execute("INSERT OR IGNORE INTO localites (name, secteur_id) VALUES (?, ?)", (loc_name, sec_id))
+                except Exception:
+                    pass
+
+        conn.commit()
+
+        cursor.execute("""
+            SELECT l.id, l.name, s.name as sec_name
+            FROM localites l
+            JOIN secteurs s ON l.secteur_id = s.id
+        """)
+        for r in cursor.fetchall():
+            localite_id_map[(r["name"], r["sec_name"])] = r["id"]
+
+        # 3. Populate Clients (code, name, secteur_id, localite_id)
+        cursor.execute("DELETE FROM clients")
+        cursor.execute("DELETE FROM sqlite_sequence WHERE name='clients'")
+
+        client_rows = []
+        for _, row in df.iterrows():
+            c_code = str(row[col_map["code"]]).strip() if "code" in col_map and pd.notna(row[col_map["code"]]) else ""
+            c_name = str(row[col_map["name"]]).strip() if "name" in col_map and pd.notna(row[col_map["name"]]) else ""
+            sec_name = str(row[col_map["role"]]).strip() if "role" in col_map and pd.notna(row[col_map["role"]]) else ""
+            loc_name = str(row[col_map["tournee"]]).strip() if "tournee" in col_map and pd.notna(row[col_map["tournee"]]) else ""
+
+            if not c_code or c_code.lower() in ("nan", "none", "null", ""):
+                continue
+            if not c_name or c_name.lower() in ("nan", "none", "null", ""):
+                c_name = "N/A"
+
+            sec_id = secteur_id_map.get(sec_name)
+            loc_id = localite_id_map.get((loc_name, sec_name))
+
+            if sec_id and loc_id:
+                client_rows.append((c_code, c_name, sec_id, loc_id))
+
+        cursor.executemany("""
+            INSERT INTO clients (code, name, secteur_id, localite_id)
+            VALUES (?, ?, ?, ?)
+        """, client_rows)
+
+        conn.commit()
+        return len(client_rows)
     except Exception as e:
-        print(f"Error saving clients_acm: {e}")
+        print(f"Error saving relational ACM data: {e}")
         return 0
     finally:
         conn.close()
 
 
 def import_acm_file(file_path_or_stream):
-    """Parse and import acm.xlsx file into clients_acm."""
+    """Parse and import acm.xlsx file into secteurs, localites, and clients tables."""
     import pandas as pd
     try:
         if hasattr(file_path_or_stream, 'seek'):
             file_path_or_stream.seek(0)
         df = pd.read_excel(file_path_or_stream, skiprows=2)
-        col_map = {}
-        for c in df.columns:
-            cl = str(c).strip().lower()
-            if "agence" in cl: col_map["agence"] = c
-            elif "role" in cl: col_map["role"] = c
-            elif "tourne" in cl: col_map["tournee"] = c
-            elif "code" in cl: col_map["code"] = c
-            elif "nom" in cl: col_map["name"] = c
-            elif "inactif" in cl and "%" not in cl: col_map["inactif"] = c
-            elif "actif" in cl and "%" not in cl and "inactif" not in cl: col_map["actif"] = c
-            elif "y-1" in cl: col_map["ca_y1"] = c
-            elif "ca ht" in cl or "ca_ht" in cl: col_map["ca"] = c
-            
-        rows = []
-        for _, row in df.iterrows():
-            c_code = str(row[col_map["code"]]).strip() if "code" in col_map and pd.notna(row[col_map["code"]]) else ""
-            c_name = str(row[col_map["name"]]).strip() if "name" in col_map and pd.notna(row[col_map["name"]]) else ""
-            if not c_code or c_code.lower() in ("nan", "none", "null", ""):
-                continue
-                
-            agence = str(row[col_map["agence"]]).strip() if "agence" in col_map and pd.notna(row[col_map["agence"]]) else ""
-            role = str(row[col_map["role"]]).strip() if "role" in col_map and pd.notna(row[col_map["role"]]) else ""
-            tournee = str(row[col_map["tournee"]]).strip() if "tournee" in col_map and pd.notna(row[col_map["tournee"]]) else ""
-            
-            inactif_val = row[col_map["inactif"]] if "inactif" in col_map and pd.notna(row[col_map["inactif"]]) else 0
-            actif_val = row[col_map["actif"]] if "actif" in col_map and pd.notna(row[col_map["actif"]]) else 0
-            
-            try: is_inactif = 1 if float(inactif_val) > 0 else 0
-            except: is_inactif = 0
-            
-            try: is_actif = 1 if float(actif_val) > 0 else 0
-            except: is_actif = 0
-            
-            try: ca_y1 = float(row[col_map["ca_y1"]]) if "ca_y1" in col_map and pd.notna(row[col_map["ca_y1"]]) else 0.0
-            except: ca_y1 = 0.0
-            
-            try: ca = float(row[col_map["ca"]]) if "ca" in col_map and pd.notna(row[col_map["ca"]]) else 0.0
-            except: ca = 0.0
-            
-            rows.append({
-                "agence": agence,
-                "role_vendeur": role,
-                "tournee": tournee,
-                "code": c_code,
-                "name": c_name,
-                "is_actif": is_actif,
-                "is_inactif": is_inactif,
-                "ca_ht_y1": ca_y1,
-                "ca_ht": ca
-            })
-            
-        return save_clients_acm(rows)
+        return save_relational_acm(df)
     except Exception as e:
         print(f"Error importing ACM file: {e}")
         import traceback
@@ -2773,22 +2863,17 @@ def import_acm_file(file_path_or_stream):
 
 
 def get_acm_stats():
-    """Return summary statistics for clients_acm."""
+    """Return summary statistics for relational clients model."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
-            SELECT 
-                COUNT(*) as total,
-                SUM(is_actif) as active,
-                SUM(is_inactif) as inactive,
-                COUNT(DISTINCT tournee) as tournees,
-                COUNT(DISTINCT role_vendeur) as secteurs,
-                ROUND(SUM(ca_ht), 2) as total_ca
-            FROM clients_acm
-        """)
-        row = cursor.fetchone()
-        return dict(row) if row else {"total": 0, "active": 0, "inactive": 0, "tournees": 0, "secteurs": 0, "total_ca": 0}
+        cursor.execute("SELECT COUNT(*) as total FROM clients")
+        tot = cursor.fetchone()["total"]
+        cursor.execute("SELECT COUNT(*) as tournees FROM localites")
+        t_cnt = cursor.fetchone()["tournees"]
+        cursor.execute("SELECT COUNT(*) as secteurs FROM secteurs")
+        s_cnt = cursor.fetchone()["secteurs"]
+        return {"total": tot, "active": tot, "inactive": 0, "tournees": t_cnt, "secteurs": s_cnt, "total_ca": 0}
     except Exception as e:
         print(f"Error getting ACM stats: {e}")
         return {"total": 0, "active": 0, "inactive": 0, "tournees": 0, "secteurs": 0, "total_ca": 0}
@@ -2797,25 +2882,131 @@ def get_acm_stats():
 
 
 def get_acm_tournees():
-    """Return list of distinct tournées from clients_acm."""
+    """Return list of distinct tournées from localites."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT DISTINCT tournee FROM clients_acm WHERE tournee != '' ORDER BY tournee ASC")
-        return [row["tournee"] for row in cursor.fetchall()]
+        cursor.execute("SELECT DISTINCT name FROM localites WHERE name != '' ORDER BY name ASC")
+        return [row["name"] for row in cursor.fetchall()]
     finally:
         conn.close()
 
 
 def get_acm_vendeurs():
-    """Return list of distinct vendeurs/roles from clients_acm."""
+    """Return list of distinct secteurs from secteurs."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT DISTINCT role_vendeur FROM clients_acm WHERE role_vendeur != '' ORDER BY role_vendeur ASC")
-        return [row["role_vendeur"] for row in cursor.fetchall()]
+        cursor.execute("SELECT DISTINCT name FROM secteurs WHERE name != '' ORDER BY name ASC")
+        return [row["name"] for row in cursor.fetchall()]
     finally:
         conn.close()
+
+
+def create_engagement(vendeur, periode, date_engagement, items):
+    """Create a new seller engagement with categorized items."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        total_dh = sum(float(item.get("amount_dh", 0) or 0) for item in items)
+        cursor.execute(
+            "INSERT INTO engagements (vendeur, periode, date_engagement, total_dh) VALUES (?, ?, ?, ?)",
+            (vendeur, periode, date_engagement, total_dh)
+        )
+        engagement_id = cursor.lastrowid
+        
+        for item in items:
+            title = (item.get("title") or "").strip()
+            category = (item.get("category") or "Autre").strip()
+            amount_dh = float(item.get("amount_dh", 0) or 0)
+            if title or amount_dh > 0:
+                cursor.execute(
+                    "INSERT INTO engagement_items (engagement_id, category, title, amount_dh) VALUES (?, ?, ?, ?)",
+                    (engagement_id, category, title, amount_dh)
+                )
+        conn.commit()
+        return engagement_id
+    except Exception as e:
+        print(f"Error creating engagement: {e}")
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def get_all_engagements():
+    """Retrieve all seller engagements with their items."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, vendeur, periode, date_engagement, total_dh, created_at FROM engagements ORDER BY date_engagement DESC, id DESC")
+        rows = cursor.fetchall()
+        engagements = [dict(r) for r in rows]
+
+        for eng in engagements:
+            cursor.execute(
+                "SELECT id, category, title, amount_dh FROM engagement_items WHERE engagement_id = ? ORDER BY id ASC",
+                (eng['id'],)
+            )
+            item_rows = cursor.fetchall()
+            eng['items'] = [dict(item) for item in item_rows]
+            
+        return engagements
+    except Exception as e:
+        print(f"Error fetching engagements: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def delete_engagement(engagement_id):
+    """Delete an engagement and its items."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys = ON")
+        cursor.execute("DELETE FROM engagements WHERE id = ?", (engagement_id,))
+        cursor.execute("DELETE FROM engagement_items WHERE engagement_id = ?", (engagement_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error deleting engagement {engagement_id}: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+
+def update_engagement(engagement_id, vendeur, periode, date_engagement, items):
+    """Update an existing seller engagement and its items."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        total_dh = sum(float(item.get("amount_dh", 0) or 0) for item in items)
+        cursor.execute(
+            "UPDATE engagements SET vendeur = ?, periode = ?, date_engagement = ?, total_dh = ? WHERE id = ?",
+            (vendeur, periode, date_engagement, total_dh, engagement_id)
+        )
+        cursor.execute("DELETE FROM engagement_items WHERE engagement_id = ?", (engagement_id,))
+        for item in items:
+            title = (item.get("title") or "").strip()
+            category = (item.get("category") or "Autre").strip()
+            amount_dh = float(item.get("amount_dh", 0) or 0)
+            if title or amount_dh > 0:
+                cursor.execute(
+                    "INSERT INTO engagement_items (engagement_id, category, title, amount_dh) VALUES (?, ?, ?, ?)",
+                    (engagement_id, category, title, amount_dh)
+                )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error updating engagement {engagement_id}: {e}")
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
 
 
 

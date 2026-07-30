@@ -18,7 +18,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=3.1">
+    <link rel="stylesheet" href="/static/css/style.css?v=3.2">
 </head>
 <body class="cyber-grid {% if theme %}{{ theme }}{% endif %} {% if light_mode %}light-mode{% endif %}">
     <!-- ===== Animated background layers ===== -->
@@ -38,7 +38,7 @@
             </div>
             
             <nav class="sidebar-nav">
-                <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' and active_tab != 'anomalis' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
+                <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' and active_tab != 'anomalis' and active_tab != 'tasks' and active_tab != 'engagement' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
                 <a href="/details" class="nav-item {% if active_tab == 'details' and active_sub_tab != 'vendeur360' %}active{% endif %}" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
                 <a href="/vendeur360" class="nav-item {% if active_tab == 'details' and active_sub_tab == 'vendeur360' %}active{% endif %}" id="nav-vendeur-360" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'details' %}display: none;{% endif %}"><i class="fa-solid fa-id-card neon-text-blue"></i> <span>Vendeur</span></a>
                 <a href="/clients" class="nav-item {% if active_tab == 'clients' and active_sub_tab != 'facturation' %}active{% endif %}" id="nav-clients"><i class="fa-solid fa-address-book"></i> <span>Client</span></a>
@@ -51,6 +51,7 @@
                 <a href="/stock" class="nav-item {% if active_tab == 'stock' and active_sub_tab != 'favorites' and active_sub_tab != 'favorit' %}active{% endif %}" id="nav-stock"><i class="fa-solid fa-boxes-stacked"></i> <span>Stock</span></a>
                 <a href="/anomalis" class="nav-item {% if active_tab == 'anomalis' %}active{% endif %}" id="nav-anomalis"><i class="fa-solid fa-triangle-exclamation neon-text-pink"></i> <span>Anomalies</span></a>
                 <a href="/tasks" class="nav-item {% if active_tab == 'tasks' %}active{% endif %}" id="nav-tasks"><i class="fa-solid fa-list-check"></i> <span>Tâches</span></a>
+                <a href="/engagement" class="nav-item {% if active_tab == 'engagement' %}active{% endif %}" id="nav-engagement"><i class="fa-solid fa-handshake"></i> <span>Engagement</span></a>
                 <a href="/stock?view=favorit" class="nav-item {% if active_tab == 'stock' and (active_sub_tab == 'favorites' or active_sub_tab == 'favorit') %}active{% endif %}" id="nav-stock-favorites" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'stock' %}display: none;{% endif %}"><i class="fa-solid fa-star" style="color: var(--neon-amber);"></i> <span>Favorit</span></a>
             </nav>
             
@@ -217,7 +218,7 @@
         </div>
     </header>
 
-    <main class="dashboard-container" id="main-dashboard-container" style="{% if active_tab == 'details' or active_tab == 'clients' or active_tab == 'fdv' or active_tab == 'terrain' or active_tab == 'focus' or active_tab == 'rapport' or active_tab == 'stock' or active_tab == 'anomalis' or active_tab == 'tasks' %}display: none;{% endif %}; position: relative; z-index: 10;">
+    <main class="dashboard-container" id="main-dashboard-container" style="{% if active_tab == 'details' or active_tab == 'clients' or active_tab == 'fdv' or active_tab == 'terrain' or active_tab == 'focus' or active_tab == 'rapport' or active_tab == 'stock' or active_tab == 'anomalis' or active_tab == 'tasks' or active_tab == 'engagement' %}display: none;{% endif %}; position: relative; z-index: 10;">
         <!-- TOP SUMMARY CARDS -->
         <section class="summary-section" id="summary-section">
             <div class="cyber-card summary-card glow-blue">
@@ -475,13 +476,14 @@
                             <thead>
                                 <tr>
                                     <th>Famille</th>
-                                    <th>J-1</th>
+                                    <th id="th-quanti-vendeurs">Vendeurs</th>
                                     <th id="th-quanti-real">Réalisé (HT)</th>
                                     <th id="th-quanti-obj">Objectif (HT)</th>
                                     <th>% Taux</th>
-                                    <th id="th-quanti-real2025">Réal 2025 (HT)</th>
-                                    <th id="th-quanti-objmois">Obj Mois (HT)</th>
-                                    <th id="th-quanti-raf">Reste à Faire (RAF)</th>
+                                    <th id="th-quanti-real2025">Histo 2025</th>
+                                    <th id="th-quanti-hpct">% Histo</th>
+                                    <th id="th-quanti-objmois">Histo 2026</th>
+                                    <th id="th-quanti-rafjour">RAF Jour</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1127,6 +1129,16 @@
                     </div>
                 </div>
 
+                <!-- Quick Secteur Chips (dynamic per category) -->
+                <div>
+                    <span class="tech-label" id="af-quick-secteurs-label" style="display: block; margin-bottom: 0.4rem; color: var(--neon-cyan); font-size: 0.75rem;">
+                        <i class="fa-solid fa-bolt"></i> RACCOURCIS SECTEURS
+                    </span>
+                    <div id="af-quick-secteurs-container" style="display: flex; flex-wrap: wrap; gap: 0.35rem;">
+                        <!-- Populated dynamically by JS based on category -->
+                    </div>
+                </div>
+
                 <!-- Entity selector -->
                 <div>
                     <span class="tech-label" id="af-entity-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-layer-group"></i> SÉLECTIONNER SECTEUR (ROLE)</span>
@@ -1135,11 +1147,11 @@
                     </select>
                 </div>
 
-                <!-- Sub Tournée Selector (shown in PAR SECTEUR mode) -->
+                <!-- Sub Tournée & Date Selector (shown in PAR SECTEUR mode) -->
                 <div id="af-sub-tournee-wrapper" style="display: none;">
-                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem; color: var(--neon-blue);"><i class="fa-solid fa-route"></i> TOURNÉE DU SECTEUR</span>
+                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem; color: var(--neon-blue);"><i class="fa-solid fa-route"></i> TOURNÉE & DATE DU SECTEUR</span>
                     <select id="af-select-sub-tournee" class="cyber-select" style="width: 100%; text-transform: uppercase; border-color: var(--neon-blue);">
-                        <option value="ALL">-- TOUTES LES TOURNÉES DU SECTEUR --</option>
+                        <option value="ALL">-- TOUTES LES TOURNÉES & DATES DU SECTEUR --</option>
                     </select>
                 </div>
 
@@ -1502,6 +1514,112 @@
             <p style="color: var(--text-muted);">Essayez de modifier vos filtres ou votre recherche.</p>
         </div>
         {% endif %}
+
+        <!-- ============================================================
+             CLIENT ACTION MODAL
+             ============================================================ -->
+        <div id="client-modal-overlay" class="cm-overlay" style="display:none;" onclick="closeCMModal(event)">
+            <div class="cm-modal" id="client-modal" onclick="event.stopPropagation()">
+                <!-- Header -->
+                <div class="cm-header">
+                    <div>
+                        <div class="cm-client-code" id="cm-code"></div>
+                        <div class="cm-client-name" id="cm-name"></div>
+                        <div class="cm-client-meta" id="cm-meta"></div>
+                    </div>
+                    <button class="cm-close" onclick="closeCMModal()"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <!-- Tab bar -->
+                <div class="cm-tabs">
+                    <button class="cm-tab active" data-tab="cm-tab-vendeur" onclick="switchCMTab(this)">
+                        <i class="fa-solid fa-user-tie"></i> Assigner Vendeur
+                    </button>
+                    <button class="cm-tab" data-tab="cm-tab-edit" onclick="switchCMTab(this)">
+                        <i class="fa-solid fa-pen-to-square"></i> Modifier
+                    </button>
+                    <button class="cm-tab cm-tab-danger" data-tab="cm-tab-delete" onclick="switchCMTab(this)">
+                        <i class="fa-solid fa-trash-can"></i> Supprimer
+                    </button>
+                </div>
+
+                <!-- TAB: Assigner Vendeur -->
+                <div class="cm-panel active" id="cm-tab-vendeur">
+                    <p class="cm-note"><i class="fa-solid fa-circle-info"></i>
+                        Le vendeur sélectionné sera appliqué à <strong>tous les clients du même secteur</strong>.
+                    </p>
+                    <div class="cm-form-grid">
+                        <div class="cm-field">
+                            <label class="cm-label">Vendeur SOM</label>
+                            <select id="cm-sel-som" class="cm-select">
+                                <option value="">— Aucun / Conserver —</option>
+                            </select>
+                        </div>
+                        <div class="cm-field">
+                            <label class="cm-label">Vendeur VMM</label>
+                            <select id="cm-sel-vmm" class="cm-select">
+                                <option value="">— Aucun / Conserver —</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="cm-actions">
+                        <button class="cm-btn cm-btn-primary" id="cm-assign-btn" onclick="doAssignVendeur()">
+                            <i class="fa-solid fa-check"></i> Appliquer au secteur
+                        </button>
+                        <button class="cm-btn cm-btn-ghost" onclick="closeCMModal()">Annuler</button>
+                    </div>
+                    <div id="cm-assign-feedback" class="cm-feedback" style="display:none;"></div>
+                </div>
+
+                <!-- TAB: Modifier -->
+                <div class="cm-panel" id="cm-tab-edit">
+                    <div class="cm-form-grid">
+                        <div class="cm-field" style="grid-column: 1/-1;">
+                            <label class="cm-label">Nom du client</label>
+                            <input id="cm-edit-name" class="cm-input" type="text" placeholder="Nom..." />
+                        </div>
+                        <div class="cm-field">
+                            <label class="cm-label">Secteur</label>
+                            <select id="cm-edit-secteur" class="cm-select" onchange="onEditSecteurChange()">
+                                <option value="">— Secteur —</option>
+                            </select>
+                        </div>
+                        <div class="cm-field">
+                            <label class="cm-label">Localité</label>
+                            <select id="cm-edit-localite" class="cm-select">
+                                <option value="">— Localité —</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="cm-actions">
+                        <button class="cm-btn cm-btn-primary" onclick="doEditClient()">
+                            <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+                        </button>
+                        <button class="cm-btn cm-btn-ghost" onclick="closeCMModal()">Annuler</button>
+                    </div>
+                    <div id="cm-edit-feedback" class="cm-feedback" style="display:none;"></div>
+                </div>
+
+                <!-- TAB: Supprimer -->
+                <div class="cm-panel" id="cm-tab-delete">
+                    <div class="cm-delete-warning">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <p>Êtes-vous sûr de vouloir supprimer ce client ? Cette action est <strong>irréversible</strong>.</p>
+                        <div class="cm-delete-card">
+                            <span class="cm-delete-code" id="cm-del-code"></span>
+                            <span class="cm-delete-name" id="cm-del-name"></span>
+                        </div>
+                    </div>
+                    <div class="cm-actions">
+                        <button class="cm-btn cm-btn-danger" onclick="doDeleteClient()">
+                            <i class="fa-solid fa-trash-can"></i> Oui, supprimer
+                        </button>
+                        <button class="cm-btn cm-btn-ghost" onclick="closeCMModal()">Annuler</button>
+                    </div>
+                    <div id="cm-delete-feedback" class="cm-feedback" style="display:none;"></div>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- FDV VIEW CONTAINER -->
@@ -1814,6 +1932,47 @@
             </div>
         </div>
 
+        <!-- ANOMALIES TERRAIN PANEL (SUIVI DES NON-ENVOIS DU MOIS - HORS DIMANCHES) -->
+        <div class="cyber-card table-card" id="terrain-anomalies-card" style="margin-top: 1.5rem;">
+            <div class="card-edge"></div>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <span class="tech-label" style="color: var(--neon-pink); font-weight: 800;"><i class="fa-solid fa-triangle-exclamation"></i> ANOMALIES TERRAIN : RAPPORTS DU MOIS MANQUANTS (HORS DIMANCHES)</span>
+                    <span class="rp-badge" id="terrain-anomalies-badge" style="background: rgba(255, 45, 85, 0.15); border: 1px solid var(--neon-pink); color: var(--neon-pink); font-family: var(--font-mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; font-weight: 700;">0 anomalie</span>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <label class="tech-label" style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0;">Mois :</label>
+                    <select id="terrain-anomalies-month-select" class="cyber-select" style="height: 32px; font-size: 0.75rem; padding: 0 0.5rem; border-color: var(--neon-pink); text-transform: uppercase; width: auto; min-width: 140px;">
+                        <!-- Options generated dynamically -->
+                    </select>
+                </div>
+            </div>
+            
+            <div class="anomalies-summary-bar" style="padding: 0.85rem 1.25rem; background: rgba(255, 45, 85, 0.04); border-bottom: 1px solid var(--border-color); display: flex; flex-wrap: wrap; gap: 1.5rem; font-size: 0.8rem; font-family: var(--font-mono);">
+                <div><span style="color: var(--text-muted);">Jours ouvrés analysés :</span> <strong id="anomalies-kpi-working-days" style="color: var(--text-main);">0 j</strong> <small style="color: var(--text-muted);">(dimanches exclus)</small></div>
+                <div><span style="color: var(--text-muted);">Vendeurs en anomalie :</span> <strong id="anomalies-kpi-vendeurs-count" style="color: var(--neon-pink);">0</strong></div>
+                <div><span style="color: var(--text-muted);">Total rapports manqués :</span> <strong id="anomalies-kpi-total-missing" style="color: var(--neon-amber);">0</strong></div>
+            </div>
+
+            <div class="table-container">
+                <table class="cyber-table" id="terrain-anomalies-table">
+                    <thead>
+                        <tr>
+                            <th>Vendeur</th>
+                            <th>Déclarations Envoyées</th>
+                            <th>Jours Manquants</th>
+                            <th>Conformité</th>
+                            <th>Dates des Anomalies (Non-Envoi)</th>
+                            <th style="text-align: center;">Action WhatsApp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Inserted dynamically -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
     </main>
 
     <!-- ===== FOCUS CONTAINER ===== -->
@@ -2026,34 +2185,35 @@
             <div class="rp-hero-glow"></div>
             <div class="rp-hero-content">
                 <div class="rp-hero-badge">
+                    <span class="rp-badge-dot"></span>
                     <i class="fa-solid fa-brain"></i>
-                    <span>IA ANALYTIQUE</span>
+                    <span>IA ANALYTIQUE EXECUTIVE</span>
                 </div>
-                <h1 class="rp-hero-title">Rapport d'Analyse<br><span class="rp-hero-title-accent">Force de Vente</span></h1>
-                <p class="rp-hero-sub">Analyse sémantique &amp; prédictive générée par intelligence artificielle</p>
+                <h1 class="rp-hero-title">Rapport d'Analyse<br><span class="rp-hero-title-accent">Force de Vente &amp; Performance</span></h1>
+                <p class="rp-hero-sub">Intelligence artificielle prédictive et sémantique alimentée par Gemini</p>
             </div>
             <div class="rp-hero-pills">
-                <span class="rp-pill rp-pill-blue"><i class="fa-solid fa-chart-line"></i> KPI Quanti</span>
-                <span class="rp-pill rp-pill-green"><i class="fa-solid fa-comments"></i> Qualitatif</span>
-                <span class="rp-pill rp-pill-purple"><i class="fa-solid fa-bullseye"></i> Focus</span>
-                <span class="rp-pill rp-pill-amber"><i class="fa-solid fa-triangle-exclamation"></i> Anomalies</span>
+                <span class="rp-pill rp-pill-blue"><i class="fa-solid fa-chart-line"></i> KPI Quantitatifs</span>
+                <span class="rp-pill rp-pill-green"><i class="fa-solid fa-comments"></i> Analyse Qualitative</span>
+                <span class="rp-pill rp-pill-purple"><i class="fa-solid fa-bullseye"></i> Objectifs Focus</span>
+                <span class="rp-pill rp-pill-amber"><i class="fa-solid fa-triangle-exclamation"></i> Détection Anomalies</span>
             </div>
         </div>
 
         <!-- ══ WORKSPACE LAYOUT ═════════════════════════════════════════════ -->
         <div class="rp-workspace-layout">
 
-            <!-- LEFT COLUMN: SIDEBAR -->
-            <div class="rp-sidebar-panel">
+            <!-- LEFT COLUMN: SIDEBAR CONTROLS -->
+            <aside class="rp-sidebar-panel">
                 <div class="rp-sidebar-card cyber-card">
                     <div class="card-edge"></div>
 
                     <!-- SECTION 1: CIBLE -->
                     <div class="sidebar-section" style="position: relative; z-index: 200;">
-                        <h4 class="sidebar-section-title"><i class="fa-solid fa-user-tie"></i> CIBLE</h4>
+                        <h4 class="sidebar-section-title"><i class="fa-solid fa-user-tie"></i> Cible d'Analyse</h4>
                         
                         <div class="dropdown-container rp-dropdown-wrap" id="vendeur-dropdown-container">
-                            <button class="rp-dropdown-btn" id="vendeur-dropdown-toggle" type="button">
+                            <button class="rp-dropdown-btn" id="vendeur-dropdown-toggle" type="button" aria-expanded="false" aria-label="Sélectionner la cible du rapport">
                                 <span class="rp-dropdown-icon"><i class="fa-solid fa-user-tie"></i></span>
                                 <span class="rp-dropdown-text" id="dropdown-selected-text">Tous les vendeurs</span>
                                 <i class="fa-solid fa-chevron-down rp-dropdown-chevron dropdown-chevron"></i>
@@ -2061,12 +2221,12 @@
                             <div class="dropdown-menu" id="vendeur-dropdown-menu">
                                 <div class="dropdown-search-wrapper">
                                     <i class="fa-solid fa-search search-icon"></i>
-                                    <input type="text" id="vendeur-dropdown-search" class="dropdown-search-input" placeholder="Rechercher...">
+                                    <input type="text" id="vendeur-dropdown-search" class="dropdown-search-input" placeholder="Rechercher un vendeur..." aria-label="Rechercher un vendeur">
                                 </div>
                                 <div class="dropdown-list vendeur-dropdown-list" id="vendeur-dropdown-list">
                                     <div class="dropdown-loading">
                                         <i class="fa-solid fa-circle-notch fa-spin"></i>
-                                        <span>Chargement...</span>
+                                        <span>Chargement des vendeurs...</span>
                                     </div>
                                 </div>
                             </div>
@@ -2077,7 +2237,7 @@
                                 <i class="fa-solid fa-globe"></i>
                                 <span>Agence globale</span>
                             </div>
-                            <button id="reset-vendeur-selection-btn" class="rp-reset-btn" style="display:none;">
+                            <button id="reset-vendeur-selection-btn" class="rp-reset-btn" style="display:none;" type="button" title="Réinitialiser la sélection">
                                 <i class="fa-solid fa-xmark"></i> Effacer
                             </button>
                         </div>
@@ -2085,27 +2245,27 @@
 
                     <!-- SECTION 2: FORMAT & LANGUE -->
                     <div class="sidebar-section">
-                        <h4 class="sidebar-section-title"><i class="fa-solid fa-sliders"></i> FORMAT &amp; LANGUE</h4>
+                        <h4 class="sidebar-section-title"><i class="fa-solid fa-sliders"></i> Format &amp; Langue</h4>
                         
                         <div class="form-group" style="margin-top: 0.25rem;">
                             <label class="tech-label" style="display: block; margin-bottom: 0.4rem; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-file-invoice"></i> Format du Rapport</label>
-                            <div style="display: flex; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px; gap: 4px;">
-                                <button type="button" class="report-format-btn active" data-format="complet" style="flex: 1; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 0.72rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                                    <i class="fa-solid fa-file-lines" style="color: var(--neon-blue);"></i> Complet
+                            <div class="rp-segmented-control" role="tablist" aria-label="Format du rapport">
+                                <button type="button" class="report-format-btn active" data-format="complet" role="tab" aria-selected="true">
+                                    <i class="fa-solid fa-file-lines"></i> Complet
                                 </button>
-                                <button type="button" class="report-format-btn" data-format="mini" style="flex: 1; background: transparent; border: 1px solid transparent; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.72rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                                    <i class="fa-solid fa-compress"></i> Mini
+                                <button type="button" class="report-format-btn" data-format="mini" role="tab" aria-selected="false">
+                                    <i class="fa-solid fa-compress"></i> Mini (WA)
                                 </button>
                             </div>
                         </div>
 
                         <div class="form-group" style="margin-top: 0.5rem;">
-                            <label class="tech-label" style="display: block; margin-bottom: 0.4rem; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-language"></i> Langue</label>
-                            <div style="display: flex; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px; gap: 4px;">
-                                <button type="button" class="report-lang-btn active" data-lang="fr" style="flex: 1; background: var(--bg-card); border: 1px solid var(--neon-blue); color: var(--text-main); font-family: var(--font-mono); font-size: 0.72rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                                    <i class="fa-solid fa-flag" style="color: var(--neon-blue);"></i> Français
+                            <label class="tech-label" style="display: block; margin-bottom: 0.4rem; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-language"></i> Langue de Rédaction</label>
+                            <div class="rp-segmented-control" role="tablist" aria-label="Langue du rapport">
+                                <button type="button" class="report-lang-btn active" data-lang="fr" role="tab" aria-selected="true">
+                                    <i class="fa-solid fa-flag"></i> Français
                                 </button>
-                                <button type="button" class="report-lang-btn" data-lang="ar" style="flex: 1; background: transparent; border: 1px solid transparent; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.72rem; padding: 0.35rem 0.5rem; cursor: pointer; transition: all 0.2s; border-radius: 3px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                                <button type="button" class="report-lang-btn" data-lang="ar" role="tab" aria-selected="false">
                                     <i class="fa-solid fa-earth-africa"></i> Arabe
                                 </button>
                             </div>
@@ -2114,42 +2274,47 @@
 
                     <!-- SECTION 3: MODULES D'ANALYSE -->
                     <div class="sidebar-section">
-                        <h4 class="sidebar-section-title"><i class="fa-solid fa-chart-pie"></i> MODULES D'ANALYSE</h4>
+                        <h4 class="sidebar-section-title"><i class="fa-solid fa-chart-pie"></i> Modules d'Analyse</h4>
                         
-                        <div class="rp-toggles" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <div class="rp-toggles">
                             <label class="rp-toggle" data-option="quanti">
                                 <input type="checkbox" id="check-quanti" checked>
                                 <span class="rp-toggle-track">
                                     <span class="rp-toggle-icon"><i class="fa-solid fa-chart-bar"></i></span>
-                                    <span class="rp-toggle-label">Quantitatif</span>
+                                    <span class="rp-toggle-label">Performance Quantitative (CA)</span>
+                                    <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
                                 </span>
                             </label>
                             <label class="rp-toggle" data-option="quali">
                                 <input type="checkbox" id="check-quali" checked>
                                 <span class="rp-toggle-track">
                                     <span class="rp-toggle-icon"><i class="fa-solid fa-comments"></i></span>
-                                    <span class="rp-toggle-label">Qualitatif</span>
+                                    <span class="rp-toggle-label">Synthèse Qualitative</span>
+                                    <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
                                 </span>
                             </label>
                             <label class="rp-toggle" data-option="focus">
                                 <input type="checkbox" id="check-focus" checked>
                                 <span class="rp-toggle-track">
                                     <span class="rp-toggle-icon"><i class="fa-solid fa-bullseye"></i></span>
-                                    <span class="rp-toggle-label">Focus</span>
+                                    <span class="rp-toggle-label">Atteinte des Objectifs Focus</span>
+                                    <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
                                 </span>
                             </label>
                             <label class="rp-toggle" data-option="anomali">
                                 <input type="checkbox" id="check-anomali">
                                 <span class="rp-toggle-track">
                                     <span class="rp-toggle-icon"><i class="fa-solid fa-triangle-exclamation"></i></span>
-                                    <span class="rp-toggle-label">Anomalies</span>
+                                    <span class="rp-toggle-label">Anomalies &amp; Écarts</span>
+                                    <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
                                 </span>
                             </label>
                             <label class="rp-toggle" data-option="rappel">
                                 <input type="checkbox" id="check-rappel">
                                 <span class="rp-toggle-track">
                                     <span class="rp-toggle-icon"><i class="fa-solid fa-bell"></i></span>
-                                    <span class="rp-toggle-label">Rappels</span>
+                                    <span class="rp-toggle-label">Rappels &amp; Actions Terrain</span>
+                                    <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
                                 </span>
                             </label>
                         </div>
@@ -2157,63 +2322,68 @@
 
                     <!-- SECTION 4: ACTIONS -->
                     <div class="sidebar-section" style="border-bottom: none; padding-bottom: 0;">
-                        <h4 class="sidebar-section-title"><i class="fa-solid fa-wand-magic-sparkles"></i> ACTIONS</h4>
+                        <h4 class="sidebar-section-title"><i class="fa-solid fa-wand-magic-sparkles"></i> Mode de Calcul &amp; Génération</h4>
                         
                         <!-- Tax Mode -->
-                        <div class="rp-toggles" style="margin-bottom: 0.5rem; width: 100%;">
-                            <label class="rp-toggle" data-option="ttc" style="width: 100%;">
-                                <input type="radio" name="report-tax-mode" id="report-tax-mode-ttc" value="TTC" checked style="position: absolute; opacity: 0; width: 0; height: 0;">
-                                <span class="rp-toggle-track" style="width: 100%;">
-                                    <span class="rp-toggle-icon"><i class="fa-solid fa-receipt"></i></span>
-                                    <span class="rp-toggle-label">Données en TTC</span>
-                                </span>
+                        <div class="rp-segmented-control rp-tax-control" style="margin-bottom: 0.75rem; width: 100%;">
+                            <label class="rp-tax-option" data-option="ttc">
+                                <input type="radio" name="report-tax-mode" id="report-tax-mode-ttc" value="TTC" checked>
+                                <span class="rp-tax-btn"><i class="fa-solid fa-receipt"></i> Données TTC</span>
                             </label>
-                            <label class="rp-toggle" data-option="ht" style="width: 100%;">
-                                <input type="radio" name="report-tax-mode" id="report-tax-mode-ht" value="HT" style="position: absolute; opacity: 0; width: 0; height: 0;">
-                                <span class="rp-toggle-track" style="width: 100%;">
-                                    <span class="rp-toggle-icon"><i class="fa-solid fa-receipt"></i></span>
-                                    <span class="rp-toggle-label">Données en HT</span>
-                                </span>
+                            <label class="rp-tax-option" data-option="ht">
+                                <input type="radio" name="report-tax-mode" id="report-tax-mode-ht" value="HT">
+                                <span class="rp-tax-btn"><i class="fa-solid fa-file-invoice-dollar"></i> Données HT</span>
                             </label>
                         </div>
 
                         <!-- Generate button -->
-                        <button id="generate-vendeur-report-btn" class="rp-generate-btn" style="margin-bottom: 0.5rem;">
+                        <button id="generate-vendeur-report-btn" class="rp-generate-btn" type="button">
                             <span class="rp-generate-btn-glow"></span>
-                            <i class="fa-solid fa-brain"></i>
-                            <span>Générer le Rapport</span>
+                            <i class="fa-solid fa-brain fa-spin-pulse" style="--fa-animation-duration: 3s;"></i>
+                            <span>Générer le Rapport IA</span>
                         </button>
-
                     </div>
 
                 </div>
-            </div>
+            </aside>
 
             <!-- RIGHT COLUMN: MAIN WORKSPACE -->
             <div class="rp-main-content-panel">
                 
-                <!-- EMPTY STATE -->
+                <!-- EMPTY STATE PANEL -->
                 <div class="rp-empty-state cyber-card" id="rp-empty-state-panel">
                     <div class="card-edge"></div>
                     <div class="empty-state-content">
-                        <div class="empty-state-icon">
-                            <i class="fa-solid fa-brain fa-pulse"></i>
+                        <div class="empty-state-icon-wrapper">
+                            <div class="empty-state-icon-pulse"></div>
+                            <div class="empty-state-icon">
+                                <i class="fa-solid fa-brain"></i>
+                            </div>
                         </div>
-                        <h3>Prêt pour l'Analyse IA</h3>
-                        <p>Sélectionnez un vendeur ou laissez vide pour un rapport global, puis cliquez sur <strong>Générer le Rapport</strong> pour démarrer l'analyse sémantique et prédictive.</p>
+                        <h3>Espace d'Analyse IA Prêt</h3>
+                        <p>Sélectionnez un vendeur dans le panneau latéral ou conservez <strong>Agence globale</strong> pour une synthèse générale, puis lancez le générateur IA.</p>
                         
                         <div class="empty-state-steps">
                             <div class="step-item">
                                 <span class="step-num">1</span>
-                                <span>Définir la cible et les options</span>
+                                <div class="step-text">
+                                    <strong>Paramétrage Cible &amp; Modules</strong>
+                                    <span>Choisissez la cible et activez les modules souhaités (CA, Quali, Focus).</span>
+                                </div>
                             </div>
                             <div class="step-item">
                                 <span class="step-num">2</span>
-                                <span>Lancer l'extraction des données</span>
+                                <div class="step-text">
+                                    <strong>Calcul des Dérives &amp; Prédictions</strong>
+                                    <span>L'IA analyse les ventes, les écarts d'objectifs et la dynamique d'équipe.</span>
+                                </div>
                             </div>
                             <div class="step-item">
                                 <span class="step-num">3</span>
-                                <span>Consulter les performances &amp; recommandations IA</span>
+                                <div class="step-text">
+                                    <strong>Consolidation &amp; Exportation</strong>
+                                    <span>Générez un rapport exécutif ou envoyez la version Mini directement par WhatsApp.</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2854,6 +3024,179 @@
             <h3 style="color: var(--text-main);">Aucune tâche enregistrée</h3>
             <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">Cliquez sur le bouton ci-dessus pour planifier une tâche.</p>
         </div>
+    </main>
+
+    <!-- ENGAGEMENT VIEW CONTAINER -->
+    <main class="dashboard-container" id="engagement-container" style="{% if active_tab != 'engagement' %}display: none;{% endif %}; position: relative; z-index: 10;">
+        <section class="summary-section" id="engagement-summary-section">
+            <div class="summary-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 1rem;">
+                <div class="summary-title">
+                    <h2><i class="fa-solid fa-handshake neon-text-blue" style="margin-right: 0.5rem;"></i> GESTION DES ENGAGEMENTS</h2>
+                    <p class="summary-subtitle" style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono);">
+                        Définition et suivi des engagements vendeurs par chiffre d'affaires, familles, focus et autre
+                    </p>
+                </div>
+                <div>
+                    <button type="button" class="cyber-btn-submit" id="add-engagement-btn" style="padding: 0.6rem 1.4rem; font-weight: 600;">
+                        <i class="fa-solid fa-plus-circle"></i> Ajouter
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Summary Stats Header Cards -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-top: 1.25rem; width: 100%;">
+                <div class="cyber-card" style="padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.85rem;">
+                    <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(0, 240, 255, 0.1); border: 1px solid var(--neon-blue); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--neon-blue);">
+                        <i class="fa-solid fa-file-signature"></i>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase;">Total Engagements</span>
+                        <div id="stat-engagement-total-count" style="font-size: 1.2rem; font-weight: bold; color: var(--text-main);">0</div>
+                    </div>
+                </div>
+                
+                <div class="cyber-card" style="padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.85rem;">
+                    <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(0, 255, 102, 0.1); border: 1px solid var(--neon-green); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--neon-green);">
+                        <i class="fa-solid fa-sack-dollar"></i>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase;">Montant Total (DH)</span>
+                        <div id="stat-engagement-total-dh" style="font-size: 1.2rem; font-weight: bold; color: var(--neon-green);">0 DH</div>
+                    </div>
+                </div>
+
+                <div class="cyber-card" style="padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.85rem;">
+                    <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(0, 240, 255, 0.12); border: 1px solid var(--neon-blue); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--neon-blue);">
+                        <i class="fa-solid fa-chart-line"></i>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase;">CA Engagé</span>
+                        <div id="stat-engagement-ca-dh" style="font-size: 1.2rem; font-weight: bold; color: var(--neon-blue);">0 DH</div>
+                    </div>
+                </div>
+
+                <div class="cyber-card" style="padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.85rem;">
+                    <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(0, 255, 102, 0.12); border: 1px solid var(--neon-green); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--neon-green);">
+                        <i class="fa-solid fa-boxes-packing"></i>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase;">Familles Engagé</span>
+                        <div id="stat-engagement-famille-dh" style="font-size: 1.2rem; font-weight: bold; color: var(--neon-green);">0 DH</div>
+                    </div>
+                </div>
+
+                <div class="cyber-card" style="padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.85rem;">
+                    <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(255, 170, 0, 0.12); border: 1px solid var(--neon-amber); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--neon-amber);">
+                        <i class="fa-solid fa-bullseye"></i>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase;">Focus Engagé</span>
+                        <div id="stat-engagement-focus-dh" style="font-size: 1.2rem; font-weight: bold; color: var(--neon-amber);">0 DH</div>
+                    </div>
+                </div>
+
+                <div class="cyber-card" style="padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.85rem;">
+                    <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(255, 0, 128, 0.12); border: 1px solid var(--neon-pink); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--neon-pink);">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase;">Autre Engagé</span>
+                        <div id="stat-engagement-autre-dh" style="font-size: 1.2rem; font-weight: bold; color: var(--neon-pink);">0 DH</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ENGAGEMENTS CONTENT CARD -->
+        <section class="cyber-card table-card" id="engagements-card" style="margin-top: 1.5rem;">
+            <div class="card-edge"></div>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <span class="tech-label">
+                    <i class="fa-solid fa-list-check neon-text-blue"></i>
+                    LISTE DES ENGAGEMENTS VENDEURS
+                </span>
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div class="engagement-view-toggle" style="display: flex; gap: 0.2rem; background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); border-radius: 6px; padding: 3px;">
+                        <button type="button" id="btn-view-cards" class="view-toggle-btn active" style="padding: 0.3rem 0.75rem; border: none; background: var(--neon-blue); color: #000; font-size: 0.75rem; font-weight: bold; border-radius: 4px; cursor: pointer; transition: all 0.2s;">
+                            <i class="fa-solid fa-border-all"></i> Cartes
+                        </button>
+                        <button type="button" id="btn-view-table" class="view-toggle-btn" style="padding: 0.3rem 0.75rem; border: none; background: transparent; color: var(--text-main); font-size: 0.75rem; font-weight: 500; border-radius: 4px; cursor: pointer; transition: all 0.2s;">
+                            <i class="fa-solid fa-table"></i> Tableau Détallé
+                        </button>
+                    </div>
+                    <span class="badge-blue" id="engagements-badge">0 engagements</span>
+                </div>
+            </div>
+            
+            <!-- Filters Bar -->
+            <div style="display: flex; gap: 1rem; align-items: center; justify-content: flex-start; padding: 0.75rem 1.5rem; background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid var(--border-color); flex-wrap: wrap;">
+                
+                <!-- Search Bar -->
+                <div style="position: relative; width: 220px; margin: 0;">
+                    <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.8rem;"></i>
+                    <input type="text" id="engagements-search-input" placeholder="Recherche vendeur, produit..." autocomplete="off" style="font-size: 0.8rem; height: 34px; padding-left: 2.25rem; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-main); outline: none;">
+                </div>
+                
+                <!-- Vendeur Filter -->
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-user"></i> VENDEUR :</span>
+                    <select id="engagements-vendeur-filter" class="cyber-select" style="width: 220px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 34px; border-color: var(--neon-blue);">
+                        <option value="All">TOUS LES VENDEURS (Toutes Équipes)</option>
+                    </select>
+                </div>
+                
+                <!-- Period Filter -->
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-clock"></i> PÉRIODE :</span>
+                    <select id="engagements-period-filter" class="cyber-select" style="width: 140px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 34px; border-color: var(--neon-blue);">
+                        <option value="All">TOUTES</option>
+                        <option value="Jour">JOUR</option>
+                        <option value="Semaine">SEMAINE</option>
+                        <option value="Mois">MOIS</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- ENGAGEMENT LIST CONTAINER (GRID CARD VIEW) -->
+            <div id="engagements-list" style="padding: 1.5rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 1.25rem;">
+                <!-- Dynamically rendered -->
+            </div>
+
+            <!-- ENGAGEMENT TABLE CONTAINER (TABLE VIEW) -->
+            <div id="engagements-table-container" style="display: none; padding: 1rem 1.5rem; overflow-x: auto;">
+                <table class="cyber-table" style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                    <thead>
+                        <tr style="background: rgba(0, 240, 255, 0.08); border-bottom: 2px solid var(--border-color);">
+                            <th style="padding: 0.75rem 1rem; text-align: left; color: var(--neon-blue); font-family: var(--font-mono);">VENDEUR</th>
+                            <th style="padding: 0.75rem; text-align: center; color: var(--text-muted); font-family: var(--font-mono);">PÉRIODE</th>
+                            <th style="padding: 0.75rem; text-align: center; color: var(--text-muted); font-family: var(--font-mono);">DATE</th>
+                            <th style="padding: 0.75rem 1rem; text-align: left; color: var(--text-muted); font-family: var(--font-mono);">DÉTAILS DES ENGAGEMENTS (VALEURS)</th>
+                            <th style="padding: 0.75rem 1rem; text-align: right; color: var(--neon-green); font-family: var(--font-mono);">TOTAL ENGAGÉ</th>
+                            <th style="padding: 0.75rem; text-align: center; color: var(--text-muted); font-family: var(--font-mono);">ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody id="engagements-table-body">
+                        <!-- Rows rendered dynamically -->
+                    </tbody>
+                    <tfoot id="engagements-table-foot" style="border-top: 2px solid var(--border-color); background: rgba(0, 0, 0, 0.3);">
+                        <!-- Totals rendered dynamically -->
+                    </tfoot>
+                </table>
+            </div>
+
+            <!-- LOADING STATE -->
+            <div id="engagements-loading" style="display: none; text-align: center; padding: 3rem 0;">
+                <div class="cyber-spinner" style="margin: 0 auto 1rem;"></div>
+                <span class="tech-label neon-text-blue">CHARGEMENT DES ENGAGEMENTS...</span>
+            </div>
+
+            <!-- EMPTY STATE -->
+            <div id="engagements-empty" style="display: none; text-align: center; padding: 3rem 0;">
+                <i class="fa-solid fa-handshake" style="font-size: 3rem; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                <h3 style="color: var(--text-main);">Aucun engagement enregistré</h3>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">Cliquez sur "Ajouter" pour créer un engagement vendeur.</p>
+            </div>
+        </section>
     </main>
 
     <!-- PDF Generation Overlay -->
@@ -4000,13 +4343,108 @@
     </div>
 
 
+    <!-- ENGAGEMENT POPUP MODAL -->
+    <div class="modal-backdrop" id="engagement-modal">
+        <div class="cyber-modal" style="max-width: 680px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+            <div class="modal-header" style="flex-shrink: 0;">
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fa-solid fa-handshake neon-text-blue"></i>
+                    <span id="engagement-modal-title">NOUVEL ENGAGEMENT VENDEUR</span>
+                </h3>
+                <button class="close-btn" id="close-engagement-modal-btn" type="button" aria-label="Fermer">&times;</button>
+            </div>
+            
+            <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+                <input type="hidden" id="editing-engagement-id" value="">
+                
+                <!-- 1. Select Vendeur -->
+                <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                    <label style="font-size: 0.82rem; font-weight: 600; color: var(--neon-blue); font-family: var(--font-mono); text-transform: uppercase;">
+                        <i class="fa-solid fa-user-tag"></i> 1. Sélectionner Vendeur <span style="color: var(--neon-pink);">*</span>
+                    </label>
+                    <select id="engagement-vendeur-select" class="cyber-select" style="width: 100%; height: 38px; font-size: 0.88rem;">
+                        <option value="">-- Choisir un Vendeur --</option>
+                    </select>
+                </div>
+
+                <!-- 2. Options [Jour, Semaine, Mois] & Date -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                        <label style="font-size: 0.82rem; font-weight: 600; color: var(--neon-blue); font-family: var(--font-mono); text-transform: uppercase;">
+                            <i class="fa-solid fa-clock"></i> 2. Période <span style="color: var(--neon-pink);">*</span>
+                        </label>
+                        <div class="engagement-period-options" style="display: flex; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; background: rgba(0,0,0,0.3); height: 38px;">
+                            <button type="button" class="engagement-period-btn active" data-period="Jour" style="flex: 1; border: none; background: var(--neon-blue); color: #000; font-weight: bold; cursor: pointer; transition: all 0.2s;">Jour</button>
+                            <button type="button" class="engagement-period-btn" data-period="Semaine" style="flex: 1; border: none; background: transparent; color: var(--text-main); font-weight: 500; cursor: pointer; transition: all 0.2s;">Semaine</button>
+                            <button type="button" class="engagement-period-btn" data-period="Mois" style="flex: 1; border: none; background: transparent; color: var(--text-main); font-weight: 500; cursor: pointer; transition: all 0.2s;">Mois</button>
+                        </div>
+                        <input type="hidden" id="engagement-periode-value" value="Jour">
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                        <label style="font-size: 0.82rem; font-weight: 600; color: var(--neon-blue); font-family: var(--font-mono); text-transform: uppercase;">
+                            <i class="fa-solid fa-calendar"></i> Date d'engagement
+                        </label>
+                        <input type="date" id="engagement-date-input" class="cyber-input" style="height: 38px; width: 100%; box-sizing: border-box;">
+                    </div>
+                </div>
+
+                <!-- 3 & 4. Single + Button with Dropdown for Categories (CA, Famille, Focus, Autre) -->
+                <div style="display: flex; flex-direction: column; gap: 0.85rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <label style="font-size: 0.85rem; font-weight: 600; color: var(--neon-green); font-family: var(--font-mono); text-transform: uppercase; margin: 0;">
+                            <i class="fa-solid fa-layer-group"></i> 3. Engagements & Objectifs (DH)
+                        </label>
+                        
+                        <!-- Dropdown Button for Adding Categories -->
+                        <div style="position: relative; display: inline-block;">
+                            <button type="button" class="cyber-btn-submit" id="add-entry-dropdown-toggle" style="padding: 0.4rem 0.9rem; font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem;">
+                                <i class="fa-solid fa-plus"></i>
+                                <span>Ajouter une entrée</span>
+                                <i class="fa-solid fa-chevron-down" style="font-size: 0.7rem; margin-left: 0.2rem;"></i>
+                            </button>
+                            
+                            <!-- Dropdown Menu -->
+                            <div id="add-entry-dropdown-menu" style="display: none; position: absolute; right: 0; top: 100%; margin-top: 0.35rem; width: 200px; background: #0e1726; border: 1px solid var(--neon-blue); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); z-index: 99; overflow: hidden;">
+                                <button type="button" class="add-cat-option-btn" data-category="CA" style="display: flex; align-items: center; gap: 0.6rem; width: 100%; padding: 0.65rem 0.85rem; background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--neon-blue); font-size: 0.82rem; font-weight: 600; cursor: pointer; text-align: left; transition: background 0.2s;">
+                                    <i class="fa-solid fa-chart-line"></i> CA (Chiffre d'Affaires)
+                                </button>
+                                <button type="button" class="add-cat-option-btn" data-category="Famille" style="display: flex; align-items: center; gap: 0.6rem; width: 100%; padding: 0.65rem 0.85rem; background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--neon-green); font-size: 0.82rem; font-weight: 600; cursor: pointer; text-align: left; transition: background 0.2s;">
+                                    <i class="fa-solid fa-boxes-packing"></i> Famille
+                                </button>
+                                <button type="button" class="add-cat-option-btn" data-category="Focus" style="display: flex; align-items: center; gap: 0.6rem; width: 100%; padding: 0.65rem 0.85rem; background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--neon-amber); font-size: 0.82rem; font-weight: 600; cursor: pointer; text-align: left; transition: background 0.2s;">
+                                    <i class="fa-solid fa-bullseye"></i> Focus
+                                </button>
+                                <button type="button" class="add-cat-option-btn" data-category="Autre" style="display: flex; align-items: center; gap: 0.6rem; width: 100%; padding: 0.65rem 0.85rem; background: transparent; border: none; color: var(--neon-pink); font-size: 0.82rem; font-weight: 600; cursor: pointer; text-align: left; transition: background 0.2s;">
+                                    <i class="fa-solid fa-pen-to-square"></i> Autre
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Single Items Container for all added entries -->
+                    <div id="engagement-items-container" style="display: flex; flex-direction: column; gap: 0.65rem; min-height: 50px;"></div>
+                </div>
+                
+
+            </div>
+
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem; flex-shrink: 0;">
+                <button type="button" class="cyber-btn-secondary" id="cancel-engagement-modal-btn">ANNULER</button>
+                <button type="button" class="cyber-btn-submit" id="save-engagement-btn"><i class="fa-solid fa-check"></i> ENREGISTRER L'ENGAGEMENT</button>
+            </div>
+        </div>
+    </div>
+
+
     <!-- Custom Script JS -->
     <script src="/static/js/vendeur360.js?v=7.0"></script>
-    <script src="/static/js/dashboard.js?v=5.7"></script>
+    <script src="/static/js/dashboard.js?v=6.0"></script>
     <script src="/static/js/fdv.js?v=5.0"></script>
     <script src="/static/js/bg-anim.js?v=5.0"></script>
     <script src="/static/js/terrain.js?v=5.0"></script>
     <script src="/static/js/focus.js?v=5.2"></script>
     <script src="/static/js/stock.js?v=5.0"></script>
+    <script src="/static/js/engagement.js?v=11.0"></script>
 </body>
 </html>

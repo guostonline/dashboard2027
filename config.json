@@ -3,5 +3,6 @@
     "exclude_families": [],
     "theme": "theme-1",
     "light_mode": true,
-    "excluded_dates": []
+    "excluded_dates": [],
+    "google_sheet_url": ""
 }

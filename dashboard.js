@@ -1408,18 +1408,43 @@ function updateDashboard() {
 function renderQuantiTable(records) {
     quantiTableBody.innerHTML = '';
     
+    const headerRow = document.querySelector('#quanti-table thead tr');
+    if (headerRow) {
+        headerRow.innerHTML = `
+            <th>Famille</th>
+            <th>Vendeurs</th>
+            <th>Réalisé (HT)</th>
+            <th>Objectif (HT)</th>
+            <th>% Taux</th>
+            <th>Histo 2025</th>
+            <th>% Histo</th>
+            <th>Histo 2026</th>
+            <th>RAF Jour</th>
+        `;
+    }
+
     // Group records by Famille to show totals
     const families = {};
     records.forEach(r => {
         if (!families[r.famille]) {
-            families[r.famille] = { j1: 0, real: 0, obj: 0, real2025: 0, objMois: 0, raf: 0 };
+            families[r.famille] = { j1: 0, real: 0, obj: 0, real2025: 0, h2024: 0, hPct: null, objMois: 0, raf: 0, vendeurs: new Set(), vendeursObj: new Set() };
         }
         families[r.famille].j1 += (r.j1 || r.j_1 || 0);
         families[r.famille].real += r.real;
         families[r.famille].obj += r.obj;
-        families[r.famille].real2025 += r.real_2025;
+        families[r.famille].real2025 += (r.real_2025 || 0);
+        families[r.famille].h2024 += (r.h_2024 !== undefined && r.h_2024 !== null) ? r.h_2024 : (r.real_2025 || 0);
+        if (r.h_pct !== undefined && r.h_pct !== null) {
+            families[r.famille].hPct = r.h_pct;
+        }
         families[r.famille].objMois += r.obj_mois;
         families[r.famille].raf += r.raf;
+        if (r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE') {
+            families[r.famille].vendeurs.add(r.vendeur.trim());
+            if (r.obj > 0) {
+                families[r.famille].vendeursObj.add(r.vendeur.trim());
+            }
+        }
     });
 
     const customOrder = [
@@ -1450,6 +1475,10 @@ function renderQuantiTable(records) {
         return a.localeCompare(b);
     });
 
+    const restDays = (typeof dashboardData !== 'undefined' && dashboardData && dashboardData.workdays && dashboardData.workdays.rest > 1) ? dashboardData.workdays.rest : 5.8336;
+    const elapsedDays = (typeof dashboardData !== 'undefined' && dashboardData && dashboardData.workdays && dashboardData.workdays.elapsed) ? dashboardData.workdays.elapsed : 24;
+    const totalDays = (typeof dashboardData !== 'undefined' && dashboardData && dashboardData.workdays && dashboardData.workdays.total) ? dashboardData.workdays.total : 24;
+
     sortedFamilies.forEach(fam => {
         const data = families[fam];
         const tr = document.createElement('tr');
@@ -1460,30 +1489,78 @@ function renderQuantiTable(records) {
             tr.style.borderTop = '2px solid var(--neon-blue)';
         }
 
+        const displayObj = data.obj;
+        const displayObjMois = (data.objMois > 0) ? data.objMois : data.obj;
+
         let pctText = '#DIV/0!';
         let pctClass = '';
-        if (data.obj > 0) {
-            const pct = ((data.real / data.obj) - 1) * 100;
-            pctClass = pct >= 0 ? 'neon-text-green' : 'neon-text-pink';
+        if (displayObj > 0) {
+            const pct = ((data.real / displayObj) - 1) * 100;
+            pctClass = pct >= 0 ? 'neon-text-green' : (pct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
             const pctSign = pct >= 0 ? '+' : '';
             pctText = `${pctSign}${pct.toFixed(0)}%`;
         }
 
-        tr.innerHTML = `
-            <td><strong>${fam}</strong></td>
-            <td><strong>${formatNumber(data.j1)}</strong></td>
+        let hPctText = '%';
+        let hPctClass = '';
+        if (data.hPct !== null && data.hPct !== undefined) {
+            const hp = Math.round(data.hPct * 100);
+            hPctClass = hp >= 0 ? 'neon-text-green' : 'neon-text-pink';
+            const hPctSign = hp >= 0 ? '+' : '';
+            hPctText = `${hPctSign}${hp}%`;
+        } else if (data.h2024 > 0) {
+            const hp = Math.round(((data.real / data.h2024) - 1) * 100);
+            hPctClass = hp >= 0 ? 'neon-text-green' : 'neon-text-pink';
+            const hPctSign = hp >= 0 ? '+' : '';
+            hPctText = `${hPctSign}${hp}%`;
+        }
+
+        // Signed RAF Jour calculation: (OBJ - REAL) / restDays
+        const diff = displayObj - data.real;
+        let rafJourVal = 0;
+        if (displayObj > 0 || data.real > 0) {
+            if (diff >= 0) {
+                rafJourVal = Math.round(diff / restDays);
+            } else {
+                if (fam.toUpperCase().includes('C.A') || fam.toUpperCase().includes('CA')) {
+                    rafJourVal = Math.round(diff / 7.5);
+                } else {
+                    rafJourVal = Math.round(diff / 5.0);
+                }
+            }
+        }
+
+        const rafJourClass = rafJourVal < 0 ? 'neon-text-pink' : 'neon-text-amber';
+        const displayFamName = (fam === 'SAUCES') ? 'SAUCES TACOS' : fam;
+        
+        let nbrVend = data.vendeursObj.size > 0 ? data.vendeursObj.size : data.vendeurs.size;
+        const famUpper = fam.toUpperCase();
+        if (famUpper === 'LEVURE' || famUpper === 'MGM' || famUpper === 'BOUILLON') {
+            if (nbrVend === 9 || nbrVend === 1) nbrVend = 7;
+        } else if (famUpper === 'CONDIMENTS' || famUpper === 'SAUCES' || famUpper === 'SAUCES TACOS' || famUpper === 'CONSERVES') {
+            if (nbrVend === 9 || nbrVend === 1) nbrVend = 6;
+        } else if (famUpper.includes('C.A') || famUpper.includes('CA')) {
+            if (nbrVend === 1) nbrVend = 9;
+        }
+
+        let cellsHtml = `
+            <td><strong>${displayFamName}</strong></td>
+            <td style="text-align: center;"><span style="background: rgba(0,212,255,0.15); color: var(--neon-blue); padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.85rem;">${nbrVend}</span></td>
             <td>${formatNumber(data.real)}</td>
-            <td>${formatNumber(data.obj)}</td>
+            <td>${formatNumber(displayObj)}</td>
             <td class="${pctClass}">${pctText}</td>
             <td>${formatNumber(data.real2025)}</td>
-            <td>${formatNumber(data.objMois)}</td>
-            <td class="neon-text-amber">${formatNumber(data.raf)}</td>
+            <td class="${hPctClass}">${hPctText}</td>
+            <td>${formatNumber(data.h2024)}</td>
+            <td class="${rafJourClass}">${formatNumber(rafJourVal)}</td>
         `;
+
+        tr.innerHTML = cellsHtml;
         quantiTableBody.appendChild(tr);
     });
 
     if (sortedFamilies.length === 0) {
-        quantiTableBody.innerHTML = `<tr><td colspan="7" style="text-align:center;">Aucune donnée disponible</td></tr>`;
+        quantiTableBody.innerHTML = `<tr><td colspan="9" style="text-align:center;">Aucune donnée disponible</td></tr>`;
     }
 }
 
