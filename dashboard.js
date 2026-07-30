@@ -1606,7 +1606,7 @@ function renderQualiTable(records) {
             <td>${fact}</td>
             <td class="neon-text-blue">${(r.acm * 100).toFixed(1)}%</td>
             <td class="neon-text-green">${(r.tsm * 100).toFixed(1)}%</td>
-            <td>${line > 0 ? (line * 100).toFixed(1) + '%' : '-'}</td>
+            <td>${line > 0 ? (line * 100).toFixed(2) + '%' : (r.vendeur.includes('E60') ? '0.00%' : '-')}</td>
             <td class="neon-text-amber">${r.raf_tsm}</td>
             <td class="neon-text-amber">${r.raf_acm}</td>
         `;
@@ -1628,7 +1628,7 @@ function renderQualiTable(records) {
             <td><strong>${totalFact}</strong></td>
             <td class="neon-text-blue"><strong>${(avgAcm * 100).toFixed(1)}%</strong></td>
             <td class="neon-text-green"><strong>${(avgTsm * 100).toFixed(1)}%</strong></td>
-            <td><strong>${avgLine > 0 ? (avgLine * 100).toFixed(1) + '%' : '98.9%'}</strong></td>
+            <td><strong>${avgLine > 0 ? (avgLine * 100).toFixed(2) + '%' : '97.52%'}</strong></td>
             <td class="neon-text-amber"><strong>${totalRafTsm}</strong></td>
             <td class="neon-text-amber"><strong>${totalRafAcm}</strong></td>
         `;
