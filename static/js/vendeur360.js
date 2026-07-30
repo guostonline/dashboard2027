@@ -134,6 +134,9 @@ async function loadVendeur360Data(vendeurName = '') {
         // Fetch quanti/quali from main API
         fetchVendeurQuantiQuali(data.vendeur || targetVendeur);
 
+        // Fetch Tournées & Visits from All Secteurs API
+        fetchAndRenderVendeurTournees(data.vendeur || targetVendeur);
+
     } catch (err) {
         console.error("Error loading Vendeur 360°:", err);
     }
@@ -1026,5 +1029,213 @@ document.addEventListener('DOMContentLoaded', () => {
             renderV360RadarChart(null, mode);
         });
     });
+    initTourneeModalEvents();
 });
+
+async function fetchAndRenderVendeurTournees(vendeurName) {
+    const tableBody = document.querySelector('#v360-tournees-table tbody');
+    const kpiRibbon = document.getElementById('v360-tournees-kpis-ribbon');
+    const motifsBar = document.getElementById('v360-motifs-bar');
+
+    if (!vendeurName || !tableBody) return;
+
+    try {
+        tableBody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 1.5rem; color: var(--neon-blue);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement des tournées et visites en cours...</td></tr>`;
+
+        const res = await fetch(`/api/vendeur360/tournees/${encodeURIComponent(vendeurName)}`);
+        const json = await res.json();
+
+        if (!json.success || !json.data) {
+            tableBody.innerHTML = `<tr><td colspan="11" style="text-align:center; color: var(--text-sub);">Aucune tournée enregistrée.</td></tr>`;
+            return;
+        }
+
+        const data = json.data;
+        const tournees = data.tournees || [];
+
+        // 1. Render Mini-KPI Ribbon
+        if (kpiRibbon) {
+            kpiRibbon.innerHTML = `
+                <span class="badge-blue"><i class="fa-solid fa-route"></i> ${data.total_tournees || 0} Tournées</span>
+                <span class="badge-blue"><i class="fa-solid fa-store"></i> ${data.total_visites || 0} Visites</span>
+                <span class="badge-green"><i class="fa-solid fa-file-invoice"></i> ${data.visites_ok || 0} Avec Facture (${data.billing_rate || 0}%)</span>
+                <span class="badge-pink"><i class="fa-solid fa-triangle-exclamation"></i> ${data.visites_sans_ok || 0} Sans Facture</span>
+                <span style="background: rgba(255, 170, 0, 0.2); color: #ffaa00; border: 1px solid #ffaa00; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold;">
+                    <i class="fa-solid fa-bolt"></i> ${data.anomalies_avec_facture || 0} Anomalies
+                </span>
+                <span style="background: rgba(187, 134, 252, 0.2); color: #bb86fc; border: 1px solid #bb86fc; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold;">
+                    <i class="fa-solid fa-arrow-up-right-dots"></i> ${data.big_facture || 0} Big Fact.
+                </span>
+                <span style="background: rgba(3, 218, 198, 0.2); color: #03dac6; border: 1px solid #03dac6; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold;">
+                    <i class="fa-solid fa-basket-shopping"></i> ${data.small_facture || 0} Small Fact.
+                </span>
+            `;
+        }
+
+        // 2. Render Motifs Bar
+        if (motifsBar) {
+            const motifs = data.motifs_summary || {};
+            let motifsHtml = `<span style="font-weight: bold; color: var(--text-muted); align-self: center; margin-right: 0.4rem;">MOTIFS DE VISITE:</span>`;
+            
+            const motifColors = {
+                'OK': 'color: var(--neon-green); border: 1px solid var(--neon-green);',
+                'Stock Suffisant': 'color: var(--neon-blue); border: 1px solid var(--neon-blue);',
+                'Magasin Ferme': 'color: var(--neon-pink); border: 1px solid var(--neon-pink);',
+                'Responsable Absent': 'color: var(--neon-amber); border: 1px solid var(--neon-amber);',
+                'Erreur de Manipluation': 'color: #e0e0e0; border: 1px solid #777;'
+            };
+
+            for (const [mName, mCount] of Object.entries(motifs)) {
+                const styleStr = motifColors[mName] || 'color: var(--text-sub); border: 1px solid var(--border-color);';
+                motifsHtml += `<span style="padding: 0.15rem 0.5rem; border-radius: 3px; background: rgba(0,0,0,0.3); font-weight: 600; ${styleStr}">
+                    ${mName}: <strong>${mCount}</strong>
+                </span>`;
+            }
+            motifsBar.innerHTML = motifsHtml;
+        }
+
+        // 3. Render Tournées Table Rows
+        tableBody.innerHTML = '';
+        if (tournees.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--text-sub);">Aucune tournée enregistrée.</td></tr>`;
+            return;
+        }
+
+        tournees.forEach((t, idx) => {
+            const tr = document.createElement('tr');
+            const rateClass = t.billing_rate >= 50 ? 'neon-text-green' : (t.billing_rate >= 30 ? 'neon-text-amber' : 'neon-text-pink');
+            
+            const dureeStr = t.duree_totale_minutes ? `${t.duree_totale_minutes} min` : '-';
+            const hStart = t.heure_debut || '-';
+            const hEnd = t.heure_fin || '-';
+
+            tr.innerHTML = `
+                <td>
+                    <strong style="color: var(--neon-blue);">${t.tournee}</strong>
+                    <br><code style="font-size: 0.72rem; color: var(--text-muted);">${t.date}</code>
+                </td>
+                <td><code>${hStart}</code></td>
+                <td><code>${hEnd}</code></td>
+                <td><span class="neon-text-sub">${dureeStr}</span></td>
+                <td><strong>${t.total_visites}</strong></td>
+                <td><span class="neon-text-green font-weight-bold">${t.visites_ok}</span></td>
+                <td><span class="neon-text-pink font-weight-bold">${t.visites_sans_ok}</span></td>
+                <td><span style="color: #ffaa00; font-weight: bold;">${t.anomalies_avec_facture || 0}</span></td>
+                <td>
+                    <span style="color: #bb86fc; font-weight: bold;">${t.big_facture || 0}</span> / 
+                    <span style="color: #03dac6; font-weight: bold;">${t.small_facture || 0}</span>
+                </td>
+                <td><span class="${rateClass} font-weight-bold">${t.billing_rate}%</span></td>
+                <td>
+                    <button type="button" class="view-tournee-details-btn cyber-btn-small" data-idx="${idx}" style="padding: 0.2rem 0.55rem; font-size: 0.72rem;">
+                        <i class="fa-solid fa-eye"></i> Voir
+                    </button>
+                </td>
+            `;
+            tableBody.appendChild(tr);
+        });
+
+        const detailBtns = tableBody.querySelectorAll('.view-tournee-details-btn');
+        detailBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(btn.getAttribute('data-idx'));
+                if (tournees[idx]) {
+                    openTourneeVisitsModal(tournees[idx]);
+                }
+            });
+        });
+
+    } catch (err) {
+        console.error("Error fetching vendor tournees:", err);
+        tableBody.innerHTML = `<tr><td colspan="11" style="text-align:center; color: var(--neon-pink);">Erreur lors du chargement des tournées.</td></tr>`;
+    }
+}
+
+function openTourneeVisitsModal(tourneeObj) {
+    const modal = document.getElementById('v360-tournee-modal');
+    const titleEl = document.getElementById('modal-tournee-title');
+    const subEl = document.getElementById('modal-tournee-sub');
+    const statsBar = document.getElementById('modal-tournee-stats-bar');
+    const tbody = document.querySelector('#modal-tournee-visits-table tbody');
+
+    if (!modal || !tbody) return;
+
+    if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-route neon-text-blue"></i> DÉTAILS VISITES : ${tourneeObj.tournee}`;
+    if (subEl) subEl.textContent = `Date: ${tourneeObj.date} | Vendeur: ${tourneeObj.vendeur_name} (${tourneeObj.vendeur_code}) | Heures: ${tourneeObj.heure_debut || '-'} à ${tourneeObj.heure_fin || '-'}`;
+
+    if (statsBar) {
+        statsBar.innerHTML = `
+            <span>Total Visites: <strong>${tourneeObj.total_visites}</strong></span>
+            <span class="neon-text-green">Visites Facturées: <strong>${tourneeObj.visites_ok} (${tourneeObj.billing_rate}%)</strong></span>
+            <span class="neon-text-pink">Sans Facture: <strong>${tourneeObj.visites_sans_ok}</strong></span>
+            <span style="color: #ffaa00;">Anomalies: <strong>${tourneeObj.anomalies_avec_facture}</strong></span>
+        `;
+    }
+
+    tbody.innerHTML = '';
+    const visits = tourneeObj.visites_list || [];
+
+    if (visits.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-sub);">Aucune visite enregistrée pour cette tournée.</td></tr>`;
+    } else {
+        visits.forEach(v => {
+            const tr = document.createElement('tr');
+            
+            let statusBadge = `<span class="badge-pink">SANS FACTURE</span>`;
+            if (v.facture_status === 'ANOMALIE AVEC FACTURE') {
+                statusBadge = `<span style="background: rgba(255,170,0,0.2); color: #ffaa00; border: 1px solid #ffaa00; padding: 0.15rem 0.4rem; border-radius: 3px; font-weight: bold;">ANOMALIE</span>`;
+            } else if (v.facture_status === 'BIG FACTURE') {
+                statusBadge = `<span style="background: rgba(187,134,252,0.2); color: #bb86fc; border: 1px solid #bb86fc; padding: 0.15rem 0.4rem; border-radius: 3px; font-weight: bold;">BIG FACTURE</span>`;
+            } else if (v.facture_status === 'SMALL FACTURE') {
+                statusBadge = `<span style="background: rgba(3,218,198,0.2); color: #03dac6; border: 1px solid #03dac6; padding: 0.15rem 0.4rem; border-radius: 3px; font-weight: bold;">SMALL FACTURE</span>`;
+            } else if (v.facture_status === 'AVEC FACTURE' || (v.motif && v.motif.toUpperCase() === 'OK')) {
+                statusBadge = `<span class="badge-green">AVEC FACTURE</span>`;
+            }
+
+            const dureeVal = v.duree_minutes ? `${v.duree_minutes} min` : '-';
+
+            tr.innerHTML = `
+                <td>
+                    <strong>${v.client_name || '-'}</strong>
+                    <br><code style="font-size: 0.72rem; color: var(--neon-blue);">${v.client_code}</code>
+                </td>
+                <td><code>${v.heure_debut || '-'}</code></td>
+                <td><code>${v.heure_fin || '-'}</code></td>
+                <td><span class="neon-text-sub">${dureeVal}</span></td>
+                <td><strong>${v.motif}</strong></td>
+                <td>${statusBadge}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    modal.style.display = 'flex';
+}
+
+function initTourneeModalEvents() {
+    const modal = document.getElementById('v360-tournee-modal');
+    const closeBtn = document.getElementById('close-v360-tournee-modal');
+    const closeBtnFooter = document.getElementById('close-v360-tournee-modal-btn');
+
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            if (modal) modal.style.display = 'none';
+        });
+    }
+
+    if (closeBtnFooter) {
+        closeBtnFooter.addEventListener('click', () => {
+            if (modal) modal.style.display = 'none';
+        });
+    }
+
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+    }
+}
+
 

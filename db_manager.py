@@ -3007,6 +3007,329 @@ def update_engagement(engagement_id, vendeur, periode, date_engagement, items):
         conn.close()
 
 
+def parse_visit_time_diff(h_start_str, h_end_str):
+    try:
+        if not h_start_str or not h_end_str:
+            return 0.0
+        h_start_str = str(h_start_str).strip()
+        h_end_str = str(h_end_str).strip()
+        t1 = datetime.datetime.strptime(h_start_str.split('.')[0], "%H:%M:%S")
+        t2 = datetime.datetime.strptime(h_end_str.split('.')[0], "%H:%M:%S")
+        diff = (t2 - t1).total_seconds() / 60.0
+        return round(diff, 1) if diff >= 0 else 0.0
+    except Exception:
+        return 0.0
+
+
+def import_all_secteurs_tournees():
+    """Import all visit reports from All Secteurs folder into vendeur_tournees_visits table."""
+    import glob
+    import openpyxl
+    import re
+
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "All Secteurs")
+    if not os.path.exists(folder):
+        print(f"All Secteurs folder not found at {folder}")
+        return 0
+
+    files = sorted(glob.glob(os.path.join(folder, "*.xlsx")))
+    if not files:
+        return 0
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS vendeur_tournees_visits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vendeur_code TEXT NOT NULL,
+        vendeur_name TEXT,
+        date TEXT NOT NULL,
+        tournee TEXT,
+        client_code TEXT NOT NULL,
+        client_name TEXT,
+        date_visite TEXT,
+        heure_debut TEXT,
+        heure_fin TEXT,
+        duree_minutes REAL,
+        motif TEXT,
+        distance TEXT,
+        note TEXT,
+        facture_status TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(vendeur_code, client_code, date, heure_debut)
+    );
+    """)
+
+    code_name_map = {
+        "D48": "IBACH MOHAMED",
+        "D86": "ACHAOUI AZIZ",
+        "E14": "BOUMDIANE MOHAMED",
+        "F78": "GHOUSMI MOURAD",
+        "J78": "LASRI EL HOUCINE",
+        "K91": "BAIZ MOHAMED",
+        "T89": "AKNOUN MOHAMED",
+        "T96": "EL HADI BOUBAKER",
+        "E60": "BOUALLALI FARID",
+        "K60": "ELHAOUZI RACHID"
+    }
+
+    inserted_count = 0
+    skipped_count = 0
+
+    for fpath in files:
+        fname = os.path.basename(fpath)
+        if fname.startswith("~$"):
+            continue
+        
+        vendeur_code = fname.replace(".xlsx", "").strip().upper()
+        vendeur_name = code_name_map.get(vendeur_code, vendeur_code)
+        
+        try:
+            wb = openpyxl.load_workbook(fpath, data_only=True, read_only=True)
+            ws = wb.active
+
+            current_date = None
+            current_tournee = None
+            
+            for row in ws.iter_rows(values_only=True):
+                if not any(row):
+                    continue
+                
+                row_str = " ".join([str(v) for v in row if v is not None])
+                
+                if "Date tournée" in row_str or "Date tourn" in row_str:
+                    for v in row:
+                        if isinstance(v, datetime.datetime):
+                            current_date = v.strftime("%Y-%m-%d")
+                        elif isinstance(v, str) and re.search(r'\d{4}-\d{2}-\d{2}', v):
+                            current_date = re.search(r'\d{4}-\d{2}-\d{2}', v).group(0)
+                
+                if "Tournée" in row_str or "Tourn" in row_str:
+                    for v in row:
+                        s_v = str(v).strip()
+                        if v and any(kw in s_v for kw in ["TAROUDANT", "AGADIR", "INZEGANE", "DETAIL", "SOM", "VMM", "GROS", "OULED", "TIKIOUINE", "AIT MELLOUL"]):
+                            current_tournee = s_v
+
+                time_matches = []
+                for v in row:
+                    s = str(v).strip() if v is not None else ""
+                    if "00:00:00" in s and len(s) > 8:
+                        s = s.replace("00:00:00", "")
+                    m = re.findall(r'\b\d{2}:\d{2}(?::\d{2})?\b', s)
+                    if m:
+                        for t_item in m:
+                            if t_item != "00:00:00":
+                                time_matches.append(t_item)
+
+                c_code = (row[2] if len(row) > 2 else None) or (row[1] if len(row) > 1 else None)
+                c_name = (row[5] if len(row) > 5 else None) or (row[4] if len(row) > 4 else None)
+                d_visite = (row[12] if len(row) > 12 else None) or (row[11] if len(row) > 11 else None)
+                motif = (row[20] if len(row) > 20 else None) or (row[19] if len(row) > 19 else None)
+                note = (row[25] if len(row) > 25 else None) or (row[24] if len(row) > 24 else None)
+
+                if c_code and str(c_code).strip() not in ["Client", "Code Client", "Code", "None"] and not str(c_code).startswith("RAPPORT"):
+                    c_code_str = str(c_code).strip()
+                    if re.match(r'^[A-Z0-9]{3,}$', c_code_str, re.IGNORECASE):
+                        visite_date_str = current_date
+                        if isinstance(d_visite, datetime.datetime):
+                            visite_date_str = d_visite.strftime("%Y-%m-%d")
+                        elif isinstance(d_visite, str) and re.search(r'\d{4}-\d{2}-\d{2}', d_visite):
+                            visite_date_str = re.search(r'\d{4}-\d{2}-\d{2}', d_visite).group(0)
+                        
+                        if not visite_date_str:
+                            visite_date_str = "2026-07-01"
+
+                        h_start_str = time_matches[0] if len(time_matches) >= 1 else ""
+                        h_end_str = time_matches[1] if len(time_matches) >= 2 else h_start_str
+                        motif_str = str(motif).strip() if motif else "OK"
+                        note_str = str(note).strip() if note else ""
+                        duree = parse_visit_time_diff(h_start_str, h_end_str)
+
+                        facture_status = "SANS FACTURE"
+                        m_upper = motif_str.upper()
+                        if m_upper == "OK":
+                            if duree > 0 and duree < 1.0:
+                                facture_status = "ANOMALIE AVEC FACTURE"
+                            elif duree >= 15.0:
+                                facture_status = "BIG FACTURE"
+                            elif duree < 5.0 and duree >= 1.0:
+                                facture_status = "SMALL FACTURE"
+                            else:
+                                facture_status = "AVEC FACTURE"
+                        elif "STOCK" in m_upper or "FERME" in m_upper or "ABSENT" in m_upper or "ERREUR" in m_upper:
+                            facture_status = "SANS FACTURE"
+
+                        try:
+                            cursor.execute("""
+                                INSERT INTO vendeur_tournees_visits (
+                                    vendeur_code, vendeur_name, date, tournee, client_code, client_name,
+                                    date_visite, heure_debut, heure_fin, duree_minutes, motif, note, facture_status
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                vendeur_code, vendeur_name, visite_date_str, current_tournee or "TOURNÉE GENERALE",
+                                c_code_str, str(c_name).strip() if c_name else "", visite_date_str,
+                                h_start_str, h_end_str, duree, motif_str, note_str, facture_status
+                            ))
+                            inserted_count += 1
+                        except sqlite3.IntegrityError:
+                            skipped_count += 1
+
+            wb.close()
+        except Exception as err:
+            print(f"Error parsing {fname}: {err}")
+
+    conn.commit()
+    conn.close()
+    return inserted_count
+
+
+def get_vendeur_tournees_summary(vendeur_identifier):
+    """Retrieve structured tournées summary & visit KPIs for a given seller or CDZ team."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    search_term = (vendeur_identifier or '').strip()
+    
+    # If search_term is CDZ name or ALL, fetch team sellers
+    is_cdz = "CHAKIB" in search_term.upper() or search_term.upper() in ["ALL", "TOUT", "GLOBAL"]
+    
+    if is_cdz:
+        team_sellers = [
+            "D48", "D86", "E14", "F78", "J78", "K91", "T89", "T96", "E60", "K60",
+            "IBACH MOHAMED", "ACHAOUI AZIZ", "BOUMDIANE MOHAMED", "GHOUSMI MOURAD",
+            "LASRI EL HOUCINE", "BAIZ MOHAMED", "AKNOUN MOHAMED", "EL HADI BOUBAKER",
+            "BOUALLALI FARID", "ELHAOUZI RACHID"
+        ]
+        placeholders = ",".join(["?"] * len(team_sellers))
+        query = f"""
+            SELECT * FROM vendeur_tournees_visits
+            WHERE vendeur_code IN ({placeholders}) OR vendeur_name IN ({placeholders})
+            ORDER BY date DESC, tournee ASC, heure_debut ASC
+        """
+        rows = cursor.execute(query, team_sellers + team_sellers).fetchall()
+    else:
+        query = """
+            SELECT * FROM vendeur_tournees_visits
+            WHERE UPPER(vendeur_code) LIKE ? OR UPPER(vendeur_name) LIKE ?
+            ORDER BY date DESC, tournee ASC, heure_debut ASC
+        """
+        pattern = f"%{search_term.upper()}%"
+        rows = cursor.execute(query, (pattern, pattern)).fetchall()
+
+    conn.close()
+
+    if not rows:
+        return {
+            "vendeur": search_term,
+            "total_tournees": 0,
+            "total_visites": 0,
+            "visites_ok": 0,
+            "visites_sans_ok": 0,
+            "anomalies_avec_facture": 0,
+            "big_facture": 0,
+            "small_facture": 0,
+            "billing_rate": 0.0,
+            "motifs_summary": {},
+            "tournees": []
+        }
+
+    tournees_dict = {}
+    motifs_summary = {}
+    
+    total_visites = 0
+    visites_ok = 0
+    visites_sans_ok = 0
+    anomalies_avec_facture = 0
+    big_facture = 0
+    small_facture = 0
+
+    for r in rows:
+        key = f"{r['date']}||{r['tournee']}"
+        if key not in tournees_dict:
+            tournees_dict[key] = {
+                "date": r['date'],
+                "tournee": r['tournee'],
+                "vendeur_code": r['vendeur_code'],
+                "vendeur_name": r['vendeur_name'],
+                "heure_debut": r['heure_debut'],
+                "heure_fin": r['heure_fin'],
+                "total_visites": 0,
+                "visites_ok": 0,
+                "visites_sans_ok": 0,
+                "anomalies_avec_facture": 0,
+                "big_facture": 0,
+                "small_facture": 0,
+                "motifs": {},
+                "visites_list": []
+            }
+
+        t = tournees_dict[key]
+        t["total_visites"] += 1
+        total_visites += 1
+
+        if r['heure_debut'] and (not t["heure_debut"] or r['heure_debut'] < t["heure_debut"]):
+            t["heure_debut"] = r['heure_debut']
+        if r['heure_fin'] and (not t["heure_fin"] or r['heure_fin'] > t["heure_fin"]):
+            t["heure_fin"] = r['heure_fin']
+
+        m = (r['motif'] or 'OK').strip()
+        motifs_summary[m] = motifs_summary.get(m, 0) + 1
+        t["motifs"][m] = t["motifs"].get(m, 0) + 1
+
+        status = r['facture_status'] or ''
+        if m.upper() == 'OK' or 'AVEC FACTURE' in status:
+            t["visites_ok"] += 1
+            visites_ok += 1
+        else:
+            t["visites_sans_ok"] += 1
+            visites_sans_ok += 1
+
+        if status == 'ANOMALIE AVEC FACTURE':
+            t["anomalies_avec_facture"] += 1
+            anomalies_avec_facture += 1
+        elif status == 'BIG FACTURE':
+            t["big_facture"] += 1
+            big_facture += 1
+        elif status == 'SMALL FACTURE':
+            t["small_facture"] += 1
+            small_facture += 1
+
+        t["visites_list"].append({
+            "client_code": r['client_code'],
+            "client_name": r['client_name'],
+            "heure_debut": r['heure_debut'],
+            "heure_fin": r['heure_fin'],
+            "duree_minutes": r['duree_minutes'],
+            "motif": m,
+            "facture_status": status,
+            "note": r['note']
+        })
+
+    tournees_list = []
+    for t in tournees_dict.values():
+        t["billing_rate"] = round((t["visites_ok"] / t["total_visites"] * 100), 1) if t["total_visites"] > 0 else 0.0
+        t["duree_totale_minutes"] = parse_visit_time_diff(t["heure_debut"], t["heure_fin"])
+        tournees_list.append(t)
+
+    billing_rate_global = round((visites_ok / total_visites * 100), 1) if total_visites > 0 else 0.0
+
+    return {
+        "vendeur": search_term,
+        "total_tournees": len(tournees_list),
+        "total_visites": total_visites,
+        "visites_ok": visites_ok,
+        "visites_sans_ok": visites_sans_ok,
+        "anomalies_avec_facture": anomalies_avec_facture,
+        "big_facture": big_facture,
+        "small_facture": small_facture,
+        "billing_rate": billing_rate_global,
+        "motifs_summary": motifs_summary,
+        "tournees": tournees_list
+    }
+
+
+
 
 
 

@@ -203,6 +203,26 @@ def details():
     print("INSIDE DETAILS ROUTE - VENDEURS COUNT:", len(all_vendeurs), all_vendeurs[:3] if all_vendeurs else 'EMPTY')
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="details", active_sub_tab=active_sub_tab, all_vendeurs=all_vendeurs)
 
+
+@app.route("/api/vendeur360/tournees/<path:vendeur_name>")
+def api_vendeur360_tournees(vendeur_name):
+    try:
+        from db_manager import get_vendeur_tournees_summary
+        data = get_vendeur_tournees_summary(vendeur_name)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/import-all-secteurs", methods=["POST", "GET"])
+def api_import_all_secteurs():
+    try:
+        from db_manager import import_all_secteurs_tournees
+        count = import_all_secteurs_tournees()
+        return jsonify({"success": True, "inserted_count": count})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route("/clients")
 def clients():
     config = load_config()

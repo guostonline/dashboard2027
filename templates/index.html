@@ -771,20 +771,33 @@
             <!-- MAIN DASHBOARD CONTENT GRID -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.5rem;">
                 <!-- LEFT: TOURNÉES BREAKDOWN TABLE -->
-                <div class="cyber-card">
+                <div class="cyber-card" style="grid-column: span 1 / -1;">
                     <div class="card-edge"></div>
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <span class="tech-label"><i class="fa-solid fa-route neon-text-blue"></i> TOURNÉES & TAUX DE FACTURATION</span>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <span class="tech-label"><i class="fa-solid fa-route neon-text-blue"></i> TOURNÉES & TAUX DE FACTURATION (ANALYSE TOURNÉES SECTEURS)</span>
+                        <div id="v360-tournees-kpis-ribbon" style="display: flex; gap: 0.6rem; flex-wrap: wrap; font-size: 0.75rem;">
+                            <!-- Dynamic KPI mini badges inserted via JS -->
+                        </div>
                     </div>
-                    <div style="overflow-x: auto; max-height: 340px;">
+                    <!-- MOTIFS BREAKDOWN BADGES -->
+                    <div id="v360-motifs-bar" style="display: flex; gap: 0.4rem; padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.15); border-radius: 4px; overflow-x: auto; font-size: 0.72rem; margin-bottom: 0.6rem;">
+                        <!-- Motifs badges inserted via JS -->
+                    </div>
+                    <div style="overflow-x: auto; max-height: 380px;">
                         <table class="cyber-table" id="v360-tournees-table">
                             <thead>
                                 <tr>
-                                    <th>TOURNÉE</th>
-                                    <th>TOTAL</th>
-                                    <th>AVEC OK</th>
-                                    <th>SANS OK</th>
+                                    <th>DATE &amp; TOURNÉE</th>
+                                    <th>H. DÉBUT</th>
+                                    <th>H. FIN</th>
+                                    <th>DURÉE</th>
+                                    <th>TOTAL VISITES</th>
+                                    <th>AVEC FACTURE</th>
+                                    <th>SANS FACTURE</th>
+                                    <th>ANOMALIES</th>
+                                    <th>BIG / SMALL FACT.</th>
                                     <th>TAUX %</th>
+                                    <th>DÉTAILS</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -4433,8 +4446,48 @@
                 <button type="button" class="cyber-btn-secondary" id="cancel-engagement-modal-btn">ANNULER</button>
                 <button type="button" class="cyber-btn-submit" id="save-engagement-btn"><i class="fa-solid fa-check"></i> ENREGISTRER L'ENGAGEMENT</button>
             </div>
+    <!-- MODAL DÉTAILS VISITES TOURNÉE -->
+    <div id="v360-tournee-modal" class="cyber-modal" style="display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.75); backdrop-filter: blur(6px); align-items: center; justify-content: center; padding: 1.5rem;">
+        <div class="cyber-card" style="width: 100%; max-width: 900px; max-height: 85vh; display: flex; flex-direction: column; background: var(--card-bg); border: 1px solid var(--neon-blue); box-shadow: 0 0 25px rgba(0,212,255,0.25); border-radius: 8px; overflow: hidden;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color); background: rgba(0,212,255,0.05);">
+                <div>
+                    <span class="tech-label" id="modal-tournee-title"><i class="fa-solid fa-route neon-text-blue"></i> DÉTAILS DES VISITES DE LA TOURNÉE</span>
+                    <span id="modal-tournee-sub" style="display: block; font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;"></span>
+                </div>
+                <button type="button" id="close-v360-tournee-modal" style="background: transparent; border: none; color: var(--text-muted); font-size: 1.2rem; cursor: pointer;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div style="overflow-y: auto; padding: 1rem 1.25rem; flex: 1;">
+                <!-- Summary bar inside modal -->
+                <div id="modal-tournee-stats-bar" style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; padding: 0.75rem 1rem; background: rgba(0,0,0,0.2); border-radius: 6px; font-size: 0.8rem;">
+                </div>
+
+                <div style="overflow-x: auto;">
+                    <table class="cyber-table" id="modal-tournee-visits-table">
+                        <thead>
+                            <tr>
+                                <th>CODE &amp; NOM CLIENT</th>
+                                <th>H. DÉBUT</th>
+                                <th>H. FIN</th>
+                                <th>DURÉE (MIN)</th>
+                                <th>MOTIF</th>
+                                <th>STATUT FACTURATION</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="modal-footer" style="padding: 0.85rem 1.25rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
+                <button type="button" class="cyber-btn-secondary" id="close-v360-tournee-modal-btn">FERMER</button>
+            </div>
         </div>
     </div>
+
 
 
     <!-- Custom Script JS -->
