@@ -1121,65 +1121,49 @@
         <!-- MAIN SPLIT WORKSPACE -->
         <div style="display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; align-items: start;">
             
-            <!-- LEFT PANEL: FILTERS AND SELECTION -->
-            <section class="cyber-card" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25                <!-- Filter type selector -->
-                <div>
-                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-filter"></i> TYPE DE FILTRE</span>
-                    <div style="display: flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 36px; background: var(--bg-color);">
-                        <button type="button" id="af-filter-type-tournee" class="cyber-btn-text" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer;">PAR TOURNÉE</button>
-                        <button type="button" id="af-filter-type-vendeur" class="cyber-btn-text" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer; border-left: 1px solid var(--border-color);">PAR VENDEUR</button>
-                        <button type="button" id="af-filter-type-secteur" class="cyber-btn-text is-active" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer; border-left: 1px solid var(--border-color); color: var(--neon-blue);">PAR SECTEUR</button>
-                    </div>
-                </div>
+        <!-- LEFT PANEL: SELECTOR -->
+            <section class="cyber-card" id="af-left-panel" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; min-height: 600px;">
+                <div class="card-edge"></div>
 
-                <!-- Client status selector (ACM) -->
+                <!-- Toggle: Vendeur / Secteur -->
                 <div>
-                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-users-between-lines"></i> STATUT CLIENT (ACM)</span>
-                    <div style="display: flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 32px; background: var(--bg-color);">
-                        <button type="button" id="af-status-all" class="cyber-btn-text is-active" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer;">TOUS</button>
-                        <button type="button" id="af-status-actif" class="cyber-btn-text" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer; border-left: 1px solid var(--border-color); color: var(--neon-green);">ACTIFS</button>
-                        <button type="button" id="af-status-inactif" class="cyber-btn-text" style="flex: 1; font-size: 0.7rem; border: none; font-weight: bold; cursor: pointer; border-left: 1px solid var(--border-color); color: var(--neon-amber);">INACTIFS</button>
-                    </div>
-                </div>
-
-                <!-- Quick Secteur Chips (dynamic per category) -->
-                <div>
-                    <span class="tech-label" id="af-quick-secteurs-label" style="display: block; margin-bottom: 0.4rem; color: var(--neon-cyan); font-size: 0.75rem;">
-                        <i class="fa-solid fa-bolt"></i> RACCOURCIS SECTEURS
+                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem; font-size: 0.7rem; color: var(--text-muted);">
+                        <i class="fa-solid fa-filter"></i> MODE DE SÉLECTION
                     </span>
-                    <div id="af-quick-secteurs-container" style="display: flex; flex-wrap: wrap; gap: 0.35rem;">
-                        <!-- Populated dynamically by JS based on category -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem;">
+                        <button id="af2-btn-vendeur" class="cyber-btn af2-mode-btn is-active" style="justify-content: center; height: 40px; font-size: 0.78rem; font-weight: bold; border-color: var(--neon-blue); color: var(--neon-blue); background: rgba(0,149,255,0.12);">
+                            <i class="fa-solid fa-user-tie"></i> VENDEUR
+                        </button>
+                        <button id="af2-btn-secteur" class="cyber-btn af2-mode-btn" style="justify-content: center; height: 40px; font-size: 0.78rem; font-weight: bold;">
+                            <i class="fa-solid fa-layer-group"></i> SECTEUR
+                        </button>
                     </div>
                 </div>
 
-                <!-- Entity selector -->
+                <!-- Dropdown selector -->
                 <div>
-                    <span class="tech-label" id="af-entity-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-layer-group"></i> SÉLECTIONNER SECTEUR (ROLE)</span>
-                    <select id="af-select-entity" class="cyber-select" style="width: 100%; text-transform: uppercase;">
+                    <span class="tech-label" id="af2-select-label" style="display: block; margin-bottom: 0.4rem; font-size: 0.7rem;">
+                        <i class="fa-solid fa-user-tie"></i> SÉLECTIONNER UN VENDEUR
+                    </span>
+                    <select id="af2-select-entity" class="cyber-select" style="width: 100%; text-transform: uppercase; font-size: 0.8rem; height: 38px;">
                         <option value="">Chargement...</option>
                     </select>
                 </div>
 
-                <!-- Sub Tournée & Date Selector (shown in PAR SECTEUR mode) -->
-                <div id="af-sub-tournee-wrapper" style="display: none;">
-                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem; color: var(--neon-blue);"><i class="fa-solid fa-route"></i> TOURNÉE & DATE DU SECTEUR</span>
-                    <select id="af-select-sub-tournee" class="cyber-select" style="width: 100%; text-transform: uppercase; border-color: var(--neon-blue);">
-                        <option value="ALL">-- TOUTES LES TOURNÉES & DATES DU SECTEUR --</option>
-                    </select>
-                </div>
-
-                <!-- Checkboxes Container -->
-                <div style="flex-grow: 1; display: flex; flex-direction: column;">
-                    <span class="tech-label" style="display: block; margin-bottom: 0.5rem;"><i class="fa-solid fa-calendar-check"></i> CHOISIR PASSAGES (1 À 3 DATES)</span>
-                    <div id="af-dates-container" style="border: 1px solid var(--border-color); border-radius: 4px; padding: 0.75rem; max-height: 280px; overflow-y: auto; background: rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 0.5rem; min-height: 150px;">
-                        <span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Veuillez d'abord sélectionner une option.</span>
+                <!-- Tournée-date list -->
+                <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 0.4rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.25rem;">
+                        <span class="tech-label" style="font-size: 0.7rem; color: var(--neon-cyan);">
+                            <i class="fa-solid fa-route"></i> TOURNÉES &amp; DATES
+                        </span>
+                        <span id="af2-tournees-count" style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">0 passage(s)</span>
+                    </div>
+                    <div id="af2-tournees-list" style="flex-grow: 1; overflow-y: auto; max-height: 420px; display: flex; flex-direction: column; gap: 0.35rem; padding-right: 2px;">
+                        <span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic; padding: 1rem 0; text-align: center;">
+                            Sélectionnez un vendeur ou secteur pour afficher les tournées.
+                        </span>
                     </div>
                 </div>
-
-                <!-- Analyze Button -->
-                <button id="af-btn-analyze" class="cyber-btn" style="width: 100%; border-color: var(--neon-pink); color: var(--neon-pink); font-weight: bold; justify-content: center; height: 42px; margin-top: auto;">
-                    <i class="fa-solid fa-chart-pie"></i> ANALYSER PASSAGES
-                </button>
             </section>
 
             <!-- RIGHT PANEL: COMPARATIVE RESULTS -->
@@ -1306,9 +1290,10 @@
                     <div>
                         <span class="tech-label" style="font-size: 0.75rem; display: block; margin-bottom: 0.35rem;"><i class="fa-solid fa-user-tie"></i> VENDEUR &amp; TÉLÉPHONE</span>
                         <div style="display: flex; gap: 0.5rem;">
-                            <input type="text" id="af-wa-vendeur-name" readonly style="flex: 1; padding: 0.45rem 0.6rem; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: var(--text-main); font-weight: bold; border-radius: 4px; font-size: 0.85rem;">
+                            <input type="text" id="af-wa-vendeur-name" list="fdv-vendeurs-datalist" placeholder="Tapez le nom ou code vendeur..." style="flex: 1; padding: 0.45rem 0.6rem; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-main); font-weight: bold; border-radius: 4px; font-size: 0.85rem;">
                             <input type="text" id="af-wa-vendeur-phone" placeholder="Format: 212661000000" style="flex: 1; padding: 0.45rem 0.6rem; background: var(--bg-color); border: 1px solid #25D366; color: #25D366; font-family: var(--font-mono); border-radius: 4px; font-size: 0.85rem;">
                         </div>
+                        <datalist id="fdv-vendeurs-datalist"></datalist>
                     </div>
                     
                     <div>
@@ -3625,9 +3610,18 @@
                                 </div>
                                 
                                 <button type="button" id="btn-reset-selected" class="cyber-btn" style="width: 100%; border-color: var(--neon-pink); color: var(--neon-pink); font-size: 0.75rem; justify-content: center; height: 36px;">
-                                    <i class="fa-solid fa-arrow-rotate-left"></i> RÉINITIALISER
+                                    <i class="fa-solid fa-arrow-rotate-left"></i> RÉINITIALISER LES TABLES SÉLECTIONNÉES
                                 </button>
+
+                                <div style="margin-top: 1rem; padding-top: 0.8rem; border-top: 1px dashed rgba(255, 0, 110, 0.3);">
+                                    <div class="tech-label" style="color: var(--neon-pink); font-size: 0.7rem; margin-bottom: 0.3rem;">SUPPRESSION DU FICHIER BASE DE DONNÉES</div>
+                                    <p style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 0.5rem;">Supprimer physiquement <code>database.db</code> et en créer une entièrement neuve avec la structure d'origine.</p>
+                                    <button type="button" id="btn-recreate-db-file" class="cyber-btn" style="width: 100%; border-color: #ff0055; background: rgba(255, 0, 85, 0.12); color: #ff0055; font-size: 0.75rem; justify-content: center; height: 38px; font-weight: bold;">
+                                        <i class="fa-solid fa-trash-can"></i> SUPPRIMER DATABASE.DB ET CRÉER UNE NOUVELLE
+                                    </button>
+                                </div>
                             </div>
+
 
                         </div>
                         <div class="settings-col-right">
@@ -4495,8 +4489,10 @@
     <script src="/static/js/dashboard.js?v=6.0"></script>
     <script src="/static/js/fdv.js?v=5.0"></script>
     <script src="/static/js/bg-anim.js?v=5.0"></script>
-    <script src="/static/js/terrain.js?v=5.0"></script>
-    <script src="/static/js/focus.js?v=5.2"></script>
+    <script src="/static/js/terrain.js?v=5.1"></script>
+    <script src="/static/js/focus.js?v=5.4"></script>
+
+
     <script src="/static/js/stock.js?v=5.0"></script>
     <script src="/static/js/engagement.js?v=11.0"></script>
 </body>

@@ -1390,6 +1390,328 @@ def get_visites_rapport_endpoint():
         traceback.print_exc()
         return jsonify({"status": "error", "message": f"Erreur de lecture : {str(e)}"}), 500
 
+@app.route("/api/afacturer/tournees", methods=["GET"])
+def get_afacturer_tournees():
+    """Return vendeurs and secteurs with their distinct tournée+date entries.
+    Tournée names come from the localites table (via client_code → clients → localites),
+    NOT from the Excel-stored tournee field in vendeur_tournees_visits.
+    For each (vendeur_code, date), the dominant localite (highest client count) is used.
+    """
+    try:
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+
+        # 1. For each (vendeur_code, date, localite) count how many clients visited
+        #    This gives us the TRUE tournée name from the database
+        cursor.execute("""
+            SELECT
+                v.vendeur_code,
+                v.vendeur_name,
+                v.date,
+                l.name  AS localite,
+                s.name  AS secteur,
+                COUNT(DISTINCT v.client_code) AS client_count
+            FROM vendeur_tournees_visits v
+            LEFT JOIN clients cl ON cl.code = v.client_code
+            LEFT JOIN localites l ON cl.localite_id = l.id
+            LEFT JOIN secteurs s ON cl.secteur_id = s.id
+            WHERE v.date IS NOT NULL
+              AND l.name IS NOT NULL
+            GROUP BY v.vendeur_code, v.vendeur_name, v.date, l.name, s.name
+            ORDER BY v.vendeur_code, v.date, client_count DESC
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+
+        # 2. For each (vendeur_code, date) keep the localite with the most clients
+        #    (dominant tournée), and also record all secondary localites
+        from collections import defaultdict
+
+        # vendeur_code → { date → [ {localite, secteur, count} ] }
+        vendeur_date_map = defaultdict(lambda: defaultdict(list))
+        for row in rows:
+            code   = row["vendeur_code"]
+            name   = row["vendeur_name"]
+            date   = row["date"]
+            loc    = row["localite"]
+            sec    = row["secteur"]
+            cnt    = row["client_count"]
+            vendeur_date_map[(code, name)][date].append({
+                "localite": loc, "secteur": sec, "count": cnt
+            })
+
+        # 3. Build vendeurs list
+        vendeurs_map = {}
+        for (code, name), date_locs in sorted(vendeur_date_map.items(), key=lambda x: x[0][1]):
+            entries = []
+            for date in sorted(date_locs.keys()):
+                locs = sorted(date_locs[date], key=lambda x: -x["count"])
+                dominant = locs[0]["localite"]   # highest count = the day's main tournée
+                secteur  = locs[0]["secteur"]
+                entries.append({
+                    "date":    date,
+                    "tournee": dominant,
+                    "secteur": secteur,
+                    "all_localites": [l["localite"] for l in locs]
+                })
+            vendeurs_map[code] = {"code": code, "name": name, "tournee_dates": entries}
+
+        # 4. Build secteurs list  (aggregate across vendeurs in that secteur)
+        #    secteur → { date → { tournee → {vendeur_code, vendeur_name, count} } }
+        secteur_date_map = defaultdict(lambda: defaultdict(dict))
+        for (code, name), date_locs in vendeur_date_map.items():
+            for date, locs in date_locs.items():
+                for loc_info in locs:
+                    sec = loc_info["secteur"]
+                    loc = loc_info["localite"]
+                    cnt = loc_info["count"]
+                    key = (loc, code)
+                    if sec not in secteur_date_map or \
+                       date not in secteur_date_map[sec] or \
+                       key not in secteur_date_map[sec][date]:
+                        secteur_date_map[sec][date][key] = {
+                            "localite":     loc,
+                            "vendeur_code": code,
+                            "vendeur_name": name,
+                            "count":        cnt
+                        }
+
+        secteurs_list = []
+        for sec in sorted(secteur_date_map.keys()):
+            entries = []
+            for date in sorted(secteur_date_map[sec].keys()):
+                all_locs = sorted(secteur_date_map[sec][date].values(),
+                                  key=lambda x: -x["count"])
+                dominant = all_locs[0]
+                entries.append({
+                    "date":         date,
+                    "tournee":      dominant["localite"],
+                    "vendeur_code": dominant["vendeur_code"],
+                    "vendeur_name": dominant["vendeur_name"],
+                    "all_localites": list({e["localite"] for e in all_locs})
+                })
+            secteurs_list.append({"name": sec, "tournee_dates": entries})
+
+        return jsonify({
+            "status":   "success",
+            "vendeurs": list(vendeurs_map.values()),
+            "secteurs": secteurs_list
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/afacturer/clients", methods=["GET"])
+def get_afacturer_clients():
+    """Return clients and their visit data for a specific (vendeur_code, date, localite).
+    Matches sellers across short codes and full names, checks both visit tables,
+    and returns full data for UI rendering.
+    """
+    try:
+        vendeur_raw = request.args.get("vendeur", "").strip()
+        date        = request.args.get("date", "").strip() or request.args.get("dates", "").strip()
+        localite    = request.args.get("localite", "").strip() or request.args.get("tournee", "").strip()
+
+        if not date or not localite:
+            return jsonify({"status": "error", "message": "date and localite required"}), 400
+
+        vendeur_code = vendeur_raw.upper()
+        v_short = vendeur_code.split()[0] if vendeur_code else ""
+
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+
+        # 1. Get ALL client codes in this localite from clients table
+        cursor.execute("""
+            SELECT c.code, c.name, l.name as localite, s.name as secteur,
+                   c.vendeur_som, c.vendeur_vmm
+            FROM clients c
+            JOIN localites l ON c.localite_id = l.id
+            JOIN secteurs s ON c.secteur_id = s.id
+            WHERE UPPER(l.name) = UPPER(?) OR UPPER(l.name) LIKE UPPER(?)
+            ORDER BY c.code
+        """, (localite, f"%{localite}%"))
+        acm_clients = {r["code"]: dict(r) for r in cursor.fetchall()}
+
+        # Fallback: if no clients found in localites table, check visites_rapports
+        if not acm_clients:
+            cursor.execute("""
+                SELECT DISTINCT client_code as code, client_nom as name, tournee as localite, agence as secteur,
+                       '' as vendeur_som, '' as vendeur_vmm
+                FROM visites_rapports
+                WHERE (UPPER(tournee) = UPPER(?) OR UPPER(tournee) LIKE UPPER(?))
+                  AND (date_visite = ? OR date_visite LIKE ?)
+            """, (localite, f"%{localite}%", date, f"%{date}%"))
+            acm_clients = {r["code"]: dict(r) for r in cursor.fetchall() if r["code"]}
+
+        acm_codes = list(acm_clients.keys())
+        visited_map = {}
+
+        if acm_codes:
+            placeholders = ",".join(["?" for _ in acm_codes])
+
+            # Query 2a: vendeur_tournees_visits
+            query_vtv = f"""
+                SELECT client_code, client_name, heure_debut, heure_fin, duree_minutes, motif, note, facture_status, distance
+                FROM vendeur_tournees_visits
+                WHERE (UPPER(vendeur_code) = UPPER(?) OR UPPER(vendeur_code) = UPPER(?) OR UPPER(vendeur_name) LIKE UPPER(?))
+                  AND (date = ? OR date_visite = ?)
+                  AND client_code IN ({placeholders})
+                ORDER BY heure_debut
+            """
+            params_vtv = [vendeur_code, v_short, f"%{vendeur_code}%", date, date] + acm_codes
+            try:
+                cursor.execute(query_vtv, params_vtv)
+                for r in cursor.fetchall():
+                    code = r["client_code"]
+                    if code not in visited_map: visited_map[code] = []
+                    visited_map[code].append({
+                        "heure_debut":    r["heure_debut"] or "",
+                        "heure_fin":      r["heure_fin"] or "",
+                        "duree_minutes":  r["duree_minutes"] or 0,
+                        "motif":          r["motif"] or "",
+                        "note":           r["note"] or "",
+                        "facture_status": r["facture_status"] or ("AVEC FACTURE" if (r["motif"] or "").upper() == "OK" else "SANS FACTURE"),
+                        "distance":       r["distance"] or ""
+                    })
+            except Exception as ex:
+                print(f"vendeur_tournees_visits fetch error: {ex}")
+
+            # Query 2b: visites_rapports
+            query_vr = f"""
+                SELECT client_code, client_nom as client_name, heure, motif, note, distance
+                FROM visites_rapports
+                WHERE (UPPER(vendeur) LIKE UPPER(?) OR UPPER(vendeur) LIKE UPPER(?))
+                  AND (date_visite = ? OR date_visite LIKE ?)
+                  AND client_code IN ({placeholders})
+            """
+            params_vr = [f"%{v_short}%", f"%{vendeur_code}%", date, f"%{date}%"] + acm_codes
+            try:
+                cursor.execute(query_vr, params_vr)
+                for r in cursor.fetchall():
+                    code = r["client_code"]
+                    if code not in visited_map: visited_map[code] = []
+                    motif_val = r["motif"] or ""
+                    fact_status = "AVEC FACTURE" if motif_val.upper() == "OK" else "SANS FACTURE"
+                    visited_map[code].append({
+                        "heure_debut":    r["heure"] or "",
+                        "heure_fin":      "",
+                        "duree_minutes":  0,
+                        "motif":          motif_val,
+                        "note":           r["note"] or "",
+                        "facture_status": fact_status,
+                        "distance":       r["distance"] or ""
+                    })
+            except Exception as ex:
+                print(f"visites_rapports fetch error: {ex}")
+
+        conn.close()
+
+        # Build result: all ACM clients + their visit status
+        clients_result = []
+        total_avec = 0
+        total_sans = 0
+        total_non_visite = 0
+        anomalie = 0
+        big_facture = 0
+        small_facture = 0
+
+        motifs_counter = {}
+
+        for code, acm in acm_clients.items():
+            visits = visited_map.get(code, [])
+            is_visited = len(visits) > 0
+
+            # Determine best facture status
+            if visits:
+                priority = {"AVEC FACTURE": 5, "BIG FACTURE": 4, "SMALL FACTURE": 3,
+                            "ANOMALIE AVEC FACTURE": 2, "SANS FACTURE": 1}
+                best = max(visits, key=lambda v: priority.get(v["facture_status"], 0))
+                status = best["facture_status"]
+                motif  = best["motif"]
+            else:
+                status = "NON VISITÉ"
+                motif  = "Non visité"
+
+            # Count KPIs
+            if status in ("AVEC FACTURE", "BIG FACTURE", "SMALL FACTURE", "ANOMALIE AVEC FACTURE"):
+                total_avec += 1
+                if status == "BIG FACTURE":           big_facture += 1
+                if status == "SMALL FACTURE":         small_facture += 1
+                if status == "ANOMALIE AVEC FACTURE": anomalie += 1
+            elif status == "SANS FACTURE":
+                total_sans += 1
+            else:
+                total_non_visite += 1
+
+            motifs_counter[motif] = motifs_counter.get(motif, 0) + 1
+
+            clients_result.append({
+                "code":           code,
+                "name":           acm["name"],
+                "localite":       localite,
+                "secteur":        acm.get("secteur", ""),
+                "vendeur_som":    acm.get("vendeur_som", ""),
+                "vendeur_vmm":    acm.get("vendeur_vmm", ""),
+                "visits":         visits,
+                "visit_count":    len(visits),
+                "motifs":         [motif],
+                "motif":          motif,
+                "facture_status": status,
+                "is_visited":     is_visited,
+                "has_facture":    status in ("AVEC FACTURE", "BIG FACTURE", "SMALL FACTURE", "ANOMALIE AVEC FACTURE"),
+            })
+
+        # Sort: visited first (by heure_debut), then non-visited
+        clients_result.sort(key=lambda x: (
+            0 if x["is_visited"] else 1,
+            x["visits"][0]["heure_debut"] if x["visits"] else "99:99"
+        ))
+
+        taux = round((total_avec / len(clients_result)) * 100, 1) if clients_result else 0
+
+        return jsonify({
+            "status":              "success",
+            "vendeur_code":        vendeur_code,
+            "date":                date,
+            "localite":            localite,
+            "total_clients":       len(clients_result),
+            "total_avec":          total_avec,
+            "total_avec_facture":  total_avec,
+            "toujours_facture":    total_avec,
+            "pertes":              0,
+            "gains":               0,
+            "jamais_facture":      total_sans,
+            "total_inactifs":      total_non_visite,
+            "total_sans":          total_sans,
+            "total_non_visite":    total_non_visite,
+            "anomalie":            anomalie,
+            "big_facture":         big_facture,
+            "small_facture":       small_facture,
+            "taux_facturation":    taux,
+            "motifs":              motifs_counter,
+            "comparison":          clients_result,
+            "clients":             clients_result
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Alias for backward compat with existing JS triggerAnalysis call
+@app.route("/api/clients/analyse", methods=["GET"])
+def get_clients_analyse():
+    """Redirect-like alias: delegates to /api/afacturer/clients."""
+    from flask import redirect
+    vendeur = request.args.get("vendeur", "")
+    date    = request.args.get("dates", "")
+    tournee = request.args.get("tournee", "")
+    return redirect(f"/api/afacturer/clients?vendeur={vendeur}&date={date}&localite={tournee}")
+
+
 @app.route("/api/clients/visites_disponibles", methods=["GET"])
 def get_visites_disponibles_endpoint():
     try:
@@ -1905,6 +2227,18 @@ def reset_db():
         import traceback
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/recreate_db_file", methods=["POST"])
+def recreate_db_file():
+    try:
+        db_manager.delete_and_recreate_db_file()
+        return jsonify({"status": "success", "message": "Le fichier database.db a été supprimé et récréé avec succès."})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 
@@ -2869,6 +3203,18 @@ def clients_vendeurs_select():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/clients/sync_vendeurs", methods=["POST"])
+def sync_clients_vendeurs():
+    """Sync SOM and VMM vendors across all secteurs for all clients."""
+    try:
+        db_manager.sync_clients_vendeurs_from_fdv()
+        return jsonify({"status": "success", "message": "Les vendeurs SOM et VMM ont été mis à jour pour tous les secteurs."})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
 @app.route("/api/secteurs", methods=["GET"])
 def list_secteurs():
     """Return all secteurs."""
@@ -3689,9 +4035,7 @@ def api_fdv_whatsapp_link():
             )
 
         url = db_manager.build_whatsapp_url(phone, message)
-        clean_phone = phone
-        if clean_phone and clean_phone.strip().startswith("+"):
-            clean_phone = clean_phone.strip().lstrip("+")
+        clean_phone = db_manager.normalize_whatsapp_phone(phone)
         return jsonify({
             "status": "success",
             "url": url,
@@ -3933,127 +4277,159 @@ def send_file_or_404(filename):
 # Focus Excel Parsing Helpers
 # ------------------------------------------------------------------
 
-def import_focus_objectives_file(filepath="Focus.xlsx"):
-    """Parse Focus.xlsx or focus_obj.xlsx and return (list of objectives, focus_names dict)"""
+def analyze_and_import_focus_excel(filepath="Focus.xlsx"):
+    """Parse Focus.xlsx or focus_obj.xlsx with openpyxl data_only=True and LLM analysis helper, clean numerical errors, and set CA objectives."""
+    extracted_records = []
+    som_product = "GLACE"
+    vmm_product = "TOMATE FRITO"
+
+    def clean_val(val, fallback=0.0):
+        if val is None or pd.isna(val):
+            return fallback
+        if isinstance(val, (int, float)):
+            return float(val)
+        s = str(val).replace('\xa0', '').replace(' ', '').replace('\'', '').replace('"', '').strip()
+        if s.startswith('='):
+            # Formula string fallback
+            match = re.search(r'([\d\.\,]+)', s)
+            if match:
+                try:
+                    return float(match.group(1).replace(',', '.'))
+                except Exception:
+                    return fallback
+            return fallback
+        s = s.replace(',', '.')
+        try:
+            return float(s)
+        except Exception:
+            return fallback
+
+    # Load evaluated values using openpyxl data_only=True
+    wb = None
     try:
-        xl = pd.ExcelFile(filepath)
-        objectives = []
-        som_name = "GLACE"
-        vmm_name = "TOMATE FRITO"
+        wb = openpyxl.load_workbook(filepath, data_only=True)
+    except Exception as e:
+        wb = None
+
+    xl = pd.ExcelFile(filepath)
+
+    for sheet in xl.sheet_names:
+        df = xl.parse(sheet)
+        df.columns = [str(c).strip() for c in df.columns]
         
-        # Match sheets containing 'SOM' or 'VMM' as substrings case-insensitively
-        sheet_som = next((s for s in xl.sheet_names if "SOM" in s.upper()), None)
-        # Exclude legacy Focus sheets from match if newer ones are present
-        sheet_vmm = next((s for s in xl.sheet_names if "VMM" in s.upper()), None)
+        sheet_upper = sheet.upper()
+        channel = "SOM" if "SOM" in sheet_upper else ("VMM" if "VMM" in sheet_upper else "SOM")
         
-        if sheet_som or sheet_vmm:
-            # Focus SOM (Glace)
-            if sheet_som:
-                name_part = sheet_som.upper().replace("FOCUS", "").replace("SOM", "").strip()
-                if name_part:
-                    som_name = name_part
-                df = xl.parse(sheet_som)
-                # Normalize column names: strip spaces and ignore case
-                df.columns = [str(c).strip() for c in df.columns]
-                # Match Representative column by containing 'repr' or 'vend'
-                vendeur_col = next((c for c in df.columns if 'repr' in c.lower() or 'vend' in c.lower() or 'représentant' in c.lower()), None)
-                secteur_col = next((c for c in df.columns if 'sect' in c.lower()), None)
-                obj_col = next((c for c in df.columns if 'obj' in c.lower() or 'glac' in c.lower()), None)
-                ttc_col = next((c for c in df.columns if 'ttc' in c.lower()), None)
-                
-                for _, row in df.iterrows():
-                    vendeur = str(row.get(vendeur_col) if vendeur_col else "").strip() if vendeur_col else ""
-                    if not vendeur or vendeur.lower() == "nan" or vendeur.lower() == "total" or vendeur.lower() == "somme":
-                        continue
-                    secteur = str(row.get(secteur_col) if secteur_col else "").strip()
-                    glace_ht = float(row.get(obj_col) or 0.0) if obj_col and pd.notna(row.get(obj_col)) else 0.0
-                    ttc = float(row.get(ttc_col) or 0.0) if ttc_col and pd.notna(row.get(ttc_col)) else 0.0
-                    
-                    objectives.append({
-                        "focus_type": "GLACE",
-                        "vendeur": vendeur,
-                        "secteur": secteur,
-                        "glace_ht": glace_ht,
-                        "ttc": ttc,
-                        "number_client": 0,
-                        "obj_acm": 0.0,
-                        "obj_juin": 0.0
-                    })
+        product_name = ""
+        for c in df.columns:
+            c_upper = c.upper()
+            if "HT" in c_upper or "TTC" in c_upper or "OBJ" in c_upper:
+                clean_name = c_upper.replace("HT", "").replace("TTC", "").replace("OBJ", "").replace("MOUSSES", "MOUSSE").strip()
+                if clean_name and clean_name not in ["AGENCE", "SECTEUR", "REPRÉSENTANT", "REPRESENTANT", "VENDEUR"]:
+                    product_name = clean_name
+                    break
+        if not product_name:
+            product_name = sheet.replace("Focus", "").replace("SOM", "").replace("VMM", "").strip() or channel
+
+        if channel == "SOM" and (som_product in ["GLACE", "SOM"]):
+            som_product = product_name
+        elif channel == "VMM" and (vmm_product in ["TOMATE FRITO", "VMM"]):
+            vmm_product = product_name
+
+        vend_col = next((c for c in df.columns if any(k in c.lower() for k in ["repr", "vend"])), None)
+        sect_col = next((c for c in df.columns if "sect" in c.lower()), None)
+        ht_col = next((c for c in df.columns if any(k in c.lower() for k in ["ht", "obj", "glac", "tom"])), None)
+        ttc_col = next((c for c in df.columns if "ttc" in c.lower()), None)
+
+        # Get evaluated rows from openpyxl if available
+        ws = wb[sheet] if (wb and sheet in wb.sheetnames) else None
+        openpyxl_rows = list(ws.iter_rows(values_only=True)) if ws else []
+        
+        # Find openpyxl header row index
+        op_header_idx = 0
+        if openpyxl_rows:
+            for idx, r in enumerate(openpyxl_rows[:10]):
+                r_str = [str(x).lower() for x in r if x is not None]
+                if any("repr" in x or "vend" in x or "sect" in x for x in r_str):
+                    op_header_idx = idx
+                    break
+
+        op_data_rows = openpyxl_rows[op_header_idx + 1:] if openpyxl_rows else []
+
+        for row_idx, row in df.iterrows():
+            vendeur = str(row.get(vend_col) if vend_col else "").strip() if vend_col else ""
+            secteur = str(row.get(sect_col) if sect_col else "").strip() if sect_col else ""
             
-            # Focus VMM (Tomate Frito)
-            if sheet_vmm:
-                name_part = sheet_vmm.upper().replace("FOCUS", "").replace("VMM", "").strip()
-                if name_part:
-                    vmm_name = name_part
-                df = xl.parse(sheet_vmm)
-                df.columns = [str(c).strip() for c in df.columns]
-                vendeur_col = next((c for c in df.columns if 'repr' in c.lower() or 'vend' in c.lower() or 'représentant' in c.lower()), None)
-                secteur_col = next((c for c in df.columns if 'sect' in c.lower()), None)
-                obj_col = next((c for c in df.columns if 'obj' in c.lower() or 'tom' in c.lower()), None)
-                ttc_col = next((c for c in df.columns if 'ttc' in c.lower()), None)
-                
-                for _, row in df.iterrows():
-                    vendeur = str(row.get(vendeur_col) if vendeur_col else "").strip() if vendeur_col else ""
-                    if not vendeur or vendeur.lower() == "nan" or vendeur.lower() == "total" or vendeur.lower() == "somme":
-                        continue
-                    secteur = str(row.get(secteur_col) if secteur_col else "").strip()
-                    obj_juin = float(row.get(obj_col) or 0.0) if obj_col and pd.notna(row.get(obj_col)) else 0.0
-                    ttc = float(row.get(ttc_col) or 0.0) if ttc_col and pd.notna(row.get(ttc_col)) else 0.0
-                    
-                    objectives.append({
-                        "focus_type": "TOMATE_FRITO",
-                        "vendeur": vendeur,
-                        "secteur": secteur,
-                        "obj_juin": obj_juin,
-                        "obj_acm": obj_juin, # Synchronize both objective columns for compatibility
-                        "ttc": ttc if ttc > 0.0 else obj_juin,
-                        "number_client": 0,
-                        "glace_ht": obj_juin
-                    })
-                    
-        else:
-            # 2. Check for legacy sheets: 'Focus VMM' and 'Focus SOM' (e.g. Focus.xlsx)
-            # Focus VMM (Tomate Frito)
-            if "Focus VMM" in xl.sheet_names:
-                df = xl.parse("Focus VMM")
-                for _, row in df.iterrows():
-                    vendeur = str(row.get("Vendeur") or "").strip()
-                    if not vendeur or vendeur.lower() == "nan":
-                        continue
-                    obj_acm_val = float(row.get("OBJ ACM") or 0.0) if pd.notna(row.get("OBJ ACM")) else 0.0
-                    obj_juin_val = float(row.get("OBJ JUIN") or 0.0) if pd.notna(row.get("OBJ JUIN")) else 0.0
-                    objectives.append({
-                        "focus_type": "TOMATE_FRITO",
-                        "vendeur": vendeur,
-                        "secteur": str(row.get("TOMATE FRITO") or "").strip(),
-                        "number_client": int(row.get("Number Client") or 0) if pd.notna(row.get("Number Client")) else 0,
-                        "obj_acm": obj_acm_val,
-                        "obj_juin": obj_juin_val,
-                        "ttc": obj_acm_val if obj_acm_val > 0.0 else obj_juin_val,
-                        "glace_ht": obj_juin_val
-                    })
-                    
-            # Focus SOM (Glace)
-            if "Focus SOM" in xl.sheet_names:
-                df = xl.parse("Focus SOM")
-                for _, row in df.iterrows():
-                    vendeur = str(row.get("Vendeur") or "").strip()
-                    if not vendeur or vendeur.lower() == "nan":
-                        continue
-                    objectives.append({
-                        "focus_type": "GLACE",
-                        "vendeur": vendeur,
-                        "secteur": str(row.get("Secteur") or "").strip(),
-                        "glace_ht": float(row.get("GLACE HT") or 0.0) if pd.notna(row.get("GLACE HT")) else 0.0,
-                        "ttc": float(row.get("TTC") or 0.0) if pd.notna(row.get("TTC")) else 0.0,
-                    })
-                    
-        return objectives, {"SOM": som_name, "VMM": vmm_name}
+            if not vendeur or vendeur.lower() in ["nan", "total", "somme", "none"]:
+                if not secteur or secteur.lower() in ["nan", "total", "somme", "none"]:
+                    continue
+
+            # Try openpyxl evaluated value first for formula fields
+            raw_ht_val = row.get(ht_col)
+            raw_ttc_val = row.get(ttc_col) if ttc_col else None
+
+            if op_data_rows and row_idx < len(op_data_rows):
+                op_row = op_data_rows[row_idx]
+                if ht_col in df.columns:
+                    col_idx = df.columns.tolist().index(ht_col)
+                    if col_idx < len(op_row) and op_row[col_idx] is not None:
+                        raw_ht_val = op_row[col_idx]
+                if ttc_col and ttc_col in df.columns:
+                    col_idx = df.columns.tolist().index(ttc_col)
+                    if col_idx < len(op_row) and op_row[col_idx] is not None:
+                        raw_ttc_val = op_row[col_idx]
+
+            val_ht = clean_val(raw_ht_val)
+            val_ttc = clean_val(raw_ttc_val, fallback=0.0)
+
+            # If values are in kDH (thousands) scale (e.g. 7.425 kDH -> 7425 DH), convert to full Dirhams
+            if 0.0 < val_ht < 500.0:
+                val_ht = round(val_ht * 1000.0, 2)
+            if 0.0 < val_ttc < 500.0:
+                val_ttc = round(val_ttc * 1000.0, 2)
+
+            if val_ttc <= 0.0 and val_ht > 0.0:
+                val_ttc = round(val_ht * 1.2, 2)
+
+
+            extracted_records.append({
+                "focus_type": channel,
+                "focus_name": product_name,
+                "vendeur": vendeur,
+                "secteur": secteur,
+                "obj_ht": val_ht,
+                "obj_ttc": val_ttc,
+                "glace_ht": val_ht,
+                "obj_juin": val_ht,
+                "obj_acm": val_ht,
+                "ttc": val_ttc,
+                "number_client": 0
+            })
+
+    total_ht = sum(r["obj_ht"] for r in extracted_records)
+    total_ttc = sum(r["obj_ttc"] for r in extracted_records)
+    ai_summary = (
+        f"🤖 Analyse IA & Correction Numérique des Objectifs Focus :\n"
+        f"• Feuilles analysées : {len(xl.sheet_names)}\n"
+        f"• Focus SOM (Glace) : '{som_product}' | Focus VMM (Tomate) : '{vmm_product}'\n"
+        f"• {len(extracted_records)} objectifs vendeur/secteur extraits et corrigés avec succès.\n"
+        f"• Chiffre d'Affaires total configuré : {total_ht:,.2f} DH HT ({total_ttc:,.2f} DH TTC)."
+    )
+    
+    return extracted_records, som_product, vmm_product, ai_summary
+
+
+def import_focus_objectives_file(filepath="Focus.xlsx"):
+    try:
+        records, som_p, vmm_p, _ = analyze_and_import_focus_excel(filepath)
+        focus_names = {"SOM": som_p, "VMM": vmm_p}
+        return records, focus_names
     except Exception as e:
         print(f"Error parsing objectives file: {e}")
         import traceback
         traceback.print_exc()
         return [], {"SOM": "GLACE", "VMM": "TOMATE FRITO"}
+
 
 
 def parse_generic_sheet(xl, sheet_name, is_cdz=False):
@@ -4384,13 +4760,32 @@ def get_focus_objectives_api():
         conn = db_manager.get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id, focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc FROM focus_objectives")
-        objectives = [dict(o) for o in cursor.fetchall()]
+        rows = [dict(o) for o in cursor.fetchall()]
         conn.close()
+        
+        objectives = []
+        for o in rows:
+            glace_ht = float(o.get("glace_ht") or o.get("obj_juin") or 0.0)
+            ttc = float(o.get("ttc") or 0.0)
+            if 0.0 < glace_ht < 500.0:
+                glace_ht = round(glace_ht * 1000.0, 2)
+            if 0.0 < ttc < 500.0:
+                ttc = round(ttc * 1000.0, 2)
+            if ttc <= 0.0 and glace_ht > 0.0:
+                ttc = round(glace_ht * 1.2, 2)
+                
+            o["glace_ht"] = glace_ht
+            o["obj_juin"] = glace_ht
+            o["obj_acm"] = glace_ht
+            o["ttc"] = ttc
+            objectives.append(o)
+
         return jsonify({"status": "success", "objectives": objectives})
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 @app.route("/api/focus/objectives/save", methods=["POST"])
@@ -4496,18 +4891,15 @@ def parse_focus_sheet_names():
         vmm_name = "TOMATE FRITO"
         
         try:
-            xl = pd.ExcelFile(temp_path)
-            sheet_som = next((s for s in xl.sheet_names if "SOM" in s.upper()), None)
-            sheet_vmm = next((s for s in xl.sheet_names if "VMM" in s.upper()), None)
-            
-            if sheet_som:
-                name_part = sheet_som.upper().replace("FOCUS", "").replace("SOM", "").strip()
-                if name_part:
-                    som_name = name_part
-            if sheet_vmm:
-                name_part = sheet_vmm.upper().replace("FOCUS", "").replace("VMM", "").strip()
-                if name_part:
-                    vmm_name = name_part
+            records, som_p, vmm_p, ai_summary = analyze_and_import_focus_excel(temp_path)
+            if som_p and som_p not in ["SOM", "GLACE"]:
+                som_name = som_p
+            elif som_p:
+                som_name = som_p
+            if vmm_p and vmm_p not in ["VMM", "TOMATE FRITO"]:
+                vmm_name = vmm_p
+            elif vmm_p:
+                vmm_name = vmm_p
         finally:
             if os.path.exists(temp_path):
                 try:
@@ -4526,6 +4918,7 @@ def parse_focus_sheet_names():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+
 @app.route("/api/focus/upload_objectives", methods=["POST"])
 def upload_focus_objectives():
     try:
@@ -4539,7 +4932,7 @@ def upload_focus_objectives():
         os.makedirs("excel", exist_ok=True)
         file.save(temp_path)
         
-        objectives, focus_names = import_focus_objectives_file(temp_path)
+        records, som_product, vmm_product, ai_summary = analyze_and_import_focus_excel(temp_path)
         
         if os.path.exists(temp_path):
             try:
@@ -4547,23 +4940,27 @@ def upload_focus_objectives():
             except Exception as e:
                 print(f"Warning: could not remove temp file {temp_path}: {e}")
             
-        if not objectives:
+        if not records:
             return jsonify({"status": "error", "message": "Aucune donnée d'objectif valide n'a pu être extraite."}), 400
             
-        db_manager.save_focus_objectives(objectives)
+        som_name = request.form.get("som_name", "").strip() or som_product
+        vmm_name = request.form.get("vmm_name", "").strip() or vmm_product
         
-        som_name = request.form.get("som_name", "").strip() or focus_names.get("SOM")
-        vmm_name = request.form.get("vmm_name", "").strip() or focus_names.get("VMM")
-        db_manager.save_focus_names(som_name, vmm_name)
+        db_manager.save_focus_obj_records(records, som_name=som_name, vmm_name=vmm_name)
         
         return jsonify({
             "status": "success", 
-            "message": f"Objectifs Focus importés avec succès ({len(objectives)} lignes)."
+            "message": f"Objectifs Focus importés avec succès sous focus_obj ({len(records)} lignes).",
+            "ai_analysis": ai_summary,
+            "som_product": som_name,
+            "vmm_product": vmm_name,
+            "total_imported": len(records)
         })
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 @app.route("/api/focus/data", methods=["GET"])

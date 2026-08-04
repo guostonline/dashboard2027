@@ -829,7 +829,14 @@ function sendVendeur360WhatsApp() {
     });
 
     if (phone) {
-        const cleanPhone = phone.replace(/[^0-9]/g, '');
+        let cleanPhone = phone.replace(/[^0-9]/g, '');
+        if (cleanPhone.startsWith('212') && cleanPhone.length >= 11) {
+            // already formatted
+        } else if (cleanPhone.startsWith('0')) {
+            cleanPhone = '212' + cleanPhone.slice(1);
+        } else if (cleanPhone.length === 9) {
+            cleanPhone = '212' + cleanPhone;
+        }
         const encoded = encodeURIComponent(msg);
         window.open(`https://wa.me/${cleanPhone}?text=${encoded}`, '_blank');
     } else {

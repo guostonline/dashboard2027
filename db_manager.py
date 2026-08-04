@@ -42,11 +42,283 @@ def get_dynamic_workdays(date_str):
     }
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.db")
+UPLOADS_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads.db")
+
+def get_uploads_db_connection():
+    conn = sqlite3.connect(UPLOADS_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute(f"ATTACH DATABASE '{UPLOADS_DB_PATH}' AS uploads_db")
+    except Exception:
+        pass
     return conn
+
+def init_uploads_db():
+    """Initialize separate uploads database for Excel files and copy baseline data if new."""
+    conn = get_uploads_db_connection()
+    cursor = conn.cursor()
+
+    # 1. Quantitative data table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS quantitative_data (
+        date TEXT NOT NULL,
+        vendeur TEXT NOT NULL,
+        famille TEXT NOT NULL,
+        j1 INTEGER DEFAULT 0,
+        real INTEGER DEFAULT 0,
+        obj INTEGER DEFAULT 0,
+        percent REAL DEFAULT 0.0,
+        real_2025 INTEGER DEFAULT 0,
+        h_2024 INTEGER DEFAULT 0,
+        h_pct REAL DEFAULT 0.0,
+        encours INTEGER DEFAULT 0,
+        obj_mois INTEGER DEFAULT 0,
+        raf INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (date, vendeur, famille)
+    )
+    """)
+
+    # 2. Qualitative data table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS qualitative_data (
+        date TEXT NOT NULL,
+        vendeur TEXT NOT NULL,
+        clt_programme INTEGER DEFAULT 0,
+        clt_facture INTEGER DEFAULT 0,
+        acm REAL DEFAULT 0.0,
+        tsm REAL DEFAULT 0.0,
+        line REAL DEFAULT 0.0,
+        raf_tsm INTEGER DEFAULT 0,
+        raf_acm INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (date, vendeur)
+    )
+    """)
+
+    # 3. Focus VMM data table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS focus_vmm_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        vendeur TEXT NOT NULL,
+        secteur TEXT NOT NULL,
+        dn_fin_mai REAL DEFAULT 0.0,
+        obj_juin REAL DEFAULT 0.0,
+        nb_clients INTEGER DEFAULT 0,
+        obj_acm INTEGER DEFAULT 0,
+        percent REAL DEFAULT 0.0,
+        realise REAL DEFAULT 0.0,
+        rest REAL DEFAULT 0.0,
+        jour_rest INTEGER DEFAULT 0,
+        rest_jour REAL DEFAULT 0.0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(date, vendeur, secteur)
+    )
+    """)
+
+    # 4. Focus SOM data table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS focus_som_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        vendeur TEXT NOT NULL,
+        secteur TEXT NOT NULL,
+        glace_ht REAL DEFAULT 0.0,
+        ttc REAL DEFAULT 0.0,
+        percent REAL DEFAULT 0.0,
+        realise REAL DEFAULT 0.0,
+        rest REAL DEFAULT 0.0,
+        rest_jour REAL DEFAULT 0.0,
+        jour_rest INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(date, vendeur, secteur)
+    )
+    """)
+
+    # 5. File metadata
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS file_metadata (
+        date TEXT PRIMARY KEY,
+        file_name TEXT,
+        file_size INTEGER,
+        file_content BLOB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 6. Secteurs
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS secteurs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    )
+    """)
+
+    # 7. Localités
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS localites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        secteur_id INTEGER NOT NULL,
+        FOREIGN KEY (secteur_id) REFERENCES secteurs (id),
+        UNIQUE(name, secteur_id)
+    )
+    """)
+
+    # 8. Clients
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS clients (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        secteur_id INTEGER NOT NULL,
+        localite_id INTEGER NOT NULL,
+        FOREIGN KEY (secteur_id) REFERENCES secteurs (id),
+        FOREIGN KEY (localite_id) REFERENCES localites (id)
+    )
+    """)
+
+    # 9. Tournees visits
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS vendeur_tournees_visits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vendeur TEXT NOT NULL,
+        tournee TEXT NOT NULL,
+        visit_date TEXT NOT NULL,
+        passage_num INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(vendeur, tournee, visit_date)
+    )
+    """)
+
+    # 10. Visites rapports
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS visites_rapports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_name TEXT,
+        vendeur TEXT,
+        date_visite TEXT,
+        tournee TEXT,
+        agence TEXT,
+        client_code TEXT,
+        client_nom TEXT,
+        heure TEXT,
+        distance INTEGER DEFAULT 0,
+        motif TEXT,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 11. Stock
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS stock (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        code_article TEXT NOT NULL,
+        designation TEXT NOT NULL,
+        famille TEXT,
+        colisage REAL DEFAULT 1.0,
+        stock_physique REAL DEFAULT 0.0,
+        stock_disponible REAL DEFAULT 0.0,
+        valeur_stock REAL DEFAULT 0.0,
+        statut TEXT DEFAULT 'OK',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 12. Focus rankings
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS focus_rankings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        upload_date TEXT NOT NULL,
+        focus_type TEXT NOT NULL,
+        rank INTEGER,
+        agence TEXT,
+        secteur TEXT,
+        representative TEXT,
+        deviation REAL,
+        cdz TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 13. Focus CDZ rankings
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS focus_cdz_rankings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        upload_date TEXT NOT NULL,
+        focus_type TEXT NOT NULL,
+        rank INTEGER,
+        cdz TEXT,
+        agence TEXT,
+        deviation REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 14. Focus objectives
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS focus_objectives (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        focus_type TEXT NOT NULL,
+        agence TEXT,
+        cdz TEXT,
+        vendeur TEXT,
+        secteur TEXT,
+        objective_value REAL DEFAULT 0.0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    conn.commit()
+
+    # Initial copy of baseline data from database.db to uploads.db if empty
+    try:
+        main_conn = sqlite3.connect(DB_PATH)
+        main_cursor = main_conn.cursor()
+
+        # Copy visites_rapports if empty in uploads.db
+        cnt = cursor.execute("SELECT COUNT(1) FROM visites_rapports").fetchone()[0]
+        if cnt == 0:
+            rows = main_cursor.execute("SELECT file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note FROM visites_rapports").fetchall()
+            if rows:
+                cursor.executemany("INSERT INTO visites_rapports (file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+
+        # Copy secteurs if empty
+        cnt = cursor.execute("SELECT COUNT(1) FROM secteurs").fetchone()[0]
+        if cnt == 0:
+            rows = main_cursor.execute("SELECT id, name FROM secteurs").fetchall()
+            if rows:
+                cursor.executemany("INSERT INTO secteurs (id, name) VALUES (?, ?)", rows)
+
+        # Copy localites if empty
+        cnt = cursor.execute("SELECT COUNT(1) FROM localites").fetchone()[0]
+        if cnt == 0:
+            rows = main_cursor.execute("SELECT id, name, secteur_id FROM localites").fetchall()
+            if rows:
+                cursor.executemany("INSERT INTO localites (id, name, secteur_id) VALUES (?, ?, ?)", rows)
+
+        # Copy clients if empty
+        cnt = cursor.execute("SELECT COUNT(1) FROM clients").fetchone()[0]
+        if cnt == 0:
+            rows = main_cursor.execute("SELECT id, code, name, secteur_id, localite_id FROM clients").fetchall()
+            if rows:
+                cursor.executemany("INSERT INTO clients (id, code, name, secteur_id, localite_id) VALUES (?, ?, ?, ?, ?)", rows)
+
+        conn.commit()
+        main_conn.close()
+    except Exception as e:
+        print(f"Baseline copy to uploads.db notice: {e}")
+
+    conn.close()
+
 
 # Mapping Secteur -> Vendeur SOM / Vendeur VMM
 SECTEUR_VENDEUR_MAP = {
@@ -320,6 +592,24 @@ def init_db():
         focus_name TEXT NOT NULL
     )
     """)
+
+    # 11c. Focus Obj table (stores objectives for vendeur or secteur in HT and TTC)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS focus_obj (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        focus_type TEXT NOT NULL,
+        vendeur TEXT NOT NULL DEFAULT '',
+        secteur TEXT NOT NULL DEFAULT '',
+        obj_ht REAL DEFAULT 0.0,
+        obj_ttc REAL DEFAULT 0.0,
+        focus_name TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_focus_obj_type ON focus_obj(focus_type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_focus_obj_vendeur ON focus_obj(vendeur)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_focus_obj_secteur ON focus_obj(secteur)")
+
 
     # 12. Stock data table
     cursor.execute("""
@@ -1301,6 +1591,35 @@ def reset_all_database_tables():
     return True
 
 
+def delete_and_recreate_db_file():
+    """Deletes database.db file from disk and creates a new clean database with all schemas."""
+    import gc
+    gc.collect()
+    
+    if os.path.exists(DB_PATH):
+        try:
+            os.remove(DB_PATH)
+            print(f"Successfully deleted {DB_PATH}")
+        except Exception as e:
+            print(f"File remove error for {DB_PATH}: {e}. Falling back to table drop & vacuum.")
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+                tables = [row[0] for row in cursor.fetchall()]
+                for t in tables:
+                    cursor.execute(f"DROP TABLE IF EXISTS \"{t}\"")
+                conn.commit()
+                cursor.execute("VACUUM")
+                conn.close()
+            except Exception as inner_e:
+                print(f"Fallback drop error: {inner_e}")
+
+    init_db()
+    return True
+
+
+
 def reset_specific_tables(tables_to_reset):
     """Drop specific tables and recreate them"""
     valid_tables = {
@@ -1449,7 +1768,7 @@ def get_clients_full(
 
 
 def get_clients_full_filters():
-    """Return distinct values for filterable fields from secteurs and localites."""
+    """Return distinct values for filterable fields from secteurs, localites, and clients."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -1459,12 +1778,18 @@ def get_clients_full_filters():
     cursor.execute("SELECT DISTINCT name FROM localites WHERE name IS NOT NULL AND name != '' ORDER BY name ASC")
     localites_list = [r["name"] for r in cursor.fetchall()]
 
+    cursor.execute("SELECT DISTINCT vendeur_som FROM clients WHERE vendeur_som IS NOT NULL AND vendeur_som != '' ORDER BY vendeur_som ASC")
+    vendeurs_som_list = [r["vendeur_som"] for r in cursor.fetchall()]
+
+    cursor.execute("SELECT DISTINCT vendeur_vmm FROM clients WHERE vendeur_vmm IS NOT NULL AND vendeur_vmm != '' ORDER BY vendeur_vmm ASC")
+    vendeurs_vmm_list = [r["vendeur_vmm"] for r in cursor.fetchall()]
+
     conn.close()
     return {
         "secteurs": secteurs_list,
         "localites": localites_list,
-        "vendeurs_som": [],
-        "vendeurs_vmm": [],
+        "vendeurs_som": vendeurs_som_list,
+        "vendeurs_vmm": vendeurs_vmm_list,
     }
 
 
@@ -1487,24 +1812,76 @@ def get_clients_full_stats():
     """)
     by_secteur = [dict(r) for r in cursor.fetchall()]
 
+    cursor.execute("""
+        SELECT vendeur_som AS vendeur, COUNT(*) AS c 
+        FROM clients 
+        WHERE vendeur_som IS NOT NULL AND vendeur_som != '' 
+        GROUP BY vendeur_som ORDER BY c DESC
+    """)
+    by_vendeur = [dict(r) for r in cursor.fetchall()]
+
     conn.close()
     return {
         "total": total,
         "repeats": 0,
         "unique_codes": unique_codes,
         "by_secteur": by_secteur,
-        "by_vendeur": [],
-    }
-
-    conn.close()
-    return {
-        "total": total,
-        "repeats": repeats,
-        "unique": total - repeats,
-        "unique_codes": unique_codes,
-        "by_secteur": by_secteur,
         "by_vendeur": by_vendeur,
     }
+
+
+def sync_clients_vendeurs_from_fdv():
+    """Sync vendeur_som and vendeur_vmm for all clients across all secteurs based on fdv table."""
+    def normalize_sec(name):
+        if not name: return ""
+        n = name.upper().strip()
+        n = n.replace("ESSALAM", "SALAM").replace("EL ", "").replace("MOHAMMADI", "MOHAMADI")
+        n = n.replace("BOUIZAKARNE", "BOUIZAKARN").replace("TAROUDANTE EXT IDAOUTANANE", "TAROUDANTE_EXT_IDAOUTANANE")
+        return n
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    fdv_rows = cursor.execute("SELECT vendeur, role, secteur FROM fdv").fetchall()
+    secteur_vendors = {}
+    for r in fdv_rows:
+        sec = normalize_sec(r["secteur"])
+        role = r["role"].strip().upper()
+        v = r["vendeur"].strip()
+        if sec not in secteur_vendors:
+            secteur_vendors[sec] = {"SOM": None, "VMM": None}
+        if "SOM" in role:
+            secteur_vendors[sec]["SOM"] = v
+        if "VMM" in role:
+            secteur_vendors[sec]["VMM"] = v
+
+    sorted_base_secs = sorted(secteur_vendors.keys(), key=lambda x: len(x), reverse=True)
+    sec_rows = cursor.execute("SELECT id, name FROM secteurs").fetchall()
+
+    for s in sec_rows:
+        s_id = s["id"]
+        s_name = s["name"]
+        norm_s = normalize_sec(s_name)
+        som_v = None
+        vmm_v = None
+        for base in sorted_base_secs:
+            if base in norm_s:
+                som_v = secteur_vendors[base]["SOM"]
+                vmm_v = secteur_vendors[base]["VMM"]
+                break
+        if not vmm_v and som_v: vmm_v = som_v
+        if not som_v and vmm_v: som_v = vmm_v
+
+        cursor.execute("""
+            UPDATE clients 
+            SET vendeur_som = ?, vendeur_vmm = ?
+            WHERE secteur_id = ?
+        """, (som_v or "", vmm_v or "", s_id))
+
+    conn.commit()
+    conn.close()
+    return True
+
 
 
 
@@ -1694,15 +2071,58 @@ def get_fdv_by_id(fdv_id):
 
 
 def get_fdv_by_vendeur(vendeur):
+    if not vendeur:
+        return None
+    v_str = str(vendeur).strip()
+    if not v_str:
+        return None
+        
     conn = get_db_connection()
     cursor = conn.cursor()
+    
+    # 1. Exact match
     cursor.execute(
         "SELECT id, vendeur, role, type_role, cdz, activite, secteur, telephone, "
         "whatsapp, recrutement, notes, created_at, updated_at "
         "FROM fdv WHERE vendeur = ?",
-        (vendeur,),
+        (v_str,),
     )
     row = cursor.fetchone()
+    
+    # 2. Case-insensitive exact match
+    if not row:
+        cursor.execute(
+            "SELECT id, vendeur, role, type_role, cdz, activite, secteur, telephone, "
+            "whatsapp, recrutement, notes, created_at, updated_at "
+            "FROM fdv WHERE UPPER(vendeur) = ?",
+            (v_str.upper(),),
+        )
+        row = cursor.fetchone()
+        
+    # 3. Partial match (v_str contained in vendeur or vendeur contained in v_str)
+    if not row:
+        cursor.execute(
+            "SELECT id, vendeur, role, type_role, cdz, activite, secteur, telephone, "
+            "whatsapp, recrutement, notes, created_at, updated_at "
+            "FROM fdv WHERE UPPER(vendeur) LIKE ? OR ? LIKE '%' || UPPER(vendeur) || '%'",
+            (f"%{v_str.upper()}%", v_str.upper()),
+        )
+        row = cursor.fetchone()
+
+    # 4. Token-based match (e.g. "BAIZ" or "MOHAMED")
+    if not row:
+        tokens = [t for t in v_str.upper().split() if len(t) >= 3]
+        for t in tokens:
+            cursor.execute(
+                "SELECT id, vendeur, role, type_role, cdz, activite, secteur, telephone, "
+                "whatsapp, recrutement, notes, created_at, updated_at "
+                "FROM fdv WHERE UPPER(vendeur) LIKE ?",
+                (f"%{t}%",),
+            )
+            row = cursor.fetchone()
+            if row:
+                break
+
     conn.close()
     return dict(row) if row else None
 
@@ -1940,31 +2360,32 @@ def normalize_phone(raw):
     return ("+" + digits) if keep_plus else digits
 
 
+def normalize_whatsapp_phone(phone, default_country="212"):
+    """Normalize phone number to digits-only E.164 format without '+' for wa.me links."""
+    if not phone:
+        return ""
+    digits = "".join(ch for ch in str(phone) if ch.isdigit())
+    if not digits:
+        return ""
+    if digits.startswith("212") and len(digits) >= 11:
+        return digits
+    if digits.startswith("0"):
+        return (default_country or "212") + digits[1:]
+    if len(digits) == 9:
+        return (default_country or "212") + digits
+    return digits
+
+
 def build_whatsapp_url(phone, message, default_country="212"):
     """Build a wa.me link that opens a chat with the given phone
     number and pre-fills a message.
 
-    For Moroccan numbers (default_country = "212") we accept
-    inputs in 0XXXXXXXXX, +212XXXXXXXXX, 212XXXXXXXXX,
-    +212 6XX-XX-XX-XX etc. and normalise to the form wa.me
-    expects (no '+').
+    Accepts inputs in 0XXXXXXXXX, +212XXXXXXXXX, 212XXXXXXXXX,
+    +212 6XX-XX-XX-XX etc. and normalises to the form wa.me expects (digits with country code).
     """
-    if not phone:
+    wa_phone = normalize_whatsapp_phone(phone, default_country)
+    if not wa_phone:
         return None
-    raw = str(phone).strip()
-    if not raw:
-        return None
-    keep_plus = raw.startswith("+")
-    digits = "".join(ch for ch in raw if ch.isdigit())
-    if not digits:
-        return None
-    if keep_plus:
-        wa_phone = digits  # already has country code
-    else:
-        # Local form: drop a leading 0 then add the country code.
-        if digits.startswith("0"):
-            digits = digits[1:]
-        wa_phone = (default_country or "") + digits
     from urllib.parse import quote
     url = f"https://wa.me/{wa_phone}"
     if message:
@@ -2129,6 +2550,60 @@ def save_focus_names(som_name, vmm_name):
         cursor.execute("INSERT OR REPLACE INTO focus_names (focus_type, focus_name) VALUES ('TOMATE_FRITO', ?)", (vmm_name.strip(),))
     conn.commit()
     conn.close()
+
+
+def save_focus_obj_records(records, som_name=None, vmm_name=None):
+    """Save extracted focus objectives into focus_obj table, focus_objectives, and focus_names."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS focus_obj (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        focus_type TEXT NOT NULL,
+        vendeur TEXT NOT NULL DEFAULT '',
+        secteur TEXT NOT NULL DEFAULT '',
+        obj_ht REAL DEFAULT 0.0,
+        obj_ttc REAL DEFAULT 0.0,
+        focus_name TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    
+    cursor.execute("DELETE FROM focus_obj")
+    cursor.execute("DELETE FROM focus_objectives")
+    
+    for r in records:
+        f_type = r.get("focus_type", "SOM").strip().upper()
+        vendeur = r.get("vendeur", "").strip()
+        secteur = r.get("secteur", "").strip()
+        obj_ht = float(r.get("obj_ht") or r.get("glace_ht") or r.get("obj_juin") or 0.0)
+        obj_ttc = float(r.get("obj_ttc") or r.get("ttc") or round(obj_ht * 1.2, 3))
+        f_name = r.get("focus_name", "")
+        
+        # Save into focus_obj
+        cursor.execute("""
+            INSERT INTO focus_obj (focus_type, vendeur, secteur, obj_ht, obj_ttc, focus_name)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (f_type, vendeur, secteur, obj_ht, obj_ttc, f_name))
+        
+        # Save into focus_objectives for backward compatibility
+        legacy_type = "GLACE" if f_type == "SOM" else "TOMATE_FRITO"
+        cursor.execute("""
+            INSERT OR REPLACE INTO focus_objectives
+            (focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (legacy_type, vendeur, secteur, 0, obj_ht, obj_ht, obj_ht, obj_ttc))
+        
+    if som_name:
+        cursor.execute("INSERT OR REPLACE INTO focus_names (focus_type, focus_name) VALUES ('GLACE', ?)", (som_name.strip(),))
+    if vmm_name:
+        cursor.execute("INSERT OR REPLACE INTO focus_names (focus_type, focus_name) VALUES ('TOMATE_FRITO', ?)", (vmm_name.strip(),))
+        
+    conn.commit()
+    conn.close()
+    return True
+
 
 
 def get_focus_names():
@@ -2714,21 +3189,15 @@ def toggle_subtask_completed(subsub_id, completed):
 
 
 def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, records):
-    """Save raw visit report details to database, overwriting previous entries for the same dates and vendeur."""
-    conn = get_db_connection()
+    """Save raw visit report details to separate uploads.db database, clearing previous uploaded visit data."""
+    conn = get_uploads_db_connection()
     cursor = conn.cursor()
     try:
-        # Collect all unique dates present in records
-        unique_dates = list(set([r.get("date") for r in records if r.get("date")] + ([date_visite] if date_visite and date_visite != "N/A" else [])))
+        # Clear previous uploaded visits in separate uploads database
+        cursor.execute("DELETE FROM visites_rapports")
+        cursor.execute("DELETE FROM sqlite_sequence WHERE name='visites_rapports'")
         
-        # Clean previous records for this seller on these dates or file_name
-        if file_name and file_name != "upload.xlsx":
-            cursor.execute("DELETE FROM visites_rapports WHERE file_name = ?", (file_name,))
-        if vendeur and unique_dates:
-            placeholders = ",".join(["?" for _ in unique_dates])
-            cursor.execute(f"DELETE FROM visites_rapports WHERE vendeur = ? AND date_visite IN ({placeholders})", [vendeur] + unique_dates)
-        
-        # Insert new records
+        # Insert new records into uploads.db
         for r in records:
             r_date = r.get("date") or date_visite
             dist_str = str(r.get("distance", "0")).replace("m", "").replace(" ", "").strip()
@@ -2756,18 +3225,42 @@ def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, recor
             ))
             
         conn.commit()
+
+        # Also sync to database.db for backwards compatibility
+        try:
+            db_conn = get_db_connection()
+            db_cursor = db_conn.cursor()
+            db_cursor.execute("DELETE FROM visites_rapports")
+            db_cursor.execute("DELETE FROM sqlite_sequence WHERE name='visites_rapports'")
+            for r in records:
+                r_date = r.get("date") or date_visite
+                dist_str = str(r.get("distance", "0")).replace("m", "").replace(" ", "").strip()
+                try:
+                    dist = int(dist_str)
+                except:
+                    dist = 0
+                db_cursor.execute("""
+                    INSERT INTO visites_rapports
+                    (file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (file_name, vendeur, r_date, tournee, agence, r.get("code", ""), r.get("name", ""), r.get("time", ""), dist, r.get("motif", ""), r.get("note", "")))
+            db_conn.commit()
+            db_conn.close()
+        except Exception as sync_e:
+            print(f"Sync to database.db notice: {sync_e}")
+
         return True
     except Exception as e:
-        print(f"Error saving visits rapport: {e}")
+        print(f"Error saving visits rapport to uploads.db: {e}")
         return False
     finally:
         conn.close()
 
 
 def save_relational_acm(df):
-    """Populate secteurs, localites, and clients tables from pandas DataFrame."""
+    """Populate secteurs, localites, and clients tables in separate uploads.db database, clearing old data on new upload."""
     import pandas as pd
-    conn = get_db_connection()
+    conn = get_uploads_db_connection()
     conn.execute("PRAGMA foreign_keys = ON;")
     cursor = conn.cursor()
     try:
@@ -2778,6 +3271,12 @@ def save_relational_acm(df):
             elif "tourne" in cl: col_map["tournee"] = c
             elif "code" in cl: col_map["code"] = c
             elif "nom" in cl: col_map["name"] = c
+
+        # Clear old ACM upload data in uploads.db
+        cursor.execute("DELETE FROM clients")
+        cursor.execute("DELETE FROM localites")
+        cursor.execute("DELETE FROM secteurs")
+        cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('clients', 'localites', 'secteurs')")
 
         # 1. Populate Secteurs
         unique_secteurs = sorted([str(s).strip() for s in df[col_map["role"]].dropna().unique() if str(s).strip()])
@@ -2812,9 +3311,6 @@ def save_relational_acm(df):
             localite_id_map[(r["name"], r["sec_name"])] = r["id"]
 
         # 3. Populate Clients (code, name, secteur_id, localite_id)
-        cursor.execute("DELETE FROM clients")
-        cursor.execute("DELETE FROM sqlite_sequence WHERE name='clients'")
-
         client_rows = []
         for _, row in df.iterrows():
             c_code = str(row[col_map["code"]]).strip() if "code" in col_map and pd.notna(row[col_map["code"]]) else ""

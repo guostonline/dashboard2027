@@ -242,12 +242,14 @@
     function buildWaLink(phone, message) {
         const raw = (phone || '').trim();
         if (!raw) return '#';
-        const keepPlus = raw.startsWith('+');
         let digits = raw.replace(/\D/g, '');
         if (!digits) return '#';
-        if (!keepPlus) {
-            if (digits.startsWith('0')) digits = digits.slice(1);
-            digits = '212' + digits;  // default Morocco
+        if (digits.startsWith('212') && digits.length >= 11) {
+            // Already has country code 212
+        } else if (digits.startsWith('0')) {
+            digits = '212' + digits.slice(1);
+        } else if (digits.length === 9) {
+            digits = '212' + digits;
         }
         const url = 'https://wa.me/' + digits;
         return message ? url + '?text=' + encodeURIComponent(message) : url;

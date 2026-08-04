@@ -2,6 +2,23 @@
    MADEC KPI Dashboard JS - Cyberpunk Tech Theme
    ---------------------------------------------------- */
 
+// Global Phone Normalization Helper for WhatsApp (wa.me)
+function normalizePhoneForWhatsapp(phone) {
+    if (!phone) return '';
+    let digits = phone.toString().replace(/[^0-9]/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('212') && digits.length >= 11) {
+        return digits;
+    }
+    if (digits.startsWith('0')) {
+        return '212' + digits.substring(1);
+    }
+    if (digits.length === 9) {
+        return '212' + digits;
+    }
+    return digits;
+}
+
 // Global State
 let rawDashboardData = null;
 let dashboardData = null;
@@ -1387,10 +1404,12 @@ async function initClientsAFacturerView() {
     const waSendBtn = document.getElementById('af-wa-send-btn');
 
     const getFilteredClientsForWa = () => {
-        if (!analysisResult || !analysisResult.comparison) return [];
-        let filtered = analysisResult.comparison;
+        const data = window.currentAnalysisData || window.analysisResult || analysisResult;
+        if (!data || (!data.comparison && !data.clients)) return [];
+        let filtered = data.comparison || data.clients || [];
 
-        const q = searchClientInput ? searchClientInput.value.trim().toLowerCase() : '';
+        const searchInput = document.getElementById('af-search-client');
+        const q = searchInput ? searchInput.value.trim().toLowerCase() : (searchClientInput ? searchClientInput.value.trim().toLowerCase() : '');
         if (q) {
             filtered = filtered.filter(r => 
                 (r.code && r.code.toLowerCase().includes(q)) || 
@@ -1398,26 +1417,30 @@ async function initClientsAFacturerView() {
             );
         }
 
-        if (activeFilter === 'atleastone') {
-            filtered = filtered.filter(r => r.has_facture || r.motifs.some(m => m.toUpperCase() === 'OK'));
-        } else if (activeFilter === 'nofacture') {
-            filtered = filtered.filter(r => !r.has_facture && !r.motifs.some(m => m.toUpperCase() === 'OK'));
-        } else if (activeFilter === 'always') {
-            filtered = filtered.filter(r => r.synthesis === 'Toujours Facturé');
-        } else if (activeFilter === 'loss') {
+        const filterMode = window.activeFilterTab || activeFilter || 'all';
+        if (filterMode === 'atleastone') {
+            filtered = filtered.filter(r => r.has_facture || r.facture_status === 'AVEC FACTURE' || (r.motifs && r.motifs.some(m => String(m).toUpperCase() === 'OK')));
+        } else if (filterMode === 'nofacture') {
+            filtered = filtered.filter(r => !r.has_facture && r.facture_status !== 'AVEC FACTURE' && !(r.motifs && r.motifs.some(m => String(m).toUpperCase() === 'OK')));
+        } else if (filterMode === 'always') {
+            filtered = filtered.filter(r => r.synthesis === 'Toujours Facturé' || r.has_facture || r.facture_status === 'AVEC FACTURE');
+        } else if (filterMode === 'loss') {
             filtered = filtered.filter(r => r.synthesis === 'Perte de facturation');
-        } else if (activeFilter === 'gain') {
+        } else if (filterMode === 'gain') {
             filtered = filtered.filter(r => r.synthesis === 'Gagné (Facturé en fin)');
-        } else if (activeFilter === 'never') {
-            filtered = filtered.filter(r => r.synthesis === 'Jamais Facturé');
+        } else if (filterMode === 'never') {
+            filtered = filtered.filter(r => r.synthesis === 'Jamais Facturé' || r.facture_status === 'SANS FACTURE' || r.facture_status === 'NON VISITÉ');
+        } else if (filterMode === 'inactifs') {
+            filtered = filtered.filter(r => r.is_inactif === 1 || r.facture_status === 'NON VISITÉ');
         }
 
         return filtered;
     };
 
     if (btnWaVendeur) {
-        btnWaVendeur.addEventListener('click', () => {
-            if (!analysisResult || !analysisResult.comparison) {
+        btnWaVendeur.addEventListener('click', async () => {
+            const data = window.currentAnalysisData || window.analysisResult || analysisResult;
+            if (!data || (!data.comparison && !data.clients)) {
                 showToast("Aucune analyse disponible à envoyer.", "warning");
                 return;
             }
@@ -1428,19 +1451,35 @@ async function initClientsAFacturerView() {
                 return;
             }
 
-            const vendeurName = analysisResult.vendeur || 'N/A';
-            const vendeurPhone = analysisResult.vendeur_phone || '';
-            const rawRafAcm = (analysisResult.raf_acm !== undefined && analysisResult.raf_acm !== null) ? analysisResult.raf_acm : 20;
+            const selectEntity = document.getElementById('af2-select-entity');
+            const vendeurName = data.vendeur || data.vendeur_code || (selectEntity ? selectEntity.value : '') || 'VENDEUR';
+            let vendeurPhone = data.vendeur_phone || '';
+
+            // Fetch vendor phone number from FDV table if missing
+            if (!vendeurPhone && vendeurName) {
+                try {
+                    const resp = await fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(vendeurName) + '&include_rapport=false');
+                    const resData = await resp.json();
+                    if (resData.status === 'success' && resData.phone) {
+                        vendeurPhone = resData.phone;
+                    }
+                } catch (e) {
+                    console.warn('FDV phone lookup error:', e);
+                }
+            }
+
+            const filterMode = window.activeFilterTab || activeFilter || 'all';
+            const rawRafAcm = (data.raf_acm !== undefined && data.raf_acm !== null) ? data.raf_acm : 20;
             const minActivations = Math.max(20, Math.round(rawRafAcm));
 
             let listDesc = `Ci-dessous la liste des clients (${clients.length} clients) :`;
-            if (activeFilter === 'nofacture' || activeFilter === 'never') {
+            if (filterMode === 'nofacture' || filterMode === 'never') {
                 listDesc = `Ci-dessous la liste des clients non facturés / NO OK (${clients.length} clients) :`;
-            } else if (activeFilter === 'atleastone' || activeFilter === 'always') {
+            } else if (filterMode === 'atleastone' || filterMode === 'always') {
                 listDesc = `Ci-dessous la liste des clients facturés (${clients.length} clients) :`;
-            } else if (activeFilter === 'loss') {
+            } else if (filterMode === 'loss') {
                 listDesc = `Ci-dessous la liste des clients en perte de facturation (${clients.length} clients) :`;
-            } else if (activeFilter === 'gain') {
+            } else if (filterMode === 'gain') {
                 listDesc = `Ci-dessous la liste des clients gagnés en facturation (${clients.length} clients) :`;
             }
 
@@ -1453,17 +1492,56 @@ async function initClientsAFacturerView() {
             msg += `----------------------------------------\n`;
             msg += `${listDesc}\n\n`;
             clients.forEach(c => {
-                const lastMotif = (c.motifs && c.motifs.length > 0) ? c.motifs[c.motifs.length - 1] : '';
+                const lastMotif = (c.motifs && c.motifs.length > 0) ? c.motifs[c.motifs.length - 1] : (c.motif || '');
                 const motifStr = (lastMotif && lastMotif !== 'OK' && lastMotif !== 'Non visité') ? ` - [${lastMotif}]` : '';
                 msg += `• ${c.code} - ${c.name}${motifStr}\n`;
             });
 
             if (waVendeurNameInput) waVendeurNameInput.value = vendeurName;
-            if (waVendeurPhoneInput) waVendeurPhoneInput.value = vendeurPhone;
+            if (waVendeurPhoneInput) waVendeurPhoneInput.value = normalizePhoneForWhatsapp(vendeurPhone);
             if (waMessageTextarea) waMessageTextarea.value = msg;
+
+            // Populate auto-suggestion datalist from available vendeurs
+            const datalist = document.getElementById('fdv-vendeurs-datalist');
+            if (datalist && window.apiData && window.apiData.vendeurs) {
+                datalist.innerHTML = '';
+                window.apiData.vendeurs.forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v.name || v.code;
+                    opt.label = `${v.code} ${v.name}`;
+                    datalist.appendChild(opt);
+                });
+            }
 
             if (waModal) waModal.style.display = 'flex';
         });
+    }
+
+    // Live FDV phone lookup when typing/selecting vendor name
+    if (waVendeurNameInput) {
+        let fdvLookupTimer = null;
+        const performFdvLookup = async () => {
+            const name = waVendeurNameInput.value.trim();
+            if (!name) return;
+            try {
+                const resp = await fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(name) + '&include_rapport=false');
+                const resData = await resp.json();
+                if (resData.status === 'success' && resData.phone) {
+                    if (waVendeurPhoneInput) {
+                        waVendeurPhoneInput.value = normalizePhoneForWhatsapp(resData.phone);
+                    }
+                }
+            } catch (e) {
+                console.warn('Live FDV phone lookup error:', e);
+            }
+        };
+
+        waVendeurNameInput.addEventListener('input', () => {
+            clearTimeout(fdvLookupTimer);
+            fdvLookupTimer = setTimeout(performFdvLookup, 250);
+        });
+
+        waVendeurNameInput.addEventListener('change', performFdvLookup);
     }
 
     if (waModalClose && waModal) {
@@ -1486,8 +1564,8 @@ async function initClientsAFacturerView() {
 
     if (waSendBtn && waMessageTextarea) {
         waSendBtn.addEventListener('click', () => {
-            let phone = waVendeurPhoneInput ? waVendeurPhoneInput.value.trim() : '';
-            phone = phone.replace(/[^0-9]/g, '');
+            let rawPhone = waVendeurPhoneInput ? waVendeurPhoneInput.value.trim() : '';
+            const phone = normalizePhoneForWhatsapp(rawPhone);
 
             if (!phone) {
                 showToast("Veuillez saisir un numéro de téléphone valide.", "warning");
@@ -1518,6 +1596,352 @@ async function initClientsAFacturerView() {
     renderQuickSecButtons();
 
     await loadAvailableVisites();
+}
+
+// =============================================================
+// CLIENTS À FACTURER V2 — Vendeur / Secteur toggle + Tournée cards
+// =============================================================
+async function initAFacturerV2() {
+    const btnVendeur = document.getElementById('af2-btn-vendeur');
+    const btnSecteur = document.getElementById('af2-btn-secteur');
+    const selectLabel = document.getElementById('af2-select-label');
+    const selectEntity = document.getElementById('af2-select-entity');
+    const tourneesList = document.getElementById('af2-tournees-list');
+    const tourneesCount = document.getElementById('af2-tournees-count');
+    const resultsPlaceholder = document.getElementById('af-results-placeholder');
+    const resultsWorkspace = document.getElementById('af-results-workspace');
+
+    if (!btnVendeur || !selectEntity) return;
+
+    let mode = 'vendeur'; // 'vendeur' | 'secteur'
+    let apiData = null;
+    let currentAnalysisData = null;
+    let activeFilterTab = 'all';
+
+    // Format YYYY-MM-DD → DD/MM/YYYY
+    const formatDate = (d) => {
+        if (!d) return '';
+        const parts = d.split('-');
+        return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+    };
+
+    const renderV2Table = () => {
+        if (!currentAnalysisData) return;
+        const tbodyDetails = document.getElementById('af-details-tbody');
+        const tableHeaders = document.getElementById('af-table-headers');
+        if (!tbodyDetails) return;
+
+        let rows = currentAnalysisData.comparison || currentAnalysisData.clients || [];
+        const searchInput = document.getElementById('af-search-client');
+        const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+        // Search query filter
+        if (searchQuery) {
+            rows = rows.filter(r => 
+                (r.code && r.code.toLowerCase().includes(searchQuery)) ||
+                (r.name && r.name.toLowerCase().includes(searchQuery))
+            );
+        }
+
+        // Filter tab / card filter
+        if (activeFilterTab === 'atleastone') {
+            rows = rows.filter(r => r.has_facture || r.facture_status === 'AVEC FACTURE' || (r.motifs && r.motifs.some(m => String(m).toUpperCase() === 'OK')));
+        } else if (activeFilterTab === 'nofacture') {
+            rows = rows.filter(r => !r.has_facture && r.facture_status !== 'AVEC FACTURE' && !(r.motifs && r.motifs.some(m => String(m).toUpperCase() === 'OK')));
+        } else if (activeFilterTab === 'always') {
+            rows = rows.filter(r => r.synthesis === 'Toujours Facturé' || r.has_facture || r.facture_status === 'AVEC FACTURE');
+        } else if (activeFilterTab === 'loss') {
+            rows = rows.filter(r => r.synthesis === 'Perte de facturation');
+        } else if (activeFilterTab === 'gain') {
+            rows = rows.filter(r => r.synthesis === 'Gagné (Facturé en fin)');
+        } else if (activeFilterTab === 'never') {
+            rows = rows.filter(r => r.synthesis === 'Jamais Facturé' || r.facture_status === 'SANS FACTURE' || r.facture_status === 'NON VISITÉ');
+        } else if (activeFilterTab === 'inactifs') {
+            rows = rows.filter(r => r.is_inactif === 1 || r.facture_status === 'NON VISITÉ');
+        }
+
+        if (rows.length === 0) {
+            tbodyDetails.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem;">Aucun client ne correspond à ces critères.</td></tr>';
+            return;
+        }
+
+        tbodyDetails.innerHTML = '';
+        rows.forEach(r => {
+            const motif = (r.motifs && r.motifs.length > 0) ? r.motifs[0] : (r.motif || 'Non visité');
+            const isOk = String(motif).toUpperCase() === 'OK' || r.has_facture;
+            const motifColor = isOk ? 'var(--neon-green)' : (motif === 'Non visité' ? 'var(--text-muted)' : 'var(--neon-amber)');
+            const statusBadge = isOk
+                ? '<span style="color:var(--neon-green);font-weight:bold;">✓ FACTURÉ</span>'
+                : '<span style="color:var(--neon-amber);">✗ NON FACTURÉ</span>';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-family:var(--font-mono);font-size:0.78rem;">${r.code || ''}</td>
+                <td style="font-size:0.82rem;">${r.name || ''}</td>
+                <td style="font-size:0.72rem;color:var(--text-muted);">${r.localite || ''}</td>
+                <td style="font-size:0.78rem;color:${motifColor};">${motif}</td>
+                <td>${statusBadge}</td>
+            `;
+            tbodyDetails.appendChild(tr);
+        });
+    };
+
+    // Load data from new API
+    const loadData = async () => {
+        try {
+            selectEntity.innerHTML = '<option value="">Chargement...</option>';
+            if (tourneesList) tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Chargement...</span>';
+            const res = await fetch(`/api/afacturer/tournees?_=${Date.now()}`);
+            const data = await res.json();
+            if (data.status === 'success') {
+                apiData = data;
+                window.apiData = data;
+                populateDropdown();
+            } else {
+                showToast('Erreur chargement tournées: ' + data.message, 'error');
+            }
+        } catch (err) {
+            console.error('initAFacturerV2 loadData error:', err);
+            showToast('Erreur connexion serveur.', 'error');
+        }
+    };
+
+    const populateDropdown = () => {
+        if (!apiData) return;
+        selectEntity.innerHTML = '';
+        const list = mode === 'vendeur' ? (apiData.vendeurs || []) : (apiData.secteurs || []);
+        const placeholder = mode === 'vendeur' ? '-- SÉLECTIONNER UN VENDEUR --' : '-- SÉLECTIONNER UN SECTEUR --';
+        selectEntity.innerHTML = `<option value="">${placeholder}</option>`;
+        list.forEach(item => {
+            const opt = document.createElement('option');
+            const label = mode === 'vendeur' ? `${item.code} ${item.name}` : item.name;
+            opt.value = item.name || item.code;
+            opt.textContent = label;
+            selectEntity.appendChild(opt);
+        });
+        if (tourneesList) {
+            tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Sélectionnez un vendeur ou secteur pour afficher les tournées.</span>';
+            if (tourneesCount) tourneesCount.textContent = '0 passage(s)';
+        }
+    };
+
+    const renderTourneeCards = () => {
+        if (!apiData || !tourneesList) return;
+        const val = selectEntity.value;
+        if (!val) {
+            tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Sélectionnez un vendeur ou secteur.</span>';
+            if (tourneesCount) tourneesCount.textContent = '0 passage(s)';
+            return;
+        }
+
+        let item;
+        if (mode === 'vendeur') {
+            item = (apiData.vendeurs || []).find(v => v.name === val || v.code === val);
+        } else {
+            item = (apiData.secteurs || []).find(s => s.name === val);
+        }
+
+        const entries = item ? (item.tournee_dates || []) : [];
+        if (tourneesCount) tourneesCount.textContent = `${entries.length} passage(s)`;
+
+        if (entries.length === 0) {
+            tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Aucun passage trouvé.</span>';
+            return;
+        }
+
+        tourneesList.innerHTML = '';
+        entries.forEach(entry => {
+            const dateFormatted = formatDate(entry.date);
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'af2-tournee-card';
+            card.setAttribute('data-date', entry.date);
+            card.setAttribute('data-tournee', entry.tournee);
+            if (mode === 'secteur' && entry.vendeur_name) {
+                card.setAttribute('data-vendeur', entry.vendeur_name);
+            }
+            card.style.cssText = `
+                width: 100%; text-align: left; padding: 0.55rem 0.75rem;
+                background: rgba(0,242,254,0.04); border: 1px solid rgba(0,242,254,0.12);
+                border-radius: 5px; cursor: pointer; transition: all 0.18s;
+                display: flex; flex-direction: column; gap: 2px;
+            `;
+            const vendeurLine = (mode === 'secteur' && entry.vendeur_name)
+                ? `<span style="font-size:0.65rem;color:var(--neon-green);font-family:var(--font-mono);margin-top:2px;"><i class="fa-solid fa-user"></i> ${entry.vendeur_name}</span>`
+                : '';
+            card.innerHTML = `
+                <span style="font-size:0.75rem;font-weight:bold;color:var(--neon-cyan);font-family:var(--font-mono);">
+                    <i class="fa-solid fa-calendar-day" style="margin-right:4px;opacity:0.7;"></i>${dateFormatted}
+                </span>
+                <span style="font-size:0.72rem;color:var(--text-main);line-height:1.3;">${entry.tournee}</span>
+                ${vendeurLine}
+            `;
+            card.addEventListener('mouseenter', () => {
+                card.style.background = 'rgba(0,242,254,0.12)';
+                card.style.borderColor = 'var(--neon-cyan)';
+            });
+            card.addEventListener('mouseleave', () => {
+                if (!card.classList.contains('af2-active')) {
+                    card.style.background = 'rgba(0,242,254,0.04)';
+                    card.style.borderColor = 'rgba(0,242,254,0.12)';
+                }
+            });
+            card.addEventListener('click', () => {
+                // Deselect all
+                document.querySelectorAll('.af2-tournee-card').forEach(c => {
+                    c.classList.remove('af2-active');
+                    c.style.background = 'rgba(0,242,254,0.04)';
+                    c.style.borderColor = 'rgba(0,242,254,0.12)';
+                });
+                card.classList.add('af2-active');
+                card.style.background = 'rgba(0,242,254,0.18)';
+                card.style.borderColor = 'var(--neon-cyan)';
+
+                // Trigger the analysis for this specific tournee + date
+                triggerAnalysis(entry.date, entry.tournee, entry.vendeur_code || val);
+            });
+            tourneesList.appendChild(card);
+        });
+    };
+
+    const triggerAnalysis = async (date, tournee, vendeurKey) => {
+        if (resultsPlaceholder) resultsPlaceholder.style.display = 'none';
+        if (resultsWorkspace) resultsWorkspace.style.display = 'flex';
+
+        const displayVendeur = document.getElementById('af-vendeur-display');
+        if (displayVendeur) displayVendeur.textContent = `${formatDate(date)} — ${tournee}`;
+
+        const tbodyDetails = document.getElementById('af-details-tbody');
+        const tableHeaders = document.getElementById('af-table-headers');
+        if (tbodyDetails) tbodyDetails.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:2rem;">Chargement...</td></tr>';
+
+        try {
+            const url = `/api/clients/analyse?dates=${encodeURIComponent(date)}&tournee=${encodeURIComponent(tournee)}&vendeur=${encodeURIComponent(vendeurKey)}&_=${Date.now()}`;
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (data.status !== 'success') {
+                showToast('Erreur: ' + (data.message || 'Inconnue'), 'error');
+                return;
+            }
+
+            currentAnalysisData = data;
+            window.currentAnalysisData = data;
+            window.analysisResult = data;
+
+            // Update KPIs
+            const kpiMap = {
+                'af-kpi-atleastone': data.total_avec_facture || 0,
+                'af-kpi-always': data.toujours_facture || 0,
+                'af-kpi-loss': data.pertes || 0,
+                'af-kpi-gain': data.gains || 0,
+                'af-kpi-never': data.jamais_facture || 0,
+                'af-kpi-inactive': data.total_inactifs || 0
+            };
+            Object.entries(kpiMap).forEach(([id, val]) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = val;
+            });
+
+            // Build table headers
+            if (tableHeaders) {
+                tableHeaders.innerHTML = `<tr>
+                    <th>Code</th>
+                    <th>Client</th>
+                    <th>Tournée</th>
+                    <th>${formatDate(date)} — Motif</th>
+                    <th>Statut</th>
+                </tr>`;
+            }
+
+            // Render table with current filter
+            renderV2Table();
+        } catch (err) {
+            console.error('triggerAnalysis error:', err);
+            if (tbodyDetails) tbodyDetails.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--neon-pink);padding:2rem;">Erreur lors du chargement des données.</td></tr>';
+        }
+    };
+
+    // Attach event listeners to sub-tab buttons & search
+    const filterBtnMap = {
+        'af-btn-all': 'all',
+        'af-btn-atleastone': 'atleastone',
+        'af-btn-nofacture': 'nofacture',
+        'af-btn-always': 'always',
+        'af-btn-loss': 'loss',
+        'af-btn-gain': 'gain',
+        'af-btn-never': 'never',
+        'af-btn-inactifs': 'inactifs'
+    };
+
+    Object.entries(filterBtnMap).forEach(([id, filter]) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                activeFilterTab = filter;
+                window.activeFilterTab = filter;
+                Object.keys(filterBtnMap).forEach(bId => {
+                    const b = document.getElementById(bId);
+                    if (b) b.classList.remove('is-active');
+                });
+                btn.classList.add('is-active');
+                renderV2Table();
+            });
+        }
+    });
+
+    const searchInput = document.getElementById('af-search-client');
+    if (searchInput) {
+        searchInput.addEventListener('input', renderV2Table);
+    }
+
+    const cardFilterMap = {
+        'af-card-atleastone': 'af-btn-atleastone',
+        'af-card-always': 'af-btn-always',
+        'af-card-loss': 'af-btn-loss',
+        'af-card-gain': 'af-btn-gain',
+        'af-card-never': 'af-btn-never',
+        'af-card-inactifs': 'af-btn-inactifs'
+    };
+
+    Object.entries(cardFilterMap).forEach(([cardId, btnId]) => {
+        const card = document.getElementById(cardId);
+        if (card) {
+            card.style.cursor = 'pointer';
+            card.addEventListener('click', () => {
+                const targetBtn = document.getElementById(btnId);
+                if (targetBtn) targetBtn.click();
+            });
+        }
+    });
+
+    // Mode toggle buttons
+    btnVendeur.addEventListener('click', () => {
+        mode = 'vendeur';
+        btnVendeur.style.borderColor = 'var(--neon-blue)';
+        btnVendeur.style.color = 'var(--neon-blue)';
+        btnVendeur.style.background = 'rgba(0,149,255,0.12)';
+        btnSecteur.style.borderColor = 'var(--border-color)';
+        btnSecteur.style.color = 'var(--text-muted)';
+        btnSecteur.style.background = 'transparent';
+        if (selectLabel) selectLabel.innerHTML = '<i class="fa-solid fa-user-tie"></i> SÉLECTIONNER UN VENDEUR';
+        populateDropdown();
+    });
+
+    btnSecteur.addEventListener('click', () => {
+        mode = 'secteur';
+        btnSecteur.style.borderColor = 'var(--neon-cyan)';
+        btnSecteur.style.color = 'var(--neon-cyan)';
+        btnSecteur.style.background = 'rgba(0,242,254,0.12)';
+        btnVendeur.style.borderColor = 'var(--border-color)';
+        btnVendeur.style.color = 'var(--text-muted)';
+        btnVendeur.style.background = 'transparent';
+        if (selectLabel) selectLabel.innerHTML = '<i class="fa-solid fa-layer-group"></i> SÉLECTIONNER UN SECTEUR';
+        populateDropdown();
+    });
+
+    selectEntity.addEventListener('change', renderTourneeCards);
+
+    await loadData();
 }
 
 let visitesUploadInitialized = false;
@@ -2353,6 +2777,7 @@ function switchView(viewName) {
             initClientsFacturationView();
         } else if (viewType === 'afacturer') {
             initClientsAFacturerView();
+            initAFacturerV2();
         }
     } else if (viewName === 'fdv') {
         if (navFdv) navFdv.classList.add('active');
@@ -2670,6 +3095,16 @@ function setupEventListeners() {
         if (e.target === settingsModal) closeSettingsModal();
     });
     settingsForm.addEventListener('submit', handleSettingsSubmit);
+
+    // Danger zone handlers in settings modal
+    const btnResetSelected = document.getElementById('btn-reset-selected');
+    if (btnResetSelected) {
+        btnResetSelected.addEventListener('click', handleSelectedTablesReset);
+    }
+    const btnRecreateDb = document.getElementById('btn-recreate-db-file');
+    if (btnRecreateDb) {
+        btnRecreateDb.addEventListener('click', handleRecreateDatabaseFile);
+    }
 
     const headerElapsedInput = document.getElementById('header-elapsed-days');
     if (headerElapsedInput) {
@@ -3831,6 +4266,118 @@ function handleSettingsSubmit(e) {
         showToast("Une erreur de communication est survenue lors de l'application.", "error");
     });
 }
+
+// Reset selected tables in database
+function handleSelectedTablesReset() {
+    const checkboxes = document.querySelectorAll('.reset-table-cb:checked');
+    if (checkboxes.length === 0) {
+        showToast("Veuillez sélectionner au moins une table à réinitialiser.", "error");
+        return;
+    }
+    
+    const selectedTables = Array.from(checkboxes).map(cb => cb.value);
+    const tableNamesFrench = {
+        'qualitative_data': 'la table Qualitatif (qualitative_data)',
+        'quantitative_data': 'la table Quantitatif (quantitative_data)',
+        'clients_full': 'la table Clients (clients_full)',
+        'fdv': 'la table FDV (force de vente)',
+        'focus_som_data': 'la table Focus SOM (focus_som_data)',
+        'focus_vmm_data': 'la table Focus VMM (focus_vmm_data)'
+    };
+    
+    const frenchNames = selectedTables.map(t => tableNamesFrench[t] || t);
+    let warningMsg = "⚠️ DANGER : Cette action va réinitialiser (vider) toutes les données de :\n";
+    frenchNames.forEach(name => {
+        warningMsg += `  - ${name}\n`;
+    });
+    warningMsg += "\nCette action est irréversible.\n\nÊtes-vous absolument sûr de vouloir réinitialiser ces tables ?";
+    
+    if (!confirm(warningMsg)) return;
+    
+    const btnResetSelected = document.getElementById('btn-reset-selected');
+    if (btnResetSelected) {
+        btnResetSelected.disabled = true;
+        btnResetSelected.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> RÉINITIALISATION...';
+    }
+    checkboxes.forEach(cb => cb.disabled = true);
+    
+    fetch('/api/reset_db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tables: selectedTables })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast("Tables réinitialisées avec succès !", "success");
+            closeSettingsModal();
+            setTimeout(() => { window.location.reload(); }, 1500);
+        } else {
+            showToast("Erreur lors de la réinitialisation : " + data.message, "error");
+            if (btnResetSelected) {
+                btnResetSelected.disabled = false;
+                btnResetSelected.innerHTML = '<i class="fa-solid fa-arrow-rotate-left"></i> RÉINITIALISER LES TABLES SÉLECTIONNÉES';
+            }
+            checkboxes.forEach(cb => cb.disabled = false);
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        showToast("Une erreur de communication est survenue.", "error");
+        if (btnResetSelected) {
+            btnResetSelected.disabled = false;
+            btnResetSelected.innerHTML = '<i class="fa-solid fa-arrow-rotate-left"></i> RÉINITIALISER LES TABLES SÉLECTIONNÉES';
+        }
+        checkboxes.forEach(cb => cb.disabled = false);
+    });
+}
+
+// Delete database.db file from disk and recreate a clean database
+function handleRecreateDatabaseFile() {
+    const warningMsg = "⚠️ ATTENTION : ACTION CRITIQUE !\n\nVous allez SUPPRIMER le fichier database.db et créer une nouvelle base de données totalement vide avec les schémas par défaut.\n\nToutes les données enregistrées dans database.db seront définitivement effacées.\n\nÊtes-vous absolument sûr de vouloir continuer ?";
+    
+    if (!confirm(warningMsg)) {
+        return;
+    }
+    
+    const btnRecreateDb = document.getElementById('btn-recreate-db-file');
+    if (btnRecreateDb) {
+        btnRecreateDb.disabled = true;
+        btnRecreateDb.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> SUPPRESSION EN COURS...';
+    }
+    
+    fetch('/api/recreate_db_file', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast("Base de données database.db récréée avec succès !", "success");
+            closeSettingsModal();
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        } else {
+            showToast("Erreur lors de la récréation : " + data.message, "error");
+            if (btnRecreateDb) {
+                btnRecreateDb.disabled = false;
+                btnRecreateDb.innerHTML = '<i class="fa-solid fa-trash-can"></i> SUPPRIMER DATABASE.DB ET CRÉER UNE NOUVELLE';
+            }
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        showToast("Une erreur de communication est survenue.", "error");
+        if (btnRecreateDb) {
+            btnRecreateDb.disabled = false;
+            btnRecreateDb.innerHTML = '<i class="fa-solid fa-trash-can"></i> SUPPRIMER DATABASE.DB ET CRÉER UNE NOUVELLE';
+        }
+    });
+}
+
 
 // Reset Vendeur/Secteur filters to Global view
 function resetSelection() {
@@ -5738,7 +6285,7 @@ function updateDropdownHighlight(items) {
 }
 
 // Cybernetic Toast notification system
-function showToast(message, type = 'info', duration = 3000) {
+function showToast(message, type = 'info', duration = 0) {
     // 1. Get or create toast container
     let container = document.getElementById('global-toast-container');
     if (!container) {
@@ -5761,11 +6308,13 @@ function showToast(message, type = 'info', duration = 3000) {
     let contentHtml = `
         <span class="toast-icon"><i class="fa-solid ${iconClass}"></i></span>
         <span class="toast-message" style="flex-grow: 1;">${message}</span>
+        <button class="toast-close-x-btn" aria-label="Fermer" style="background: transparent; border: none; color: inherit; font-size: 1.1rem; cursor: pointer; margin-left: 0.5rem; padding: 0 4px; opacity: 0.8;">&times;</button>
     `;
     if (type === 'loading') {
         contentHtml = `
             <div class="cyber-spinner" style="width: 18px; height: 18px; border-width: 2.5px; margin-right: 8px; flex-shrink: 0;"></div>
             <span class="toast-message" style="flex-grow: 1;">${message}</span>
+            <button class="toast-close-x-btn" aria-label="Fermer" style="background: transparent; border: none; color: inherit; font-size: 1.1rem; cursor: pointer; margin-left: 0.5rem; padding: 0 4px; opacity: 0.8;">&times;</button>
         `;
     }
     
@@ -5786,12 +6335,23 @@ function showToast(message, type = 'info', duration = 3000) {
             }
         }, 400);
     };
+
+    const xBtn = toast.querySelector('.toast-close-x-btn');
+    if (xBtn) {
+        xBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (autoCloseTimer) clearTimeout(autoCloseTimer);
+            closeHandle();
+        });
+    }
+
     
-    // Auto close non-loading toasts after duration
+    // Auto close non-loading toasts only if duration is explicitly passed (> 0)
     let autoCloseTimer = null;
     if (type !== 'loading' && duration > 0) {
         autoCloseTimer = setTimeout(closeHandle, duration);
     }
+
     
     return {
         element: toast,
@@ -6903,8 +7463,8 @@ function sendReportViaWhatsapp(phone, format) {
                 const text = "Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance sous forme d'image (faites Ctrl+V pour la coller et l'envoyer dans WhatsApp) :\n\nCordialement,\n— KPI Analytics";
                 const encoded = encodeURIComponent(text);
                 let url;
-                if (phone && /^\+?\d{6,}$/.test(phone.replace(/[\s-]/g, ''))) {
-                    const cleanPhone = phone.replace(/[\s+\-]/g, '');
+                const cleanPhone = normalizePhoneForWhatsapp(phone);
+                if (cleanPhone) {
                     url = `https://wa.me/${cleanPhone}?text=${encoded}`;
                 } else {
                     url = `https://wa.me/?text=${encoded}`;
@@ -6922,8 +7482,8 @@ function sendReportViaWhatsapp(phone, format) {
     }
     const encoded = encodeURIComponent(text);
     let url;
-    if (phone && /^\+?\d{6,}$/.test(phone.replace(/[\s-]/g, ''))) {
-        const cleanPhone = phone.replace(/[\s+\-]/g, '');
+    const cleanPhone = normalizePhoneForWhatsapp(phone);
+    if (cleanPhone) {
         url = `https://wa.me/${cleanPhone}?text=${encoded}`;
     } else {
         url = `https://wa.me/?text=${encoded}`;
@@ -7236,8 +7796,8 @@ function sendReportPdfViaWhatsapp(phone) {
                 // Open WhatsApp with the short pointer message
                 const encoded = encodeURIComponent(shortMsg);
                 let waUrl;
-                if (phone && /^\+?\d{6,}$/.test(phone.replace(/[\s-]/g, ''))) {
-                    const cleanPhone = phone.replace(/[\s+\-]/g, '');
+                const cleanPhone = normalizePhoneForWhatsapp(phone);
+                if (cleanPhone) {
                     waUrl = `https://wa.me/${cleanPhone}?text=${encoded}`;
                 } else {
                     waUrl = `https://wa.me/?text=${encoded}`;

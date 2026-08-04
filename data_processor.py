@@ -540,53 +540,55 @@ class ExcelProcessor:
         
         if os.path.exists(self.focus_path):
             try:
-                # Load Focus VMM
-                df_focus_vmm = pd.read_excel(self.focus_path, sheet_name="Focus VMM")
-                # Clean and parse rows
-                for _, row in df_focus_vmm.iterrows():
-                    vendeur = row.iloc[0]
-                    secteur = row.iloc[1]
-                    if pd.isna(secteur) or str(secteur).strip().lower() == 'nan':
-                        continue
-                    
-                    dn_fin_mai = row.iloc[2]
-                    obj_juin = row.iloc[3]
-                    nb_clients = row.iloc[4]
-                    
-                    obj_acm = row.iloc[5]
-                    percent = row.iloc[6]
-                    realise = row.iloc[7]
-                    rest = row.iloc[8]
-                    jour_rest = row.iloc[9]
-                    rest_jour = row.iloc[10]
-                    
-                    # Compute ACM Objective safely in Python
-                    try:
-                        nb_clients = float(nb_clients) if not pd.isna(nb_clients) else 0.0
-                        obj_juin = float(obj_juin) if not pd.isna(obj_juin) else 0.0
-                        obj_acm_val = nb_clients * obj_juin
-                    except Exception:
-                        obj_acm_val = 0.0
+                xl_f = pd.ExcelFile(self.focus_path)
+                sheet_vmm_name = next((s for s in xl_f.sheet_names if "VMM" in s.upper()), None)
+                if sheet_vmm_name:
+                    df_focus_vmm = xl_f.parse(sheet_vmm_name)
+                    # Clean and parse rows
+                    for _, row in df_focus_vmm.iterrows():
+                        vendeur = row.iloc[0]
+                        secteur = row.iloc[1]
+                        if pd.isna(secteur) or str(secteur).strip().lower() == 'nan':
+                            continue
                         
-                    # Safely convert to float
-                    def to_float(val, fallback=0.0):
-                        if pd.isna(val) or isinstance(val, str):
-                            return fallback
-                        return float(val)
+                        dn_fin_mai = row.iloc[2]
+                        obj_juin = row.iloc[3]
+                        nb_clients = row.iloc[4] if len(row) > 4 else 0
+                        
+                        obj_acm = row.iloc[5] if len(row) > 5 else 0
+                        percent = row.iloc[6] if len(row) > 6 else 0
+                        realise = row.iloc[7] if len(row) > 7 else 0
+                        rest = row.iloc[8] if len(row) > 8 else 0
+                        jour_rest = row.iloc[9] if len(row) > 9 else 20
+                        rest_jour = row.iloc[10] if len(row) > 10 else 0
+                        
+                        # Compute ACM Objective safely in Python
+                        try:
+                            nb_clients = float(nb_clients) if not pd.isna(nb_clients) else 0.0
+                            obj_juin = float(obj_juin) if not pd.isna(obj_juin) else 0.0
+                            obj_acm_val = nb_clients * obj_juin
+                        except Exception:
+                            obj_acm_val = 0.0
+                            
+                        # Safely convert to float
+                        def to_float(val, fallback=0.0):
+                            if pd.isna(val) or isinstance(val, str):
+                                return fallback
+                            return float(val)
 
-                    focus_vmm_data.append({
-                        "vendeur": str(vendeur).strip() if pd.notna(vendeur) else "",
-                        "secteur": str(secteur).strip(),
-                        "dn_fin_mai": to_float(dn_fin_mai),
-                        "obj_juin": to_float(obj_juin),
-                        "nb_clients": int(to_float(nb_clients)),
-                        "obj_acm": int(to_float(obj_acm, obj_acm_val)),
-                        "percent": to_float(percent),
-                        "realise": to_float(realise),
-                        "rest": to_float(rest),
-                        "jour_rest": int(to_float(jour_rest, 20)),
-                        "rest_jour": to_float(rest_jour)
-                    })
+                        focus_vmm_data.append({
+                            "vendeur": str(vendeur).strip() if pd.notna(vendeur) else "",
+                            "secteur": str(secteur).strip(),
+                            "dn_fin_mai": to_float(dn_fin_mai),
+                            "obj_juin": to_float(obj_juin),
+                            "nb_clients": int(to_float(nb_clients)),
+                            "obj_acm": int(to_float(obj_acm, obj_acm_val)),
+                            "percent": to_float(percent),
+                            "realise": to_float(realise),
+                            "rest": to_float(rest),
+                            "jour_rest": int(to_float(jour_rest, 20)),
+                            "rest_jour": to_float(rest_jour)
+                        })
             except Exception as e:
                 import traceback
                 print("Error parsing Focus VMM:")
@@ -594,20 +596,24 @@ class ExcelProcessor:
                 
             try:
                 # Load Focus SOM
-                df_focus_som = pd.read_excel(self.focus_path, sheet_name="Focus SOM")
+                sheet_som_name = next((s for s in xl_f.sheet_names if "SOM" in s.upper()), None) if 'xl_f' in locals() else None
+                if sheet_som_name:
+                    df_focus_som = xl_f.parse(sheet_som_name)
+
                 for _, row in df_focus_som.iterrows():
                     vendeur = row.iloc[0]
                     secteur = row.iloc[1]
                     if pd.isna(secteur) or str(secteur).strip().lower() == 'nan':
                         continue
                         
-                    glace_ht = row.iloc[2]
-                    ttc = row.iloc[3]
-                    percent = row.iloc[4]
-                    realise = row.iloc[5]
-                    rest = row.iloc[6]
-                    rest_jour = row.iloc[8] # Column index 8 has the daily RAF value (e.g. 334.87)
-                    jour_rest = row.iloc[7] # Column index 7 has the remaining days value (e.g. 21)
+                    glace_ht = row.iloc[2] if len(row) > 2 else 0
+                    ttc = row.iloc[3] if len(row) > 3 else 0
+                    percent = row.iloc[4] if len(row) > 4 else 0
+                    realise = row.iloc[5] if len(row) > 5 else 0
+                    rest = row.iloc[6] if len(row) > 6 else 0
+                    jour_rest = row.iloc[7] if len(row) > 7 else 20
+                    rest_jour = row.iloc[8] if len(row) > 8 else 0
+
                     
                     try:
                         glace_val = float(glace_ht) if pd.notna(glace_ht) else 0.0

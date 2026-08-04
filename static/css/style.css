@@ -5984,3 +5984,46 @@ body.light-mode .anomaly-date-chip {
     font-size: 0.72rem;
     font-weight: 600;
 }
+
+/* ====================================================
+   CLIENTS A FACTURER V2 -- Tournee card styles
+   ==================================================== */
+.af2-tournee-card {
+    width: 100%;
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    background: rgba(0, 242, 254, 0.04);
+    border: 1px solid rgba(0, 242, 254, 0.14);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-family: inherit;
+}
+.af2-tournee-card:hover {
+    background: rgba(0, 242, 254, 0.11);
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 8px rgba(0, 242, 254, 0.15);
+}
+.af2-tournee-card.af2-active {
+    background: rgba(0, 242, 254, 0.18) !important;
+    border-color: var(--neon-cyan) !important;
+    box-shadow: 0 0 12px rgba(0, 242, 254, 0.25) !important;
+}
+.af2-mode-btn {
+    clip-path: none !important;
+    border-radius: 5px !important;
+    transition: all 0.2s ease !important;
+}
+#af2-tournees-list {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 242, 254, 0.3) transparent;
+}
+#af2-tournees-list::-webkit-scrollbar { width: 4px; }
+#af2-tournees-list::-webkit-scrollbar-track { background: transparent; }
+#af2-tournees-list::-webkit-scrollbar-thumb {
+    background: rgba(0, 242, 254, 0.3);
+    border-radius: 2px;
+}

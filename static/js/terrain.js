@@ -575,8 +575,16 @@ function renderTerrainAnomalies() {
         if (res.missingCount === 0) {
             actionCell = `<span class="rp-wa-ok-badge" title="Aucun rappel nécessaire"><i class="fa-solid fa-check"></i> Conforme</span>`;
         } else {
-            const rawPhone = terrainVendeurPhones[res.vendeur] || terrainVendeurPhones[getVendeurCode(res.vendeur)] || "";
-            const phoneDigits = rawPhone.replace(/\D/g, '');
+            let rawPhone = res.telephone || res.whatsapp || "";
+            let phoneDigits = rawPhone.replace(/\D/g, '');
+
+            if (phoneDigits.startsWith('212') && phoneDigits.length >= 11) {
+                // already formatted
+            } else if (phoneDigits.startsWith('0')) {
+                phoneDigits = '212' + phoneDigits.slice(1);
+            } else if (phoneDigits.length === 9) {
+                phoneDigits = '212' + phoneDigits;
+            }
             const datesListStr = res.missingDates.map(d => `- ${d.dayName} ${d.dateStr}`).join('\n');
             const message = `Bonjour ${res.vendeur},\n\nSauf erreur de notre part, nous constatons qu'il manque ${res.missingCount} déclaration(s) terrain pour le mois de ${selectedMonthName} (dimanches exclus) aux dates suivantes :\n${datesListStr}\n\nMerci de régulariser vos déclarations au plus vite.`;
             const waHref = phoneDigits ? `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}` : `https://wa.me/?text=${encodeURIComponent(message)}`;

@@ -1114,15 +1114,28 @@
         })
         .then(response => response.json())
         .then(res => {
+
             if (res.status === 'success') {
                 if (window.showToast) {
                     window.showToast(res.message, "success");
+                    if (res.ai_analysis) {
+                        setTimeout(() => {
+                            window.showToast("🤖 " + res.ai_analysis, "info");
+                        }, 800);
+                    }
+                }
+                if (res.som_product || res.vmm_product) {
+                    if (typeof focusNames === 'object' && focusNames !== null) {
+                        if (res.som_product) focusNames.SOM = res.som_product;
+                        if (res.vmm_product) focusNames.VMM = res.vmm_product;
+                    }
                 }
                 if (callback) callback();
                 // Reload data and historical trend to reflect new objectives
                 loadFocusData();
                 loadFocusTrendData();
             } else {
+
                 if (window.showToast) {
                     window.showToast(res.message || "Erreur lors de l'importation.", "error");
                 }

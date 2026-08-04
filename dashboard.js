@@ -307,6 +307,11 @@ function setupEventListeners() {
     if (btnResetSelected) {
         btnResetSelected.addEventListener('click', handleSelectedTablesReset);
     }
+    const btnRecreateDb = document.getElementById('btn-recreate-db-file');
+    if (btnRecreateDb) {
+        btnRecreateDb.addEventListener('click', handleRecreateDatabaseFile);
+    }
+
 
 
 
@@ -1173,6 +1178,53 @@ function handleSelectedTablesReset() {
         checkboxes.forEach(cb => cb.disabled = false);
     });
 }
+
+// Delete database.db file from disk and recreate a clean database
+function handleRecreateDatabaseFile() {
+    const warningMsg = "⚠️ ATTENTION : ACTION CRITIQUE !\n\nVous allez SUPPRIMER le fichier database.db et créer une nouvelle base de données totalement vide avec les schémas par défaut.\n\nToutes les données enregistrées dans database.db seront définitivement effacées.\n\nÊtes-vous absolument sûr de vouloir continuer ?";
+    
+    if (!confirm(warningMsg)) {
+        return;
+    }
+    
+    const btnRecreateDb = document.getElementById('btn-recreate-db-file');
+    if (btnRecreateDb) {
+        btnRecreateDb.disabled = true;
+        btnRecreateDb.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> SUPPRESSION EN COURS...';
+    }
+    
+    fetch('/api/recreate_db_file', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast("Base de données database.db récréée avec succès !", "success");
+            closeSettingsModal();
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        } else {
+            showToast("Erreur lors de la récréation : " + data.message, "error");
+            if (btnRecreateDb) {
+                btnRecreateDb.disabled = false;
+                btnRecreateDb.innerHTML = '<i class="fa-solid fa-trash-can"></i> SUPPRIMER DATABASE.DB ET CRÉER UNE NOUVELLE';
+            }
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        showToast("Une erreur de communication est survenue.", "error");
+        if (btnRecreateDb) {
+            btnRecreateDb.disabled = false;
+            btnRecreateDb.innerHTML = '<i class="fa-solid fa-trash-can"></i> SUPPRIMER DATABASE.DB ET CRÉER UNE NOUVELLE';
+        }
+    });
+}
+
 
 
 
@@ -2231,9 +2283,10 @@ function showToast(message, type = 'info') {
     }
 
     backdrop.innerHTML = `
-        <div class="cyber-modal ${borderClass}" style="max-width: 450px; width: 90%;">
-            <div class="modal-header">
+        <div class="cyber-modal ${borderClass}" style="max-width: 450px; width: 90%; position: relative;">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
                 <h3 class="${titleClass}"><i class="fa-solid ${iconClass}"></i> ${title}</h3>
+                <button class="close-btn popup-x-close-btn" aria-label="Fermer" style="background: transparent; border: none; font-size: 1.5rem; color: var(--text-muted); cursor: pointer; padding: 0 0.5rem; transition: color 0.2s;">&times;</button>
             </div>
             <div class="modal-body" style="padding: 1.5rem; text-align: center;">
                 <p style="font-family: var(--font-mono); font-size: 0.95rem; margin-bottom: 1.5rem; line-height: 1.5; color: var(--text-main);">${message}</p>
@@ -2244,16 +2297,23 @@ function showToast(message, type = 'info') {
     
     document.body.appendChild(backdrop);
     
+    const closePopup = () => {
+        backdrop.classList.remove('open');
+        setTimeout(() => {
+            backdrop.remove();
+        }, 300);
+    };
+
     const okBtn = backdrop.querySelector('#popup-ok-btn');
     if (okBtn) {
         okBtn.focus();
-        okBtn.addEventListener('click', () => {
-            backdrop.classList.remove('open');
-            setTimeout(() => {
-                backdrop.remove();
-            }, 300);
-        });
+        okBtn.addEventListener('click', closePopup);
     }
+    const closeXBtn = backdrop.querySelector('.popup-x-close-btn');
+    if (closeXBtn) {
+        closeXBtn.addEventListener('click', closePopup);
+    }
+
 }
 
 // Variable to track veo animation state
