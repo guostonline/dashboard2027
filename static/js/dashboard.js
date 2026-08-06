@@ -5075,20 +5075,17 @@ function renderFamillesGrid(records) {
         const objGlobal = data.obj;
         const objPartiel = Math.round(objGlobal * prorataRatio);
 
-        // Percent vs Obj Partiel
+        const devPct = objGlobal > 0 ? Math.round(((real - objGlobal) / objGlobal) * 100) : 0;
+        const devSign = devPct >= 0 ? '+' : '';
+        const devText = objGlobal > 0 ? `${devSign}${devPct}%` : (real > 0 ? '#DIV/0!' : '0%');
+        const pctAchieved = objGlobal > 0 ? Math.round((real / objGlobal) * 100) : (real > 0 ? 100 : 0);
+
+        // Percent vs Obj Partiel for prorata comparison
         let pctPartiel = 0;
         if (objPartiel > 0) {
             pctPartiel = Math.round((real / objPartiel) * 100);
         } else if (real > 0) {
             pctPartiel = 100;
-        }
-
-        // Percent vs Obj Global
-        let pctGlobal = 0;
-        if (objGlobal > 0) {
-            pctGlobal = Math.round((real / objGlobal) * 100);
-        } else if (real > 0) {
-            pctGlobal = 100;
         }
 
         // RAF Total & RAF Jour
@@ -5100,26 +5097,26 @@ function renderFamillesGrid(records) {
             rafJour = rafTotal;
         }
 
-        // Visual Colors & Classes
+        // Visual Colors & Classes based on deviation % (matching Excel)
         let pctClass = 'neon-text-pink';
         let fillClass = 'pink-fill';
-        let badgeBg = 'rgba(236, 72, 153, 0.15)';
-        let badgeColor = 'var(--neon-pink)';
+        let badgeBg = 'rgba(239, 68, 68, 0.2)';
+        let badgeColor = '#dc2626';
 
-        if (pctPartiel >= 100) {
+        if (devPct >= 0) {
             pctClass = 'neon-text-green';
             fillClass = 'green-fill';
-            badgeBg = 'rgba(34, 197, 94, 0.15)';
-            badgeColor = 'var(--neon-green)';
-        } else if (pctPartiel >= 80) {
+            badgeBg = 'rgba(34, 197, 94, 0.18)';
+            badgeColor = '#15803d';
+        } else if (devPct >= -20) {
             pctClass = 'neon-text-amber';
             fillClass = 'amber-fill';
-            badgeBg = 'rgba(245, 158, 11, 0.15)';
-            badgeColor = 'var(--neon-amber)';
+            badgeBg = 'rgba(245, 158, 11, 0.18)';
+            badgeColor = '#b45309';
         }
 
         const isCa = fam.toUpperCase().includes('C.A');
-        const cardGlow = isCa ? 'glow-blue' : (pctPartiel >= 100 ? 'glow-green' : (pctPartiel >= 80 ? 'glow-amber' : 'glow-pink'));
+        const cardGlow = isCa ? 'glow-blue' : (devPct >= 0 ? 'glow-green' : (devPct >= -20 ? 'glow-amber' : 'glow-pink'));
         const displayFamName = (fam === 'SAUCES') ? 'SAUCES TACOS' : fam;
 
         // Get individual vendor rows for this family (matching Excel image2)
@@ -5140,14 +5137,14 @@ function renderFamillesGrid(records) {
                 let vBadgeColor = '#be185d';
 
                 if (vObjGlobal > 0) {
-                    const devPct = Math.round(((vReal - vObjGlobal) / vObjGlobal) * 100);
-                    const devSign = devPct >= 0 ? '+' : '';
-                    vPctText = `${devSign}${devPct}%`;
+                    const vDevPct = Math.round(((vReal - vObjGlobal) / vObjGlobal) * 100);
+                    const vDevSign = vDevPct >= 0 ? '+' : '';
+                    vPctText = `${vDevSign}${vDevPct}%`;
 
-                    if (devPct >= 0) {
+                    if (vDevPct >= 0) {
                         vBadgeBg = 'rgba(34, 197, 94, 0.18)';
                         vBadgeColor = '#15803d';
-                    } else if (devPct >= -20) {
+                    } else if (vDevPct >= -20) {
                         vBadgeBg = 'rgba(245, 158, 11, 0.18)';
                         vBadgeColor = '#b45309';
                     } else {
@@ -5220,26 +5217,26 @@ function renderFamillesGrid(records) {
                     <i class="fa-solid fa-tag neon-text-blue" style="font-size: 0.8rem;"></i> ${displayFamName}
                 </span>
                 <span style="background: ${badgeBg}; color: ${badgeColor}; font-size: 0.7rem; font-weight: 800; padding: 0.2rem 0.55rem; border-radius: 4px; font-family: var(--font-mono); white-space: nowrap;">
-                    ${pctPartiel}%
+                    ${devText}
                 </span>
             </div>
 
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-top: 0.5rem;">
                 <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
                     <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Réalisé</div>
                     <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: var(--neon-blue); margin-top: 2px;">${formatNumber(real)} DH</div>
                 </div>
 
                 <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
-                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Obj. Partiel</div>
-                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-main); margin-top: 2px;">${formatNumber(objPartiel)} DH</div>
-                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">Glob: ${formatNumber(objGlobal)} DH</div>
+                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Objectif (OBJ)</div>
+                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-main); margin-top: 2px;">${formatNumber(objGlobal)} DH</div>
+                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">Partiel: ${formatNumber(objPartiel)} DH</div>
                 </div>
 
                 <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
-                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Taux / Obj Partiel</div>
-                    <div class="${pctClass}" style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); margin-top: 2px;">${pctPartiel}%</div>
-                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">vs Glob: ${pctGlobal}%</div>
+                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">% Écart (OBJ)</div>
+                    <div class="${pctClass}" style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); margin-top: 2px;">${devText}</div>
+                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">Taux: ${pctAchieved}%</div>
                 </div>
 
                 <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
@@ -5249,13 +5246,13 @@ function renderFamillesGrid(records) {
                 </div>
             </div>
 
-            <div style="margin-top: 0.15rem;">
+            <div style="margin-top: 0.4rem;">
                 <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: var(--text-muted); margin-bottom: 0.2rem;">
-                    <span>Progression Partielle</span>
-                    <span class="${pctClass}" style="font-weight: 700;">${pctPartiel}%</span>
+                    <span>Taux d'Atteinte de l'Objectif</span>
+                    <span class="${pctClass}" style="font-weight: 700;">${pctAchieved}%</span>
                 </div>
                 <div class="progress-bar-container" style="height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
-                    <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(pctPartiel, 100)}%; height: 100%;"></div>
+                    <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(pctAchieved, 100)}%; height: 100%;"></div>
                 </div>
             </div>
 
