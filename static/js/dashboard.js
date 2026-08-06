@@ -13061,11 +13061,11 @@ function renderChakibFocusProgress(historyData, settings, totalDays, focusNames)
 
         return `
             <div style="display: flex; gap: 0.3rem; justify-content: flex-end; align-items: center;">
-                <span style="background: ${globBg}; color: ${globClass}; padding: 0.12rem 0.35rem; border-radius: 3px; font-size: 0.68rem; font-weight: 700;" title="Écart Global vs Mois Complet">
-                    ${globSign}${devGlob}% Glob
+                <span style="background: ${globBg}; color: ${globClass}; padding: 0.12rem 0.35rem; border-radius: 3px; font-size: 0.68rem; font-weight: 700;" title="Écart Global vs Mois Complet: ${globSign}${devGlob}%">
+                    ${globSign}${devGlob}%
                 </span>
-                <span style="background: ${partBg}; color: ${partClass}; padding: 0.12rem 0.35rem; border-radius: 3px; font-size: 0.68rem; font-weight: 700;" title="Écart Partiel vs Objectif à Date">
-                    ${partSign}${devPart}% Part
+                <span style="background: ${partBg}; color: ${partClass}; padding: 0.12rem 0.35rem; border-radius: 3px; font-size: 0.68rem; font-weight: 700;" title="Écart Partiel vs Objectif à Date: ${partSign}${devPart}%">
+                    ${partSign}${devPart}%
                 </span>
             </div>
         `;
