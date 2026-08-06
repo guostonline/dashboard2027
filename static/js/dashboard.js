@@ -5039,17 +5039,17 @@ function renderFamillesGrid(records) {
     });
 
     const customOrder = [
-        "C.A (TTC)",
         "C.A (HT)",
+        "C.A (TTC)",
         "LEVURE",
         "MGM",
-        "MOUSSES",
         "BOUILLON",
         "CONDIMENTS",
         "SAUCES TACOS",
         "SAUCES",
-        "CONFITURE",
         "CONSERVES",
+        "MOUSSES",
+        "CONFITURE",
         "MISWAK"
     ];
 
@@ -5211,6 +5211,9 @@ function renderFamillesGrid(records) {
 
         const card = document.createElement('div');
         card.className = `cyber-card famille-card-3col ${cardGlow}`;
+        if (isCa) {
+            card.style.gridColumn = '1 / -1';
+        }
         card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.55rem;">
                 <span style="font-weight: 700; font-size: 0.88rem; font-family: var(--font-mono); color: var(--text-main); display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
