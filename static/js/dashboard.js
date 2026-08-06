@@ -4745,8 +4745,8 @@ function updateDashboard() {
         tableQuanti = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === targetNameUpper);
     }
     renderQuantiTable(quantiRecords);
-    renderFamillesGrid(quantiRecords);
-    renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryData, (dashboardData && dashboardData.vendeur_activites) ? dashboardData.vendeur_activites : {});
+    const fHistData = (typeof focusHistoryData !== 'undefined') ? focusHistoryData : (window.focusHistoryData || (dashboardData && dashboardData.focusHistoryData) || null);
+    renderVendeursScorecardTable(quantiRecords, qualiRecords, fHistData, (dashboardData && dashboardData.vendeur_activites) ? dashboardData.vendeur_activites : {});
     renderQualiTable(qualiRecords);
 
     // 5. Render Focus

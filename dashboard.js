@@ -2,15 +2,2414 @@
    MADEC KPI Dashboard JS - Cyberpunk Tech Theme
    ---------------------------------------------------- */
 
+// Global Phone Normalization Helper for WhatsApp (wa.me)
+function normalizePhoneForWhatsapp(phone) {
+    if (!phone) return '';
+    let digits = phone.toString().replace(/[^0-9]/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('212') && digits.length >= 11) {
+        return digits;
+    }
+    if (digits.startsWith('0')) {
+        return '212' + digits.substring(1);
+    }
+    if (digits.length === 9) {
+        return '212' + digits;
+    }
+    return digits;
+}
+
 // Global State
+let rawDashboardData = null;
 let dashboardData = null;
-let currentSelection = { type: 'global', name: '' }; // 'global', 'vendeur', 'secteur'
+let rawTrendsData = null;
+let trendsData = null;
+let currentTaxMode = localStorage.getItem('taxMode') || 'TTC'; // 'TTC' or 'HT'
+let currentSelection = { type: 'global', name: '' }
+
+async function initClientsFacturationView() {
+    const dateSelect = document.getElementById('cf-facturation-date');
+    if (!dateSelect) return;
+
+    // 1. Fetch available dates if we haven't already
+    if (!availableDates || availableDates.length === 0) {
+        await new Promise((resolve) => {
+            fetch('/api/suivi_dates?_=' + Date.now())
+                .then(response => response.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        availableDates = (res.dates && res.dates.length > 0) ? res.dates : [];
+                    }
+                    resolve();
+                })
+                .catch(() => resolve());
+        });
+    }
+
+    if (availableDates.length === 0) {
+        // Fallback if no dates
+        dateSelect.innerHTML = '<option value="default">Aucune donnée</option>';
+        return;
+    }
+
+    // 2. Populate date dropdown
+    if (dateSelect.children.length === 0) {
+        dateSelect.innerHTML = '';
+        availableDates.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d;
+            const parts = d.split('-');
+            const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+            opt.innerText = formatted;
+            dateSelect.appendChild(opt);
+        });
+        dateSelect.value = availableDates[0];
+    }
+
+    const loadFacturationData = async () => {
+        const selectedDate = dateSelect.value;
+        const categorySelect = document.getElementById('category-select');
+        const category = categorySelect ? categorySelect.value : 'All';
+
+        const tbody = document.getElementById('cf-facturation-tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Chargement des données...</td></tr>';
+        }
+
+        try {
+            const res = await fetch(`/api/data?date=${encodeURIComponent(selectedDate)}&category=${encodeURIComponent(category)}&_=${Date.now()}`);
+            const data = await res.json();
+            
+            if (data.status === 'success' && data.data && data.data.qualitative) {
+                const qualitative = data.data.qualitative;
+                
+                // If qualitative is empty
+                if (qualitative.length === 0) {
+                    if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Aucune donnée qualitative pour cette catégorie et date.</td></tr>';
+                    
+                    document.getElementById('cf-fact-prog').innerText = '0';
+                    document.getElementById('cf-fact-real').innerText = '0';
+                    document.getElementById('cf-fact-fail').innerText = '0';
+                    document.getElementById('cf-fact-acm').innerText = '0%';
+                    document.getElementById('cf-fact-tsm').innerText = '0%';
+                    
+                    if (clientsFacturationChartInstance) {
+                        clientsFacturationChartInstance.destroy();
+                        clientsFacturationChartInstance = null;
+                    }
+                    return;
+                }
+
+                // Compute KPI aggregates
+                let totalProg = 0;
+                let totalReal = 0;
+                let sumWeightedTsm = 0;
+                
+                qualitative.forEach(item => {
+                    const prog = parseInt(item.clt_programme) || 0;
+                    const real = parseInt(item.clt_facture) || 0;
+                    const tsm = parseFloat(item.tsm) || 0.0;
+                    
+                    totalProg += prog;
+                    totalReal += real;
+                    sumWeightedTsm += (prog * tsm);
+                });
+
+                const avgAcm = totalProg > 0 ? Math.round((totalReal / totalProg) * 100) : 0;
+                const avgTsm = totalProg > 0 ? Math.round((sumWeightedTsm / totalProg) * 100) : 0;
+
+                document.getElementById('cf-fact-prog').innerText = totalProg;
+                document.getElementById('cf-fact-real').innerText = totalReal;
+                document.getElementById('cf-fact-fail').innerText = totalProg - totalReal;
+                document.getElementById('cf-fact-acm').innerText = `${avgAcm}%`;
+                document.getElementById('cf-fact-tsm').innerText = `${avgTsm}%`;
+
+                // Render Table rows
+                if (tbody) {
+                    tbody.innerHTML = '';
+                    qualitative.forEach(r => {
+                        const tr = document.createElement('tr');
+                        tr.style.cursor = 'pointer';
+                        tr.title = `Cliquez pour voir le rapport de visites détaillé de ${r.vendeur}`;
+                        
+                        const acmPct = Math.round((r.acm || 0) * 100);
+                        const tsmPct = Math.round((r.tsm || 0) * 100);
+                        const linePct = Math.round((r.line || 0) * 100);
+
+                        const acmClass = acmPct >= 80 ? 'neon-text-green' : (acmPct >= 50 ? 'neon-text-amber' : 'neon-text-pink');
+                        const tsmClass = tsmPct >= 80 ? 'neon-text-green' : (tsmPct >= 50 ? 'neon-text-amber' : 'neon-text-pink');
+                        
+                        tr.innerHTML = `
+                            <td><strong>${r.vendeur}</strong></td>
+                            <td>${r.clt_programme}</td>
+                            <td class="neon-text-blue">${r.clt_facture}</td>
+                            <td class="${acmClass}"><strong>${acmPct}%</strong></td>
+                            <td class="${tsmClass}"><strong>${tsmPct}%</strong></td>
+                            <td>${linePct}%</td>
+                            <td class="neon-text-pink">${r.raf_tsm}</td>
+                            <td class="neon-text-amber">${r.raf_acm}</td>
+                        `;
+                        
+                        tr.addEventListener('click', async () => {
+                            Array.from(tbody.children).forEach(child => {
+                                child.style.backgroundColor = '';
+                                child.style.borderLeft = '';
+                            });
+                            tr.style.backgroundColor = 'rgba(0, 242, 254, 0.08)';
+                            tr.style.borderLeft = '2px solid var(--neon-blue)';
+                            
+                            try {
+                                showToast(`Chargement des visites pour ${r.vendeur}...`, "info");
+                                const dateVal = dateSelect.value;
+                                const response = await fetch(`/api/clients/visites?vendeur=${encodeURIComponent(r.vendeur)}&date=${encodeURIComponent(dateVal)}&_=${Date.now()}`);
+                                const res = await response.json();
+                                if (res.status === 'success' && res.data) {
+                                    renderDetailedVisitsReport(res.data);
+                                    const sec = document.getElementById('cf-details-visites-section');
+                                    if (sec) sec.scrollIntoView({ behavior: 'smooth' });
+                                } else {
+                                    showToast(res.message || "Aucun rapport de visites détaillé disponible pour ce vendeur à cette date.", "warning");
+                                    const section = document.getElementById('cf-details-visites-section');
+                                    if (section) section.style.display = 'none';
+                                }
+                            } catch (err) {
+                                console.error(err);
+                                showToast("Erreur lors de la récupération des visites.", "error");
+                            }
+                        });
+                        
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                // Render Chart
+                const labels = qualitative.map(r => r.vendeur.split(' ').slice(1).join(' ') || r.vendeur); // Remove code prefix if possible
+                const progData = qualitative.map(r => r.clt_programme);
+                const realData = qualitative.map(r => r.clt_facture);
+
+                const ctx = document.getElementById('cf-facturation-chart');
+                if (ctx) {
+                    if (clientsFacturationChartInstance) {
+                        clientsFacturationChartInstance.destroy();
+                    }
+
+                    const neonBlue = 'rgba(0, 242, 254, 1)';
+                    const neonPink = 'rgba(255, 45, 85, 1)';
+                    const gridColor = 'rgba(255, 255, 255, 0.05)';
+                    const textColor = '#94a3b8';
+
+                    clientsFacturationChartInstance = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                {
+                                    label: 'Clients Programmés',
+                                    data: progData,
+                                    backgroundColor: 'rgba(0, 242, 254, 0.25)',
+                                    borderColor: neonBlue,
+                                    borderWidth: 1.5,
+                                    borderRadius: 4,
+                                },
+                                {
+                                    label: 'Clients Facturés',
+                                    data: realData,
+                                    backgroundColor: 'rgba(255, 45, 85, 0.25)',
+                                    borderColor: neonPink,
+                                    borderWidth: 1.5,
+                                    borderRadius: 4,
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    labels: {
+                                        color: textColor,
+                                        font: { family: 'JetBrains Mono', size: 10 }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    grid: { color: gridColor },
+                                    ticks: {
+                                        color: textColor,
+                                        font: { family: 'JetBrains Mono', size: 9 }
+                                    }
+                                },
+                                y: {
+                                    grid: { color: gridColor },
+                                    ticks: {
+                                        color: textColor,
+                                        font: { family: 'JetBrains Mono', size: 9 }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            } else {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-pink);">Erreur de chargement des données.</td></tr>';
+            }
+        } catch (err) {
+            console.error("Error loading facturation data:", err);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-pink);">Erreur de communication avec le serveur.</td></tr>';
+        }
+    };
+
+    // Bind date change
+    dateSelect.onchange = loadFacturationData;
+
+    // Bind category select changes
+    const categorySelect = document.getElementById('category-select');
+    if (categorySelect) {
+        categorySelect.addEventListener('change', loadFacturationData);
+    }
+
+    // ===== UPLOAD VISITES EVENT BINDINGS =====
+    const importBtn = document.getElementById('cf-import-visites-btn');
+    const uploadModal = document.getElementById('visites-upload-modal');
+
+    if (importBtn) {
+        importBtn.addEventListener('click', () => {
+            initVisitesUploadModal();
+            if (typeof window.resetVisitesUploadForm === 'function') {
+                window.resetVisitesUploadForm();
+            }
+            window.visitesUploadCallback = null;
+            if (uploadModal) uploadModal.classList.add('open');
+        });
+    }
+
+    // Modal result logic moved to global scope
+
+    // ===== COMPARE VISITES EVENT BINDINGS =====
+    const compareBtn = document.getElementById('cf-compare-visites-btn');
+    const compareUploadModal = document.getElementById('visites-compare-upload-modal');
+    const closeCompareUploadModalBtn = document.getElementById('close-visites-compare-upload-modal');
+    const cancelCompareUploadBtn = document.getElementById('cancel-visites-compare-upload');
+    const submitCompareUploadBtn = document.getElementById('submit-visites-compare-upload');
+
+    const compareResultModal = document.getElementById('visites-compare-result-modal');
+    const closeCompareResultModalBtn = document.getElementById('close-visites-compare-result-modal');
+    const closeCompareResultActionBtn = document.getElementById('close-visites-compare-result-action');
+
+    const compareInputs = [
+        document.getElementById('compare-file-input-1'),
+        document.getElementById('compare-file-input-2'),
+        document.getElementById('compare-file-input-3')
+    ];
+    const compareSpans = [
+        document.getElementById('compare-file-name-1'),
+        document.getElementById('compare-file-name-2'),
+        document.getElementById('compare-file-name-3')
+    ];
+
+    let compareFiles = [null, null, null];
+    let compareResultData = null;
+    let activeCompareFilter = 'all'; // 'all', 'always', 'loss', 'gain', 'never'
+
+    if (compareBtn) {
+        compareBtn.addEventListener('click', () => {
+            compareFiles = [null, null, null];
+            compareInputs.forEach(input => { if (input) input.value = ''; });
+            compareSpans.forEach((span, idx) => {
+                if (span) span.innerText = idx === 2 ? 'Aucun fichier (Optionnel)' : 'Aucun fichier';
+            });
+            if (compareUploadModal) compareUploadModal.classList.add('open');
+        });
+    }
+
+    [closeCompareUploadModalBtn, cancelCompareUploadBtn].forEach(btn => {
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (compareUploadModal) compareUploadModal.classList.remove('open');
+            });
+        }
+    });
+
+    compareInputs.forEach((input, index) => {
+        if (input) {
+            input.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                    const file = e.target.files[0];
+                    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+                        showToast("Le fichier doit être au format Excel (.xlsx, .xls)", "error");
+                        return;
+                    }
+                    compareFiles[index] = file;
+                    if (compareSpans[index]) compareSpans[index].innerText = file.name;
+                }
+            });
+        }
+    });
+
+    if (submitCompareUploadBtn) {
+        submitCompareUploadBtn.addEventListener('click', async () => {
+            const activeFiles = compareFiles.filter(f => f !== null);
+            if (activeFiles.length === 0) {
+                showToast("Veuillez sélectionner au moins 1 fichier Excel à analyser ou comparer.", "warning");
+                return;
+            }
+
+            submitCompareUploadBtn.disabled = true;
+            const originalContent = submitCompareUploadBtn.innerHTML;
+
+            if (activeFiles.length === 1) {
+                // Single file analysis fallback
+                submitCompareUploadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ANALYSE EN COURS...';
+                const fileToUpload = activeFiles[0];
+                const formData = new FormData();
+                formData.append('file', fileToUpload);
+
+                try {
+                    const response = await fetch('/api/clients/analyse_visites', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        showToast("Analyse du passage terminée avec succès !", "success");
+                        if (compareUploadModal) compareUploadModal.classList.remove('open');
+                        
+                        // Display directly in the main page panel
+                        renderDetailedVisitsReport(result);
+                    } else {
+                        showToast("Erreur d'analyse : " + result.message, "error");
+                    }
+                } catch (err) {
+                    console.error("Error analyzing single visits file:", err);
+                    showToast("Erreur de communication avec le serveur.", "error");
+                } finally {
+                    submitCompareUploadBtn.disabled = false;
+                    submitCompareUploadBtn.innerHTML = originalContent;
+                }
+            } else {
+                // Multi file comparison (2 or 3 files)
+                submitCompareUploadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> COMPARAISON EN COURS...';
+                const formData = new FormData();
+                activeFiles.forEach((file, index) => {
+                    formData.append(`file${index + 1}`, file);
+                });
+
+                try {
+                    const response = await fetch('/api/clients/compare_visites', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        showToast("Comparaison effectuée avec succès !", "success");
+                        if (compareUploadModal) compareUploadModal.classList.remove('open');
+                        
+                        compareResultData = result;
+                        displayCompareResults(result);
+                        if (compareResultModal) compareResultModal.classList.add('open');
+                    } else {
+                        showToast("Erreur de comparaison : " + result.message, "error");
+                    }
+                } catch (err) {
+                    console.error("Error comparing visits:", err);
+                    showToast("Erreur de communication avec le serveur.", "error");
+                } finally {
+                    submitCompareUploadBtn.disabled = false;
+                    submitCompareUploadBtn.innerHTML = originalContent;
+                }
+            }
+        });
+    }
+
+    const displayCompareResults = (data) => {
+        document.getElementById('vc-res-vendeur').innerText = data.vendeur || 'N/A';
+        
+        const badgesContainer = document.getElementById('vc-res-dates-badges');
+        if (badgesContainer) {
+            badgesContainer.innerHTML = '';
+            data.dates.forEach((d, idx) => {
+                const badge = document.createElement('span');
+                badge.className = 'badge-blue';
+                badge.style.fontSize = '0.75rem';
+                badge.style.padding = '3px 8px';
+                const parts = d.split('-');
+                const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+                badge.innerText = `P${idx+1}: ${formatted}`;
+                badgesContainer.appendChild(badge);
+            });
+        }
+
+        document.getElementById('vc-kpi-always-ok').innerText = data.summary.always_ok;
+        document.getElementById('vc-kpi-loss').innerText = data.summary.billing_loss;
+        document.getElementById('vc-kpi-gain').innerText = data.summary.billing_gain;
+        document.getElementById('vc-kpi-never').innerText = data.summary.never_ok;
+
+        const headerRow = document.getElementById('vc-table-headers');
+        if (headerRow) {
+            headerRow.innerHTML = '';
+            headerRow.innerHTML = '<th>Client</th><th>Nom Client</th>';
+            data.dates.forEach((d, idx) => {
+                const parts = d.split('-');
+                const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+                headerRow.innerHTML += `<th style="text-align: center;">Passage ${idx+1}<br><span style="font-size:0.7rem; color:var(--text-muted);">${formatted}</span></th>`;
+            });
+            headerRow.innerHTML += '<th style="text-align: center;">Synthèse</th>';
+        }
+
+        activeCompareFilter = 'all';
+        ['vc-btn-all', 'vc-btn-always', 'vc-btn-loss', 'vc-btn-gain', 'vc-btn-never', 'vc-btn-at-least-once'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.remove('is-active');
+        });
+        const btnAll = document.getElementById('vc-btn-all');
+        if (btnAll) btnAll.classList.add('is-active');
+
+        renderCompareTable();
+    };
+
+    const renderCompareTable = () => {
+        if (!compareResultData) return;
+        const tbody = document.getElementById('vc-details-tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+        
+        let filtered = compareResultData.comparison;
+        if (activeCompareFilter === 'always') {
+            filtered = filtered.filter(r => r.synthesis === 'Toujours Facturé');
+        } else if (activeCompareFilter === 'loss') {
+            filtered = filtered.filter(r => r.synthesis === 'Perte de facturation');
+        } else if (activeCompareFilter === 'gain') {
+            filtered = filtered.filter(r => r.synthesis === 'Gagné (Facturé en fin)');
+        } else if (activeCompareFilter === 'never') {
+            filtered = filtered.filter(r => r.synthesis === 'Jamais Facturé');
+        } else if (activeCompareFilter === 'at_least_once') {
+            // At least 1 OK: any synthesis that is NOT 'Jamais Facturé'
+            filtered = filtered.filter(r => r.synthesis !== 'Jamais Facturé');
+        }
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="${compareResultData.dates.length + 3}" style="text-align: center; color: var(--text-muted);">Aucun client ne correspond à ce filtre.</td></tr>`;
+            return;
+        }
+
+        filtered.forEach(r => {
+            const tr = document.createElement('tr');
+            
+            let cells = `<td><code>${r.code}</code></td><td><strong>${r.name}</strong></td>`;
+            
+            r.motifs.forEach(m => {
+                const isOk = m.toUpperCase() === 'OK';
+                const isNav = m === 'Non visité';
+                const mClass = isOk ? 'neon-text-green' : (isNav ? 'text-muted' : 'neon-text-pink');
+                const boldStart = isOk ? '<strong>' : '';
+                const boldEnd = isOk ? '</strong>' : '';
+                cells += `<td style="text-align: center;" class="${mClass}">${boldStart}${m}${boldEnd}</td>`;
+            });
+
+            let synthClass = 'text-muted';
+            if (r.synthesis === 'Toujours Facturé') synthClass = 'neon-text-green';
+            if (r.synthesis === 'Perte de facturation') synthClass = 'neon-text-pink';
+            if (r.synthesis === 'Gagné (Facturé en fin)') synthClass = 'neon-text-blue';
+            if (r.synthesis === 'Jamais Facturé') synthClass = 'neon-text-amber';
+
+            cells += `<td style="text-align: center;"><span class="${synthClass}" style="font-weight: bold; text-transform: uppercase;">${r.synthesis}</span></td>`;
+            tr.innerHTML = cells;
+            tbody.appendChild(tr);
+        });
+    };
+
+    const filterBtnMap = {
+        'vc-btn-all': 'all',
+        'vc-btn-always': 'always',
+        'vc-btn-loss': 'loss',
+        'vc-btn-gain': 'gain',
+        'vc-btn-never': 'never',
+        'vc-btn-at-least-once': 'at_least_once'
+    };
+
+    Object.entries(filterBtnMap).forEach(([id, filter]) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                activeCompareFilter = filter;
+                Object.keys(filterBtnMap).forEach(btnId => {
+                    const b = document.getElementById(btnId);
+                    if (b) b.classList.remove('is-active');
+                });
+                btn.classList.add('is-active');
+                renderCompareTable();
+            });
+        }
+    });
+
+    // ===== DETAILED VISITES REPORT RENDERERS =====
+    let detailedVisitsData = null;
+    let activeDetailedVisitsTab = 'ok';
+
+    window.renderDetailedVisitsReport = function(data) {
+        detailedVisitsData = data;
+        
+        const section = document.getElementById('cf-details-visites-section');
+        if (section) section.style.display = 'block';
+
+        document.getElementById('cf-details-vendeur-name').innerText = data.metadata.vendeur || 'N/A';
+        
+        document.getElementById('cf-details-total').innerText = data.summary.total;
+        document.getElementById('cf-details-ok').innerText = data.summary.ok;
+        document.getElementById('cf-details-no-ok').innerText = data.summary.no_ok;
+        document.getElementById('cf-details-acm-val').innerText = `${data.summary.acm}%`;
+        
+        document.getElementById('cf-details-dist-avg').innerText = `${data.distance.average} m`;
+        document.getElementById('cf-details-dist-anom').innerText = `${data.distance.anomalies} anomalie(s)`;
+
+        const motifsList = document.getElementById('cf-details-motifs-list');
+        if (motifsList) {
+            motifsList.innerHTML = '';
+            const sorted = Object.entries(data.motifs).sort((a, b) => b[1] - a[1]);
+            if (sorted.length === 0) {
+                motifsList.innerHTML = '<span style="color: var(--text-muted);">Aucun motif de non-facturation (ACM 100%)</span>';
+            } else {
+                sorted.forEach(([motif, count]) => {
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.justify = 'space-between';
+                    row.style.borderBottom = '1px solid rgba(255, 255, 255, 0.05)';
+                    row.style.padding = '0.2rem 0';
+                    row.innerHTML = `<span style="color: var(--text-muted);">${motif}</span><strong class="neon-text-pink">${count}</strong>`;
+                    motifsList.appendChild(row);
+                });
+            }
+        }
+
+        document.getElementById('cf-details-badge-count-ok').innerText = data.summary.ok;
+        document.getElementById('cf-details-badge-count-no-ok').innerText = data.summary.no_ok;
+
+        activeDetailedVisitsTab = 'ok';
+        const tglOk = document.getElementById('cf-details-toggle-ok');
+        const tglNoOk = document.getElementById('cf-details-toggle-no-ok');
+        if (tglOk) tglOk.classList.add('is-active');
+        if (tglNoOk) tglNoOk.classList.remove('is-active');
+
+        renderDetailedVisitsTable();
+    };
+
+    window.renderDetailedVisitsTable = function() {
+        if (!detailedVisitsData) return;
+        const list = activeDetailedVisitsTab === 'ok' ? detailedVisitsData.clients_ok : detailedVisitsData.clients_no_ok;
+        const tbody = document.getElementById('cf-details-tbody-content');
+        
+        if (tbody) {
+            tbody.innerHTML = '';
+            if (list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Aucun client dans cette catégorie.</td></tr>';
+                return;
+            }
+
+            list.forEach(c => {
+                const tr = document.createElement('tr');
+                const motifClass = activeDetailedVisitsTab === 'ok' ? 'neon-text-green' : 'neon-text-pink';
+                const noteText = c.note ? `<span style="color: var(--text-muted); font-size: 0.75rem; display: block; font-style: italic;">Note : ${c.note}</span>` : '';
+                tr.innerHTML = `
+                    <td><code>${c.code}</code></td>
+                    <td><strong>${c.name}</strong></td>
+                    <td>${c.time}</td>
+                    <td>${c.distance}</td>
+                    <td><strong class="${motifClass}">${c.motif}</strong>${noteText}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    };
+
+    const detailsTglOk = document.getElementById('cf-details-toggle-ok');
+    const detailsTglNoOk = document.getElementById('cf-details-toggle-no-ok');
+    if (detailsTglOk && detailsTglNoOk) {
+        detailsTglOk.addEventListener('click', () => {
+            activeDetailedVisitsTab = 'ok';
+            detailsTglOk.classList.add('is-active');
+            detailsTglNoOk.classList.remove('is-active');
+            renderDetailedVisitsTable();
+        });
+
+        detailsTglNoOk.addEventListener('click', () => {
+            activeDetailedVisitsTab = 'no_ok';
+            detailsTglNoOk.classList.add('is-active');
+            detailsTglOk.classList.remove('is-active');
+            renderDetailedVisitsTable();
+        });
+    }
+
+    const hideDetailsBtn = document.getElementById('cf-hide-details-visites');
+    if (hideDetailsBtn) {
+        hideDetailsBtn.addEventListener('click', () => {
+            const section = document.getElementById('cf-details-visites-section');
+            if (section) section.style.display = 'none';
+        });
+    }
+
+    // Initial load
+    await loadFacturationData();
+}
+
+async function initClientsAFacturerView() {
+    const filterTourneeBtn = document.getElementById('af-filter-type-tournee');
+    const filterVendeurBtn = document.getElementById('af-filter-type-vendeur');
+    const filterSecteurBtn = document.getElementById('af-filter-type-secteur');
+    const statusAllBtn = document.getElementById('af-status-all');
+    const statusActifBtn = document.getElementById('af-status-actif');
+    const statusInactifBtn = document.getElementById('af-status-inactif');
+    const entityLabel = document.getElementById('af-entity-label');
+    const selectEntity = document.getElementById('af-select-entity');
+    const datesContainer = document.getElementById('af-dates-container');
+    const btnAnalyze = document.getElementById('af-btn-analyze');
+    
+    const resultsPlaceholder = document.getElementById('af-results-placeholder');
+    const resultsWorkspace = document.getElementById('af-results-workspace');
+    
+    const importBtn = document.getElementById('af-import-visites-btn');
+    const reloadBtn = document.getElementById('af-reload-btn');
+    
+    const kpiAtLeastOne = document.getElementById('af-kpi-atleastone');
+    const kpiAlways = document.getElementById('af-kpi-always');
+    const kpiLoss = document.getElementById('af-kpi-loss');
+    const kpiGain = document.getElementById('af-kpi-gain');
+    const kpiNever = document.getElementById('af-kpi-never');
+    const kpiInactive = document.getElementById('af-kpi-inactive');
+    const displayVendeur = document.getElementById('af-vendeur-display');
+    const tableHeaders = document.getElementById('af-table-headers');
+    const tbodyDetails = document.getElementById('af-details-tbody');
+    const searchClientInput = document.getElementById('af-search-client');
+    
+    let dbData = null;
+    let filterMode = 'secteur'; // 'secteur', 'tournee', 'vendeur'
+    let clientStatusMode = 'all'; // 'all', 'actif', 'inactif'
+    let analysisResult = null;
+    let activeFilter = 'all';
+    
+    if (searchClientInput) {
+        searchClientInput.addEventListener('input', () => {
+            renderAFacturerTable();
+        });
+    }
+    
+    const loadAvailableVisites = async () => {
+        try {
+            if (selectEntity) selectEntity.innerHTML = '<option value="">Chargement...</option>';
+            if (datesContainer) datesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Chargement des dates...</span>';
+            
+            const response = await fetch(`/api/clients/visites_disponibles?_=${Date.now()}`);
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                dbData = result;
+                populateEntityDropdown();
+                renderQuickSecButtons(); // populate shortcuts based on current category
+            } else {
+                showToast("Erreur lors du chargement des passages : " + result.message, "error");
+            }
+        } catch (err) {
+            console.error("Error loading visits from db:", err);
+            showToast("Erreur de connexion avec le serveur.", "error");
+        }
+    };
+    
+    // Secteur ownership mapping per CDZ/category (from DB: fdv.cdz -> secteur)
+    const SECTEUR_CATEGORY_MAP = {
+        'Chakib Equipe': [
+            'AGADIR EXTERIEUR SV',
+            'AGADIR TIKIOUINE SOM',
+            'AGADIR TIKIOUINE VMM',
+            'AIT MELLOUL SOM',
+            'AIT MELLOUL VMM',
+            'INZEGANE SOM',
+            'INZEGANE VMM',
+            'OULED TEIMA SV',
+            'TAROUDANT SV',
+            'TAROUDANTE EXT IDAOUTANANE SV'
+        ],
+        'Boutmezguine Equipe': [
+            'AGADIR CENTRE VILLE SOM',
+            'AGADIR CENTRE VILLE VMM',
+            'AGADIR HAY ESSALAM SOM',
+            'AGADIR HAY ESSALAM VMM',
+            'AGADIR HAY MOHAMMADI SOM',
+            'AGADIR HAY MOHAMMADI VMM',
+            'BOUIZAKARNE SV',
+            'GUELMIM SV',
+            'TANTAN SV',
+            'TIZNIT SV'
+        ]
+    };
+
+    const populateEntityDropdown = () => {
+        if (!dbData || !selectEntity) return;
+        selectEntity.innerHTML = '';
+        
+        let list = [];
+        if (filterMode === 'tournee') list = dbData.tournees || [];
+        else if (filterMode === 'vendeur') {
+            list = dbData.vendeurs || [];
+            const cat = document.getElementById('category-select')?.value || 'All';
+            if (cat === 'Chakib Equipe') {
+                list = list.filter(v => (v.cdz || '').toUpperCase().includes('CHAKIB'));
+            } else if (cat === 'Boutmezguine Equipe') {
+                list = list.filter(v => (v.cdz || '').toUpperCase().includes('BOUTMEZGUINE'));
+            }
+        }
+        else if (filterMode === 'secteur') {
+            list = dbData.secteurs || [];
+            const cat = document.getElementById('category-select')?.value || 'All';
+            if (cat !== 'All' && SECTEUR_CATEGORY_MAP[cat]) {
+                const allowed = new Set(SECTEUR_CATEGORY_MAP[cat]);
+                list = list.filter(item => allowed.has(item.name));
+            }
+        }
+        
+        if (list.length === 0) {
+            selectEntity.innerHTML = '<option value="">Aucune donnée dans la base</option>';
+            if (datesContainer) datesContainer.innerHTML = "<span style=\"color: var(--text-muted); font-size: 0.8rem; font-style: italic;\">Veuillez d'abord importer un fichier Excel.</span>";
+            return;
+        }
+        
+        const placeholder = filterMode === 'secteur' ? '-- SÉLECTIONNER UN SECTEUR --' : filterMode === 'vendeur' ? '-- SÉLECTIONNER UN VENDEUR --' : '-- SÉLECTIONNER UNE TOURNÉE --';
+        selectEntity.innerHTML = `<option value="">${placeholder}</option>`;
+        list.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.name;
+            opt.innerText = item.name;
+            selectEntity.appendChild(opt);
+        });
+        
+        if (datesContainer) datesContainer.innerHTML = "<span style=\"color: var(--text-muted); font-size: 0.8rem; font-style: italic;\">Veuillez d'abord sélectionner un secteur.</span>";
+    };
+
+    const subTourneeWrapper = document.getElementById('af-sub-tournee-wrapper');
+    const selectSubTournee = document.getElementById('af-select-sub-tournee');
+
+    const setClientStatusInactif = () => {
+        clientStatusMode = 'inactif';
+        if (statusInactifBtn) statusInactifBtn.classList.add('is-active');
+        if (statusAllBtn) statusAllBtn.classList.remove('is-active');
+        if (statusActifBtn) statusActifBtn.classList.remove('is-active');
+    };
+
+    if (selectSubTournee) {
+        selectSubTournee.addEventListener('change', () => {
+            if (selectSubTournee.value !== 'ALL') {
+                setClientStatusInactif();
+            }
+            renderDatesList();
+        });
+    }
+
+    const populateDatesCheckboxes = () => {
+        if (!selectEntity || !datesContainer || !dbData) return;
+        const val = selectEntity.value;
+        datesContainer.innerHTML = '';
+        
+        if (filterMode === 'tournee') {
+            setClientStatusInactif();
+        }
+
+        if (!val) {
+            if (subTourneeWrapper) subTourneeWrapper.style.display = 'none';
+            datesContainer.innerHTML = "<span style=\"color: var(--text-muted); font-size: 0.8rem; font-style: italic;\">Veuillez d'abord sélectionner une option.</span>";
+            return;
+        }
+        
+        let list = [];
+        if (filterMode === 'tournee') list = dbData.tournees || [];
+        else if (filterMode === 'vendeur') list = dbData.vendeurs || [];
+        else if (filterMode === 'secteur') list = dbData.secteurs || [];
+
+        const selectedItem = list.find(item => item.name === val);
+        
+        if (!selectedItem) {
+            if (subTourneeWrapper) subTourneeWrapper.style.display = 'none';
+            datesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Aucune donnée disponible.</span>';
+            return;
+        }
+
+        // Render Sub-Tournée & Date selector if in Secteur or Vendeur mode
+        if ((filterMode === 'secteur' || filterMode === 'vendeur') && subTourneeWrapper && selectSubTournee) {
+            subTourneeWrapper.style.display = 'block';
+            const subLabel = document.querySelector('#af-sub-tournee-wrapper .tech-label');
+            if (subLabel) {
+                const labelTitle = filterMode === 'vendeur' ? 'TOURNÉE & DATE DU VENDEUR' : 'TOURNÉE & DATE DU SECTEUR';
+                subLabel.innerHTML = `<i class="fa-solid fa-route"></i> ${labelTitle}`;
+            }
+
+            const tourneesDetails = selectedItem.tournees_details || (selectedItem.tournees || []).map(tn => ({ name: tn, min_date: '9999-12-31' }));
+            selectSubTournee.innerHTML = `<option value="ALL">-- TOUTES LES TOURNÉES & DATES (${tourneesDetails.length}) --</option>`;
+            tourneesDetails.forEach(tObj => {
+                const opt = document.createElement('option');
+                opt.value = tObj.name;
+                
+                let dateStr = '';
+                if (tObj.dates && tObj.dates.length > 0) {
+                    const formatted = tObj.dates.map(d => {
+                        const parts = d.split('-');
+                        return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+                    }).join(', ');
+                    dateStr = ` — ${formatted}`;
+                } else if (tObj.min_date && tObj.min_date !== '9999-12-31') {
+                    const parts = tObj.min_date.split('-');
+                    const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : tObj.min_date;
+                    dateStr = ` — ${formatted}`;
+                }
+                
+                opt.innerText = `${tObj.name}${dateStr}`;
+                selectSubTournee.appendChild(opt);
+            });
+        } else if (subTourneeWrapper) {
+            subTourneeWrapper.style.display = 'none';
+        }
+
+        renderDatesList();
+    };
+
+    const renderDatesList = () => {
+        if (!selectEntity || !datesContainer || !dbData) return;
+        const val = selectEntity.value;
+        datesContainer.innerHTML = '';
+        if (!val) return;
+
+        let list = [];
+        if (filterMode === 'tournee') list = dbData.tournees || [];
+        else if (filterMode === 'vendeur') list = dbData.vendeurs || [];
+        else if (filterMode === 'secteur') list = dbData.secteurs || [];
+
+        const selectedItem = list.find(item => item.name === val);
+        if (!selectedItem || !selectedItem.dates || selectedItem.dates.length === 0) {
+            datesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Aucune date disponible pour cette sélection.</span>';
+            return;
+        }
+
+        let targetDates = selectedItem.dates;
+        let details = selectedItem.dates_details || [];
+
+        // If a specific sub-tournée is selected in Secteur or Vendeur mode
+        if ((filterMode === 'secteur' || filterMode === 'vendeur') && selectSubTournee && selectSubTournee.value !== 'ALL') {
+            const subTn = selectSubTournee.value;
+            const subDetails = details.filter(dt => dt.tournee === subTn);
+            const subDates = Array.from(new Set(subDetails.map(dt => dt.date))).sort();
+            if (subDates.length > 0) {
+                targetDates = subDates;
+                details = subDetails;
+            }
+        }
+
+        const isTourneeSel = (filterMode === 'tournee') || ((filterMode === 'secteur' || filterMode === 'vendeur') && selectSubTournee && selectSubTournee.value !== 'ALL');
+
+        targetDates.forEach(d => {
+            const parts = d.split('-');
+            const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+            
+            const dDetails = details.filter(dt => dt.date === d);
+            const tourneesForDate = Array.from(new Set(dDetails.map(dt => dt.tournee).filter(Boolean)));
+            const vendeursForDate = Array.from(new Set(dDetails.map(dt => dt.vendeur).filter(Boolean)));
+
+            let subTourneeLine = '';
+            if (tourneesForDate.length > 0) {
+                const tourneeText = tourneesForDate.join(', ');
+                subTourneeLine = `<div style="font-size: 0.72rem; color: var(--neon-blue); font-weight: normal; width: 100%; margin-top: 1px;"><i class="fa-solid fa-route"></i> Tournée: ${tourneeText}</div>`;
+            } else if (vendeursForDate.length > 0 && filterMode === 'tournee') {
+                subTourneeLine = `<div style="font-size: 0.70rem; color: var(--neon-green); font-weight: normal; width: 100%; margin-top: 1px;"><i class="fa-solid fa-user"></i> ${vendeursForDate.join(', ')}</div>`;
+            }
+
+            const div = document.createElement('div');
+            div.style.display = 'flex';
+            div.style.alignItems = 'flex-start';
+            div.style.gap = '0.5rem';
+            div.style.padding = '0.35rem 0';
+            div.style.borderBottom = '1px dashed rgba(255,255,255,0.05)';
+            
+            const isCheckedAttr = isTourneeSel ? 'checked' : '';
+
+            div.innerHTML = `
+                <input type="checkbox" id="af-date-${d}" class="af-date-checkbox" value="${d}" ${isCheckedAttr} style="cursor: pointer; width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;">
+                <label for="af-date-${d}" style="cursor: pointer; font-size: 0.82rem; font-family: var(--font-mono); color: var(--text-main); display: flex; flex-direction: column; width: 100%;">
+                    <strong>${formatted}</strong>
+                    ${subTourneeLine}
+                </label>
+            `;
+            const cb = div.querySelector('.af-date-checkbox');
+            if (cb) {
+                cb.addEventListener('change', () => {
+                    const checkedCbs = datesContainer.querySelectorAll('.af-date-checkbox:checked');
+                    const checkedDates = Array.from(checkedCbs).map(c => c.value);
+                    if (filterMode === 'secteur' && selectSubTournee && dbData && selectEntity) {
+                        const val = selectEntity.value;
+                        const sItem = (dbData.secteurs || []).find(item => item.name === val);
+                        if (sItem && sItem.dates_details && checkedDates.length > 0) {
+                            const matchedDetails = sItem.dates_details.filter(dt => checkedDates.includes(dt.date));
+                            const matchedTournees = Array.from(new Set(matchedDetails.map(dt => dt.tournee).filter(Boolean)));
+                            if (matchedTournees.length === 1) {
+                                selectSubTournee.value = matchedTournees[0];
+                                setClientStatusInactif();
+                            }
+                        }
+                    }
+                });
+            }
+            datesContainer.appendChild(div);
+        });
+    };
+    
+    if (filterTourneeBtn && filterVendeurBtn) {
+        filterTourneeBtn.addEventListener('click', () => {
+            filterMode = 'tournee';
+            filterTourneeBtn.classList.add('is-active');
+            filterVendeurBtn.classList.remove('is-active');
+            if (filterSecteurBtn) filterSecteurBtn.classList.remove('is-active');
+            if (entityLabel) entityLabel.innerHTML = '<i class="fa-solid fa-route"></i> SÉLECTIONNER TOURNÉE';
+            setClientStatusInactif();
+            populateEntityDropdown();
+        });
+        
+        filterVendeurBtn.addEventListener('click', () => {
+            filterMode = 'vendeur';
+            filterVendeurBtn.classList.add('is-active');
+            filterTourneeBtn.classList.remove('is-active');
+            if (filterSecteurBtn) filterSecteurBtn.classList.remove('is-active');
+            if (entityLabel) entityLabel.innerHTML = '<i class="fa-solid fa-user-tie"></i> SÉLECTIONNER VENDEUR';
+            populateEntityDropdown();
+        });
+
+        if (filterSecteurBtn) {
+            filterSecteurBtn.addEventListener('click', () => {
+                filterMode = 'secteur';
+                filterSecteurBtn.classList.add('is-active');
+                filterTourneeBtn.classList.remove('is-active');
+                filterVendeurBtn.classList.remove('is-active');
+                if (entityLabel) entityLabel.innerHTML = '<i class="fa-solid fa-layer-group"></i> SÉLECTIONNER SECTEUR (ROLE)';
+                populateEntityDropdown();
+            });
+        }
+    }
+
+    const quickSecContainer = document.getElementById('af-quick-secteurs-container');
+    const quickSecLabel = document.getElementById('af-quick-secteurs-label');
+
+    const bindQuickSecBtn = (btn) => {
+        btn.addEventListener('click', () => {
+            const secName = btn.getAttribute('data-secteur');
+            filterMode = 'secteur';
+            if (filterSecteurBtn) filterSecteurBtn.classList.add('is-active');
+            if (filterTourneeBtn) filterTourneeBtn.classList.remove('is-active');
+            if (filterVendeurBtn) filterVendeurBtn.classList.remove('is-active');
+            if (entityLabel) entityLabel.innerHTML = '<i class="fa-solid fa-layer-group"></i> SÉLECTIONNER SECTEUR (ROLE)';
+            populateEntityDropdown();
+            if (selectEntity) {
+                selectEntity.value = secName;
+                populateDatesCheckboxes();
+            }
+            // Highlight active button
+            document.querySelectorAll('.af-quick-sec-btn').forEach(b => {
+                b.style.borderColor = 'var(--border-color)';
+                b.style.background = 'rgba(0,242,254,0.05)';
+                b.style.color = 'var(--text-main)';
+            });
+            btn.style.borderColor = 'var(--neon-cyan)';
+            btn.style.background = 'rgba(0,242,254,0.2)';
+            btn.style.color = 'var(--neon-cyan)';
+        });
+    };
+
+    const renderQuickSecButtons = () => {
+        if (!quickSecContainer) return;
+        const cat = document.getElementById('category-select')?.value || 'All';
+
+        // Determine which secteurs to show
+        let secList = [];
+        if (cat === 'All') {
+            // Show all secteurs from dbData if loaded, else show both teams
+            if (dbData && dbData.secteurs) {
+                secList = dbData.secteurs.map(s => s.name);
+            } else {
+                secList = [...(SECTEUR_CATEGORY_MAP['Chakib Equipe'] || []), ...(SECTEUR_CATEGORY_MAP['Boutmezguine Equipe'] || [])];
+            }
+        } else {
+            // Use the known mapping for this category
+            const mapped = SECTEUR_CATEGORY_MAP[cat];
+            if (mapped) {
+                // If we have dbData, cross-check to only show secteurs that actually have data
+                if (dbData && dbData.secteurs) {
+                    const dbNames = new Set(dbData.secteurs.map(s => s.name));
+                    secList = mapped.filter(s => dbNames.has(s));
+                } else {
+                    secList = mapped;
+                }
+            }
+        }
+
+        // Update label
+        if (quickSecLabel) {
+            const teamLabel = cat === 'All' ? 'TOUTE L\'AGENCE' : cat.toUpperCase();
+            quickSecLabel.innerHTML = `<i class="fa-solid fa-bolt"></i> RACCOURCIS — ${teamLabel}`;
+        }
+
+        // Rebuild buttons
+        quickSecContainer.innerHTML = '';
+        if (secList.length === 0) {
+            quickSecContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.75rem; font-style: italic;">Aucun secteur disponible</span>';
+            return;
+        }
+        secList.forEach(secName => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'af-quick-sec-btn cyber-btn-text';
+            btn.setAttribute('data-secteur', secName);
+            btn.style.cssText = 'font-size: 0.65rem; padding: 3px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(0,242,254,0.05); color: var(--text-main); cursor: pointer;';
+            
+            btn.textContent = secName;
+            bindQuickSecBtn(btn);
+            quickSecContainer.appendChild(btn);
+        });
+    };
+
+    const statusBtns = [
+        { btn: statusAllBtn, val: 'all' },
+        { btn: statusActifBtn, val: 'actif' },
+        { btn: statusInactifBtn, val: 'inactif' }
+    ];
+    statusBtns.forEach(item => {
+        if (item.btn) {
+            item.btn.addEventListener('click', () => {
+                clientStatusMode = item.val;
+                statusBtns.forEach(s => { if (s.btn) s.btn.classList.remove('is-active'); });
+                item.btn.classList.add('is-active');
+            });
+        }
+    });
+    
+    if (selectEntity) {
+        selectEntity.addEventListener('change', () => {
+            if (filterMode === 'tournee' && selectEntity.value) {
+                setClientStatusInactif();
+            }
+            populateDatesCheckboxes();
+        });
+    }
+    
+    if (btnAnalyze) {
+        btnAnalyze.addEventListener('click', async () => {
+            const selectedVal = selectEntity ? selectEntity.value : '';
+            if (!selectedVal) {
+                showToast("Veuillez sélectionner une option.", "warning");
+                return;
+            }
+            
+            const checkboxes = document.querySelectorAll('.af-date-checkbox:checked');
+            let dates = Array.from(checkboxes).map(cb => cb.value).sort();
+            
+            const isTourneeAnalysis = (filterMode === 'tournee') || (filterMode === 'secteur' && selectSubTournee && selectSubTournee.value !== 'ALL');
+
+            if (!isTourneeAnalysis) {
+                if (dates.length < 1) {
+                    showToast("Veuillez cocher au moins 1 date à analyser.", "warning");
+                    return;
+                }
+                if (dates.length > 3) {
+                    showToast("Vous pouvez sélectionner jusqu'à 3 dates maximum.", "warning");
+                    return;
+                }
+            }
+            
+            let payload = {};
+            if (filterMode === 'tournee') {
+                payload = { tournee: selectedVal, client_status: clientStatusMode, dates };
+            } else if (filterMode === 'vendeur') {
+                payload = { vendeur: selectedVal, client_status: clientStatusMode, dates };
+            } else if (filterMode === 'secteur') {
+                const subTn = selectSubTournee ? selectSubTournee.value : 'ALL';
+                if (subTn && subTn !== 'ALL') {
+                    payload = { tournee: subTn, client_status: clientStatusMode, dates };
+                } else {
+                    payload = { secteur: selectedVal, client_status: clientStatusMode, dates };
+                }
+            }
+            
+            btnAnalyze.disabled = true;
+            btnAnalyze.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ANALYSE EN COURS...';
+            
+            try {
+                const response = await fetch('/api/clients/compare_visites_db', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    displayAFacturerResults(result);
+                } else {
+                    showToast("Erreur d'analyse : " + result.message, "error");
+                }
+            } catch (err) {
+                console.error("Error analyzing passage data:", err);
+                showToast("Erreur de communication avec le serveur.", "error");
+            } finally {
+                btnAnalyze.disabled = false;
+                btnAnalyze.innerHTML = '<i class="fa-solid fa-chart-pie"></i> ANALYSER PASSAGES';
+            }
+        });
+    }
+    
+    const displayAFacturerResults = (data) => {
+        analysisResult = data;
+        
+        if (resultsPlaceholder) resultsPlaceholder.style.display = 'none';
+        if (resultsWorkspace) resultsWorkspace.style.display = 'flex';
+        
+        if (kpiAtLeastOne) kpiAtLeastOne.innerText = data.summary.at_least_one || 0;
+        if (kpiAlways) kpiAlways.innerText = data.summary.always_ok || 0;
+        if (kpiLoss) kpiLoss.innerText = data.summary.billing_loss || 0;
+        if (kpiGain) kpiGain.innerText = data.summary.billing_gain || 0;
+        if (kpiNever) kpiNever.innerText = data.summary.never_ok || 0;
+        if (kpiInactive) kpiInactive.innerText = data.summary.total_inactive || 0;
+        if (displayVendeur) displayVendeur.innerText = data.vendeur || 'N/A';
+        
+        if (tableHeaders) {
+            tableHeaders.innerHTML = '';
+            const tr = document.createElement('tr');
+            
+            let head = '<th>Client</th><th>Nom Client</th>';
+            const details = data.dates_details || [];
+            data.dates.forEach((d, idx) => {
+                const parts = d.split('-');
+                const formatted = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+                const dt = details[idx] || {};
+                const tourneeSub = dt.tournee ? `<div style="font-size:0.68rem; color:var(--neon-blue); font-weight:normal; margin-top:3px;"><i class="fa-solid fa-route"></i> ${dt.tournee}</div>` : '';
+                head += `<th style="text-align: center;">Passage ${idx+1}<br><span style="font-size:0.75rem; color:var(--text-muted);">${formatted}</span>${tourneeSub}</th>`;
+            });
+            head += '<th style="text-align: center;">Nb Factures</th><th style="text-align: center;">Synthèse</th>';
+            tr.innerHTML = head;
+            tableHeaders.appendChild(tr);
+        }
+        
+        const isTourneeRes = (filterMode === 'tournee') || (data.metadata && data.metadata.tournee) || (clientStatusMode === 'inactif');
+        activeFilter = isTourneeRes ? 'inactifs' : 'all';
+        if (searchClientInput) searchClientInput.value = '';
+        ['af-btn-all', 'af-btn-atleastone', 'af-btn-nofacture', 'af-btn-always', 'af-btn-loss', 'af-btn-gain', 'af-btn-never', 'af-btn-inactifs'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.remove('is-active');
+        });
+        const activeBtnId = isTourneeRes ? 'af-btn-inactifs' : 'af-btn-all';
+        const activeBtn = document.getElementById(activeBtnId);
+        if (activeBtn) activeBtn.classList.add('is-active');
+        
+        renderAFacturerTable();
+    };
+    
+    const renderAFacturerTable = () => {
+        if (!analysisResult || !tbodyDetails) return;
+        tbodyDetails.innerHTML = '';
+        
+        let filtered = analysisResult.comparison;
+
+        // Apply text search filter if entered
+        const q = searchClientInput ? searchClientInput.value.trim().toLowerCase() : '';
+        if (q) {
+            filtered = filtered.filter(r => 
+                (r.code && r.code.toLowerCase().includes(q)) || 
+                (r.name && r.name.toLowerCase().includes(q))
+            );
+        }
+
+        // Apply category filter
+        if (activeFilter === 'atleastone') {
+            filtered = filtered.filter(r => r.has_facture || r.motifs.some(m => m.toUpperCase() === 'OK'));
+        } else if (activeFilter === 'nofacture') {
+            filtered = filtered.filter(r => !r.has_facture && !r.motifs.some(m => m.toUpperCase() === 'OK'));
+        } else if (activeFilter === 'always') {
+            filtered = filtered.filter(r => r.synthesis === 'Toujours Facturé');
+        } else if (activeFilter === 'loss') {
+            filtered = filtered.filter(r => r.synthesis === 'Perte de facturation');
+        } else if (activeFilter === 'gain') {
+            filtered = filtered.filter(r => r.synthesis === 'Gagné (Facturé en fin)');
+        } else if (activeFilter === 'never') {
+            filtered = filtered.filter(r => r.synthesis === 'Jamais Facturé');
+        } else if (activeFilter === 'inactifs') {
+            filtered = filtered.filter(r => r.is_inactif === 1);
+        }
+        
+        if (filtered.length === 0) {
+            tbodyDetails.innerHTML = `<tr><td colspan="${analysisResult.dates.length + 4}" style="text-align: center; color: var(--text-muted);">Aucun client ne correspond à ces critères.</td></tr>`;
+        } else {
+            filtered.forEach(r => {
+                const tr = document.createElement('tr');
+                const inactifBadge = r.is_inactif === 1 ? '<span style="background: rgba(255,171,0,0.2); color: var(--neon-amber); border: 1px solid rgba(255,171,0,0.4); padding: 1px 6px; border-radius: 3px; font-size: 0.65rem; margin-left: 0.35rem; font-weight: bold;">INACTIF</span>' : '';
+                
+                let cells = `<td><code>${r.code}</code></td><td><strong>${r.name}</strong>${inactifBadge}</td>`;
+                let okCount = 0;
+                
+                r.motifs.forEach(m => {
+                    const isOk = m.toUpperCase() === 'OK';
+                    if (isOk) okCount++;
+                    const isNav = m === 'Non visité';
+                    const mClass = isOk ? 'neon-text-green' : (isNav ? 'text-muted' : 'neon-text-pink');
+                    const boldStart = isOk ? '<strong>' : '';
+                    const boldEnd = isOk ? '</strong>' : '';
+                    cells += `<td style="text-align: center;" class="${mClass}">${boldStart}${m}${boldEnd}</td>`;
+                });
+                
+                let synthClass = 'text-muted';
+                if (r.synthesis === 'Toujours Facturé') synthClass = 'neon-text-green';
+                if (r.synthesis === 'Perte de facturation') synthClass = 'neon-text-pink';
+                if (r.synthesis === 'Gagné (Facturé en fin)') synthClass = 'neon-text-blue';
+                if (r.synthesis === 'Jamais Facturé') synthClass = 'neon-text-amber';
+                
+                const badgeStyle = okCount > 0 ? 'background: rgba(0,230,118,0.15); color: var(--neon-green); border: 1px solid rgba(0,230,118,0.3);' : 'background: rgba(255,171,0,0.15); color: var(--neon-amber); border: 1px solid rgba(255,171,0,0.3);';
+                const factBadge = `<span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; ${badgeStyle}">${okCount} / ${analysisResult.dates.length}</span>`;
+
+                cells += `<td style="text-align: center;">${factBadge}</td>`;
+                cells += `<td style="text-align: center;"><span class="${synthClass}" style="font-weight: bold; text-transform: uppercase;">${r.synthesis}</span></td>`;
+                
+                tr.innerHTML = cells;
+                tbodyDetails.appendChild(tr);
+            });
+        }
+
+        // Dynamically update top KPI statistics to match current filtered list!
+        let atLeastOneCnt = 0;
+        let alwaysCnt = 0;
+        let lossCnt = 0;
+        let gainCnt = 0;
+        let neverCnt = 0;
+        let inactiveCnt = 0;
+
+        filtered.forEach(r => {
+            const hasFact = r.has_facture || r.motifs.some(m => m && m.toUpperCase() === 'OK');
+            if (hasFact) atLeastOneCnt++;
+            if (r.synthesis === 'Toujours Facturé') alwaysCnt++;
+            if (r.synthesis === 'Perte de facturation') lossCnt++;
+            if (r.synthesis === 'Gagné (Facturé en fin)') gainCnt++;
+            if (r.synthesis === 'Jamais Facturé' || !hasFact) neverCnt++;
+            if (r.is_inactif === 1) inactiveCnt++;
+        });
+
+        if (kpiAtLeastOne) kpiAtLeastOne.innerText = atLeastOneCnt;
+        if (kpiAlways) kpiAlways.innerText = alwaysCnt;
+        if (kpiLoss) kpiLoss.innerText = lossCnt;
+        if (kpiGain) kpiGain.innerText = gainCnt;
+        if (kpiNever) kpiNever.innerText = neverCnt;
+        if (kpiInactive) kpiInactive.innerText = inactiveCnt;
+
+        // Update active KPI card highlight outline
+        const cardHighlightMap = {
+            'atleastone': 'af-card-atleastone',
+            'always': 'af-card-always',
+            'loss': 'af-card-loss',
+            'gain': 'af-card-gain',
+            'never': 'af-card-never',
+            'nofacture': 'af-card-never',
+            'inactifs': 'af-card-inactifs'
+        };
+        Object.values(cardHighlightMap).forEach(cId => {
+            const c = document.getElementById(cId);
+            if (c) c.style.outline = 'none';
+        });
+        if (cardHighlightMap[activeFilter]) {
+            const activeCard = document.getElementById(cardHighlightMap[activeFilter]);
+            if (activeCard) activeCard.style.outline = '2px solid var(--neon-blue)';
+        }
+    };
+    
+    const filterBtnMap = {
+        'af-btn-all': 'all',
+        'af-btn-atleastone': 'atleastone',
+        'af-btn-nofacture': 'nofacture',
+        'af-btn-always': 'always',
+        'af-btn-loss': 'loss',
+        'af-btn-gain': 'gain',
+        'af-btn-never': 'never',
+        'af-btn-inactifs': 'inactifs'
+    };
+    
+    Object.entries(filterBtnMap).forEach(([id, filter]) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                activeFilter = filter;
+                Object.keys(filterBtnMap).forEach(btnId => {
+                    const b = document.getElementById(btnId);
+                    if (b) b.classList.remove('is-active');
+                });
+                btn.classList.add('is-active');
+                renderAFacturerTable();
+            });
+        }
+    });
+
+    const cardFilterMap = {
+        'af-card-atleastone': 'af-btn-atleastone',
+        'af-card-always': 'af-btn-always',
+        'af-card-loss': 'af-btn-loss',
+        'af-card-gain': 'af-btn-gain',
+        'af-card-never': 'af-btn-never',
+        'af-card-inactifs': 'af-btn-inactifs'
+    };
+
+    Object.entries(cardFilterMap).forEach(([cardId, btnId]) => {
+        const card = document.getElementById(cardId);
+        if (card) {
+            card.addEventListener('click', () => {
+                const btn = document.getElementById(btnId);
+                if (btn) btn.click();
+            });
+        }
+    });
+    
+    if (importBtn) {
+        importBtn.addEventListener('click', () => {
+            initVisitesUploadModal();
+            if (typeof window.resetVisitesUploadForm === 'function') {
+                window.resetVisitesUploadForm();
+            }
+            
+            window.visitesUploadCallback = async () => {
+                await loadAvailableVisites();
+            };
+            
+            const uploadModal = document.getElementById('visites-upload-modal');
+            if (uploadModal) uploadModal.classList.add('open');
+        });
+    }
+
+    const importAcmBtn = document.getElementById('af-import-acm-btn');
+    if (importAcmBtn) {
+        importAcmBtn.addEventListener('click', () => {
+            initAcmUploadModal();
+            const uploadModal = document.getElementById('acm-upload-modal');
+            if (uploadModal) uploadModal.classList.add('open');
+            window.acmUploadCallback = async () => {
+                await loadAvailableVisites();
+            };
+        });
+    }
+    
+    // WhatsApp Send to Vendeur handler
+    const btnWaVendeur = document.getElementById('af-btn-wa-vendeur');
+    const waModal = document.getElementById('af-wa-modal');
+    const waModalClose = document.getElementById('af-wa-modal-close');
+    const waVendeurNameInput = document.getElementById('af-wa-vendeur-name');
+    const waVendeurPhoneInput = document.getElementById('af-wa-vendeur-phone');
+    const waMessageTextarea = document.getElementById('af-wa-message-text');
+    const waCopyBtn = document.getElementById('af-wa-copy-btn');
+    const waSendBtn = document.getElementById('af-wa-send-btn');
+
+    const getFilteredClientsForWa = () => {
+        const data = window.currentAnalysisData || window.analysisResult || analysisResult;
+        if (!data || (!data.comparison && !data.clients)) return [];
+        let filtered = data.comparison || data.clients || [];
+
+        const searchInput = document.getElementById('af-search-client');
+        const q = searchInput ? searchInput.value.trim().toLowerCase() : (searchClientInput ? searchClientInput.value.trim().toLowerCase() : '');
+        if (q) {
+            filtered = filtered.filter(r => 
+                (r.code && r.code.toLowerCase().includes(q)) || 
+                (r.name && r.name.toLowerCase().includes(q))
+            );
+        }
+
+        const filterMode = window.activeFilterTab || activeFilter || 'all';
+        if (filterMode === 'atleastone') {
+            filtered = filtered.filter(r => r.has_facture || r.facture_status === 'AVEC FACTURE' || (r.motifs && r.motifs.some(m => String(m).toUpperCase() === 'OK')));
+        } else if (filterMode === 'nofacture') {
+            filtered = filtered.filter(r => !r.has_facture && r.facture_status !== 'AVEC FACTURE' && !(r.motifs && r.motifs.some(m => String(m).toUpperCase() === 'OK')));
+        } else if (filterMode === 'always') {
+            filtered = filtered.filter(r => r.synthesis === 'Toujours Facturé' || r.has_facture || r.facture_status === 'AVEC FACTURE');
+        } else if (filterMode === 'loss') {
+            filtered = filtered.filter(r => r.synthesis === 'Perte de facturation');
+        } else if (filterMode === 'gain') {
+            filtered = filtered.filter(r => r.synthesis === 'Gagné (Facturé en fin)');
+        } else if (filterMode === 'never') {
+            filtered = filtered.filter(r => r.synthesis === 'Jamais Facturé' || r.facture_status === 'SANS FACTURE' || r.facture_status === 'NON VISITÉ');
+        } else if (filterMode === 'inactifs') {
+            filtered = filtered.filter(r => r.is_inactif === 1 || r.facture_status === 'NON VISITÉ');
+        }
+
+        return filtered;
+    };
+
+    if (btnWaVendeur) {
+        btnWaVendeur.addEventListener('click', async () => {
+            const data = window.currentAnalysisData || window.analysisResult || analysisResult;
+            if (!data || (!data.comparison && !data.clients)) {
+                showToast("Aucune analyse disponible à envoyer.", "warning");
+                return;
+            }
+
+            const clients = getFilteredClientsForWa();
+            if (clients.length === 0) {
+                showToast("Aucun client dans la liste filtrée à envoyer.", "warning");
+                return;
+            }
+
+            const selectEntity = document.getElementById('af2-select-entity');
+            const vendeurName = data.vendeur || data.vendeur_code || (selectEntity ? selectEntity.value : '') || 'VENDEUR';
+            let vendeurPhone = data.vendeur_phone || '';
+
+            // Fetch vendor phone number from FDV table if missing
+            if (!vendeurPhone && vendeurName) {
+                try {
+                    const resp = await fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(vendeurName) + '&include_rapport=false');
+                    const resData = await resp.json();
+                    if (resData.status === 'success' && resData.phone) {
+                        vendeurPhone = resData.phone;
+                    }
+                } catch (e) {
+                    console.warn('FDV phone lookup error:', e);
+                }
+            }
+
+            const filterMode = window.activeFilterTab || activeFilter || 'all';
+            const rawRafAcm = (data.raf_acm !== undefined && data.raf_acm !== null) ? data.raf_acm : 20;
+            const minActivations = Math.max(20, Math.round(rawRafAcm));
+
+            let listDesc = `Ci-dessous la liste des clients (${clients.length} clients) :`;
+            if (filterMode === 'nofacture' || filterMode === 'never') {
+                listDesc = `Ci-dessous la liste des clients non facturés / NO OK (${clients.length} clients) :`;
+            } else if (filterMode === 'atleastone' || filterMode === 'always') {
+                listDesc = `Ci-dessous la liste des clients facturés (${clients.length} clients) :`;
+            } else if (filterMode === 'loss') {
+                listDesc = `Ci-dessous la liste des clients en perte de facturation (${clients.length} clients) :`;
+            } else if (filterMode === 'gain') {
+                listDesc = `Ci-dessous la liste des clients gagnés en facturation (${clients.length} clients) :`;
+            }
+
+            const uniqueLocalites = [...new Set(clients.map(c => (c.localite || '').trim()).filter(Boolean))];
+            const locHeader = uniqueLocalites.length > 0 ? `📍 Localité : ${uniqueLocalites.join(', ')}\n` : '';
+
+            let msg = `📋 LISTE CLIENTS À FACTURER - ${vendeurName.toUpperCase()}\n`;
+            if (locHeader) msg += locHeader;
+            msg += `🎯 Objectif minimum : ${minActivations} Activations / Facturations (ACM RAF / jour)\n`;
+            msg += `----------------------------------------\n`;
+            msg += `${listDesc}\n\n`;
+            clients.forEach(c => {
+                const lastMotif = (c.motifs && c.motifs.length > 0) ? c.motifs[c.motifs.length - 1] : (c.motif || '');
+                const motifStr = (lastMotif && lastMotif !== 'OK' && lastMotif !== 'Non visité') ? ` - [${lastMotif}]` : '';
+                msg += `• ${c.code} - ${c.name}${motifStr}\n`;
+            });
+
+            if (waVendeurNameInput) waVendeurNameInput.value = vendeurName;
+            if (waVendeurPhoneInput) waVendeurPhoneInput.value = normalizePhoneForWhatsapp(vendeurPhone);
+            if (waMessageTextarea) waMessageTextarea.value = msg;
+
+            // Populate auto-suggestion datalist from available vendeurs
+            const datalist = document.getElementById('fdv-vendeurs-datalist');
+            if (datalist && window.apiData && window.apiData.vendeurs) {
+                datalist.innerHTML = '';
+                window.apiData.vendeurs.forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v.name || v.code;
+                    opt.label = `${v.code} ${v.name}`;
+                    datalist.appendChild(opt);
+                });
+            }
+
+            if (waModal) waModal.style.display = 'flex';
+        });
+    }
+
+    // Live FDV phone lookup when typing/selecting vendor name
+    if (waVendeurNameInput) {
+        let fdvLookupTimer = null;
+        const performFdvLookup = async () => {
+            const name = waVendeurNameInput.value.trim();
+            if (!name) return;
+            try {
+                const resp = await fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(name) + '&include_rapport=false');
+                const resData = await resp.json();
+                if (resData.status === 'success' && resData.phone) {
+                    if (waVendeurPhoneInput) {
+                        waVendeurPhoneInput.value = normalizePhoneForWhatsapp(resData.phone);
+                    }
+                }
+            } catch (e) {
+                console.warn('Live FDV phone lookup error:', e);
+            }
+        };
+
+        waVendeurNameInput.addEventListener('input', () => {
+            clearTimeout(fdvLookupTimer);
+            fdvLookupTimer = setTimeout(performFdvLookup, 250);
+        });
+
+        waVendeurNameInput.addEventListener('change', performFdvLookup);
+    }
+
+    if (waModalClose && waModal) {
+        waModalClose.addEventListener('click', () => {
+            waModal.style.display = 'none';
+        });
+    }
+
+    if (waCopyBtn && waMessageTextarea) {
+        waCopyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(waMessageTextarea.value)
+                .then(() => showToast("Message copié dans le presse-papier !", "success"))
+                .catch(() => {
+                    waMessageTextarea.select();
+                    document.execCommand('copy');
+                    showToast("Message copié !", "success");
+                });
+        });
+    }
+
+    if (waSendBtn && waMessageTextarea) {
+        waSendBtn.addEventListener('click', () => {
+            let rawPhone = waVendeurPhoneInput ? waVendeurPhoneInput.value.trim() : '';
+            const phone = normalizePhoneForWhatsapp(rawPhone);
+
+            if (!phone) {
+                showToast("Veuillez saisir un numéro de téléphone valide.", "warning");
+                return;
+            }
+
+            const encodedMsg = encodeURIComponent(waMessageTextarea.value);
+            const waUrl = `https://wa.me/${phone}?text=${encodedMsg}`;
+            window.open(waUrl, '_blank');
+            if (waModal) waModal.style.display = 'none';
+        });
+    }
+    
+    if (reloadBtn) {
+        reloadBtn.addEventListener('click', loadAvailableVisites);
+    }
+    
+    // Refresh quick-sec buttons and dropdown when the global category changes
+    const afCategorySelect = document.getElementById('category-select');
+    if (afCategorySelect) {
+        afCategorySelect.addEventListener('change', () => {
+            renderQuickSecButtons();
+            populateEntityDropdown();
+        });
+    }
+
+    // Initial render of quick-sec buttons (before data loads, using static map)
+    renderQuickSecButtons();
+
+    await loadAvailableVisites();
+}
+
+// =============================================================
+// CLIENTS À FACTURER V2 — Vendeur / Secteur toggle + Tournée cards
+// =============================================================
+async function initAFacturerV2() {
+    const btnVendeur = document.getElementById('af2-btn-vendeur');
+    const btnSecteur = document.getElementById('af2-btn-secteur');
+    const selectLabel = document.getElementById('af2-select-label');
+    const selectEntity = document.getElementById('af2-select-entity');
+    const tourneesList = document.getElementById('af2-tournees-list');
+    const tourneesCount = document.getElementById('af2-tournees-count');
+    const resultsPlaceholder = document.getElementById('af-results-placeholder');
+    const resultsWorkspace = document.getElementById('af-results-workspace');
+
+    if (!btnVendeur || !selectEntity) return;
+
+    let mode = 'vendeur'; // 'vendeur' | 'secteur'
+    let apiData = null;
+    let currentAnalysisData = null;
+    let activeFilterTab = 'all';
+
+    // Format YYYY-MM-DD → DD/MM/YYYY
+    const formatDate = (d) => {
+        if (!d) return '';
+        const parts = d.split('-');
+        return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+    };
+
+    const renderV2Table = () => {
+        if (!currentAnalysisData) return;
+        const tbodyDetails = document.getElementById('af-details-tbody');
+        const tableHeaders = document.getElementById('af-table-headers');
+        if (!tbodyDetails) return;
+
+        let rows = currentAnalysisData.comparison || currentAnalysisData.clients || [];
+        const searchInput = document.getElementById('af-search-client');
+        const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+        // Search query filter
+        if (searchQuery) {
+            rows = rows.filter(r => 
+                (r.code && r.code.toLowerCase().includes(searchQuery)) ||
+                (r.name && r.name.toLowerCase().includes(searchQuery))
+            );
+        }
+
+        // Filter tab / card filter
+        if (activeFilterTab === 'atleastone') {
+            rows = rows.filter(r => r.has_facture || r.facture_status === 'AVEC FACTURE' || (r.motifs && r.motifs.some(m => String(m).toUpperCase() === 'OK')));
+        } else if (activeFilterTab === 'nofacture') {
+            rows = rows.filter(r => !r.has_facture && r.facture_status !== 'AVEC FACTURE' && !(r.motifs && r.motifs.some(m => String(m).toUpperCase() === 'OK')));
+        } else if (activeFilterTab === 'always') {
+            rows = rows.filter(r => r.synthesis === 'Toujours Facturé' || r.has_facture || r.facture_status === 'AVEC FACTURE');
+        } else if (activeFilterTab === 'loss') {
+            rows = rows.filter(r => r.synthesis === 'Perte de facturation');
+        } else if (activeFilterTab === 'gain') {
+            rows = rows.filter(r => r.synthesis === 'Gagné (Facturé en fin)');
+        } else if (activeFilterTab === 'never') {
+            rows = rows.filter(r => r.synthesis === 'Jamais Facturé' || r.facture_status === 'SANS FACTURE' || r.facture_status === 'NON VISITÉ');
+        } else if (activeFilterTab === 'inactifs') {
+            rows = rows.filter(r => r.is_inactif === 1 || r.facture_status === 'NON VISITÉ');
+        }
+
+        if (rows.length === 0) {
+            tbodyDetails.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem;">Aucun client ne correspond à ces critères.</td></tr>';
+            return;
+        }
+
+        tbodyDetails.innerHTML = '';
+        rows.forEach(r => {
+            const motif = (r.motifs && r.motifs.length > 0) ? r.motifs[0] : (r.motif || 'Non visité');
+            const isOk = String(motif).toUpperCase() === 'OK' || r.has_facture;
+            const motifColor = isOk ? 'var(--neon-green)' : (motif === 'Non visité' ? 'var(--text-muted)' : 'var(--neon-amber)');
+            const statusBadge = isOk
+                ? '<span style="color:var(--neon-green);font-weight:bold;">✓ FACTURÉ</span>'
+                : '<span style="color:var(--neon-amber);">✗ NON FACTURÉ</span>';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-family:var(--font-mono);font-size:0.78rem;">${r.code || ''}</td>
+                <td style="font-size:0.82rem;">${r.name || ''}</td>
+                <td style="font-size:0.72rem;color:var(--text-muted);">${r.localite || ''}</td>
+                <td style="font-size:0.78rem;color:${motifColor};">${motif}</td>
+                <td>${statusBadge}</td>
+            `;
+            tbodyDetails.appendChild(tr);
+        });
+    };
+
+    // Load data from new API
+    const loadData = async () => {
+        try {
+            selectEntity.innerHTML = '<option value="">Chargement...</option>';
+            if (tourneesList) tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Chargement...</span>';
+            const res = await fetch(`/api/afacturer/tournees?_=${Date.now()}`);
+            const data = await res.json();
+            if (data.status === 'success') {
+                apiData = data;
+                window.apiData = data;
+                populateDropdown();
+            } else {
+                showToast('Erreur chargement tournées: ' + data.message, 'error');
+            }
+        } catch (err) {
+            console.error('initAFacturerV2 loadData error:', err);
+            showToast('Erreur connexion serveur.', 'error');
+        }
+    };
+
+    const populateDropdown = () => {
+        if (!apiData) return;
+        selectEntity.innerHTML = '';
+        const list = mode === 'vendeur' ? (apiData.vendeurs || []) : (apiData.secteurs || []);
+        const placeholder = mode === 'vendeur' ? '-- SÉLECTIONNER UN VENDEUR --' : '-- SÉLECTIONNER UN SECTEUR --';
+        selectEntity.innerHTML = `<option value="">${placeholder}</option>`;
+        list.forEach(item => {
+            const opt = document.createElement('option');
+            const label = mode === 'vendeur' ? `${item.code} ${item.name}` : item.name;
+            opt.value = item.name || item.code;
+            opt.textContent = label;
+            selectEntity.appendChild(opt);
+        });
+        if (tourneesList) {
+            tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Sélectionnez un vendeur ou secteur pour afficher les tournées.</span>';
+            if (tourneesCount) tourneesCount.textContent = '0 passage(s)';
+        }
+    };
+
+    const renderTourneeCards = () => {
+        if (!apiData || !tourneesList) return;
+        const val = selectEntity.value;
+        if (!val) {
+            tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Sélectionnez un vendeur ou secteur.</span>';
+            if (tourneesCount) tourneesCount.textContent = '0 passage(s)';
+            return;
+        }
+
+        let item;
+        if (mode === 'vendeur') {
+            item = (apiData.vendeurs || []).find(v => v.name === val || v.code === val);
+        } else {
+            item = (apiData.secteurs || []).find(s => s.name === val);
+        }
+
+        const entries = item ? (item.tournee_dates || []) : [];
+        if (tourneesCount) tourneesCount.textContent = `${entries.length} passage(s)`;
+
+        if (entries.length === 0) {
+            tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Aucun passage trouvé.</span>';
+            return;
+        }
+
+        tourneesList.innerHTML = '';
+        entries.forEach(entry => {
+            const dateFormatted = formatDate(entry.date);
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'af2-tournee-card';
+            card.setAttribute('data-date', entry.date);
+            card.setAttribute('data-tournee', entry.tournee);
+            if (mode === 'secteur' && entry.vendeur_name) {
+                card.setAttribute('data-vendeur', entry.vendeur_name);
+            }
+            card.style.cssText = `
+                width: 100%; text-align: left; padding: 0.55rem 0.75rem;
+                background: rgba(0,242,254,0.04); border: 1px solid rgba(0,242,254,0.12);
+                border-radius: 5px; cursor: pointer; transition: all 0.18s;
+                display: flex; flex-direction: column; gap: 2px;
+            `;
+            const vendeurLine = (mode === 'secteur' && entry.vendeur_name)
+                ? `<span style="font-size:0.65rem;color:var(--neon-green);font-family:var(--font-mono);margin-top:2px;"><i class="fa-solid fa-user"></i> ${entry.vendeur_name}</span>`
+                : '';
+            card.innerHTML = `
+                <span style="font-size:0.75rem;font-weight:bold;color:var(--neon-cyan);font-family:var(--font-mono);">
+                    <i class="fa-solid fa-calendar-day" style="margin-right:4px;opacity:0.7;"></i>${dateFormatted}
+                </span>
+                <span style="font-size:0.72rem;color:var(--text-main);line-height:1.3;">${entry.tournee}</span>
+                ${vendeurLine}
+            `;
+            card.addEventListener('mouseenter', () => {
+                card.style.background = 'rgba(0,242,254,0.12)';
+                card.style.borderColor = 'var(--neon-cyan)';
+            });
+            card.addEventListener('mouseleave', () => {
+                if (!card.classList.contains('af2-active')) {
+                    card.style.background = 'rgba(0,242,254,0.04)';
+                    card.style.borderColor = 'rgba(0,242,254,0.12)';
+                }
+            });
+            card.addEventListener('click', () => {
+                // Deselect all
+                document.querySelectorAll('.af2-tournee-card').forEach(c => {
+                    c.classList.remove('af2-active');
+                    c.style.background = 'rgba(0,242,254,0.04)';
+                    c.style.borderColor = 'rgba(0,242,254,0.12)';
+                });
+                card.classList.add('af2-active');
+                card.style.background = 'rgba(0,242,254,0.18)';
+                card.style.borderColor = 'var(--neon-cyan)';
+
+                // Trigger the analysis for this specific tournee + date
+                triggerAnalysis(entry.date, entry.tournee, entry.vendeur_code || val);
+            });
+            tourneesList.appendChild(card);
+        });
+    };
+
+    const triggerAnalysis = async (date, tournee, vendeurKey) => {
+        if (resultsPlaceholder) resultsPlaceholder.style.display = 'none';
+        if (resultsWorkspace) resultsWorkspace.style.display = 'flex';
+
+        const displayVendeur = document.getElementById('af-vendeur-display');
+        if (displayVendeur) displayVendeur.textContent = `${formatDate(date)} — ${tournee}`;
+
+        const tbodyDetails = document.getElementById('af-details-tbody');
+        const tableHeaders = document.getElementById('af-table-headers');
+        if (tbodyDetails) tbodyDetails.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:2rem;">Chargement...</td></tr>';
+
+        try {
+            const url = `/api/clients/analyse?dates=${encodeURIComponent(date)}&tournee=${encodeURIComponent(tournee)}&vendeur=${encodeURIComponent(vendeurKey)}&_=${Date.now()}`;
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (data.status !== 'success') {
+                showToast('Erreur: ' + (data.message || 'Inconnue'), 'error');
+                return;
+            }
+
+            currentAnalysisData = data;
+            window.currentAnalysisData = data;
+            window.analysisResult = data;
+
+            // Update KPIs
+            const kpiMap = {
+                'af-kpi-atleastone': data.total_avec_facture || 0,
+                'af-kpi-always': data.toujours_facture || 0,
+                'af-kpi-loss': data.pertes || 0,
+                'af-kpi-gain': data.gains || 0,
+                'af-kpi-never': data.jamais_facture || 0,
+                'af-kpi-inactive': data.total_inactifs || 0
+            };
+            Object.entries(kpiMap).forEach(([id, val]) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = val;
+            });
+
+            // Build table headers
+            if (tableHeaders) {
+                tableHeaders.innerHTML = `<tr>
+                    <th>Code</th>
+                    <th>Client</th>
+                    <th>Tournée</th>
+                    <th>${formatDate(date)} — Motif</th>
+                    <th>Statut</th>
+                </tr>`;
+            }
+
+            // Render table with current filter
+            renderV2Table();
+        } catch (err) {
+            console.error('triggerAnalysis error:', err);
+            if (tbodyDetails) tbodyDetails.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--neon-pink);padding:2rem;">Erreur lors du chargement des données.</td></tr>';
+        }
+    };
+
+    // Attach event listeners to sub-tab buttons & search
+    const filterBtnMap = {
+        'af-btn-all': 'all',
+        'af-btn-atleastone': 'atleastone',
+        'af-btn-nofacture': 'nofacture',
+        'af-btn-always': 'always',
+        'af-btn-loss': 'loss',
+        'af-btn-gain': 'gain',
+        'af-btn-never': 'never',
+        'af-btn-inactifs': 'inactifs'
+    };
+
+    Object.entries(filterBtnMap).forEach(([id, filter]) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                activeFilterTab = filter;
+                window.activeFilterTab = filter;
+                Object.keys(filterBtnMap).forEach(bId => {
+                    const b = document.getElementById(bId);
+                    if (b) b.classList.remove('is-active');
+                });
+                btn.classList.add('is-active');
+                renderV2Table();
+            });
+        }
+    });
+
+    const searchInput = document.getElementById('af-search-client');
+    if (searchInput) {
+        searchInput.addEventListener('input', renderV2Table);
+    }
+
+    const cardFilterMap = {
+        'af-card-atleastone': 'af-btn-atleastone',
+        'af-card-always': 'af-btn-always',
+        'af-card-loss': 'af-btn-loss',
+        'af-card-gain': 'af-btn-gain',
+        'af-card-never': 'af-btn-never',
+        'af-card-inactifs': 'af-btn-inactifs'
+    };
+
+    Object.entries(cardFilterMap).forEach(([cardId, btnId]) => {
+        const card = document.getElementById(cardId);
+        if (card) {
+            card.style.cursor = 'pointer';
+            card.addEventListener('click', () => {
+                const targetBtn = document.getElementById(btnId);
+                if (targetBtn) targetBtn.click();
+            });
+        }
+    });
+
+    // Mode toggle buttons
+    btnVendeur.addEventListener('click', () => {
+        mode = 'vendeur';
+        btnVendeur.style.borderColor = 'var(--neon-blue)';
+        btnVendeur.style.color = 'var(--neon-blue)';
+        btnVendeur.style.background = 'rgba(0,149,255,0.12)';
+        btnSecteur.style.borderColor = 'var(--border-color)';
+        btnSecteur.style.color = 'var(--text-muted)';
+        btnSecteur.style.background = 'transparent';
+        if (selectLabel) selectLabel.innerHTML = '<i class="fa-solid fa-user-tie"></i> SÉLECTIONNER UN VENDEUR';
+        populateDropdown();
+    });
+
+    btnSecteur.addEventListener('click', () => {
+        mode = 'secteur';
+        btnSecteur.style.borderColor = 'var(--neon-cyan)';
+        btnSecteur.style.color = 'var(--neon-cyan)';
+        btnSecteur.style.background = 'rgba(0,242,254,0.12)';
+        btnVendeur.style.borderColor = 'var(--border-color)';
+        btnVendeur.style.color = 'var(--text-muted)';
+        btnVendeur.style.background = 'transparent';
+        if (selectLabel) selectLabel.innerHTML = '<i class="fa-solid fa-layer-group"></i> SÉLECTIONNER UN SECTEUR';
+        populateDropdown();
+    });
+
+    selectEntity.addEventListener('change', renderTourneeCards);
+
+    await loadData();
+}
+
+let visitesUploadInitialized = false;
+let selectedVisitesFile = null;
+let analysisResultData = null;
+let activeResultTab = 'ok';
+
+function initVisitesUploadModal() {
+    if (visitesUploadInitialized) return;
+    visitesUploadInitialized = true;
+
+    const uploadModal = document.getElementById('visites-upload-modal');
+    const closeUploadModalBtn = document.getElementById('close-visites-upload-modal');
+    const cancelUploadBtn = document.getElementById('cancel-visites-upload');
+    const dropzone = document.getElementById('visites-dropzone');
+    const fileInput = document.getElementById('visites-file-input');
+    const fileInfo = document.getElementById('visites-file-info');
+    const fileNameSpan = document.getElementById('visites-file-name');
+    const fileClearBtn = document.getElementById('visites-file-clear');
+    const submitUploadBtn = document.getElementById('submit-visites-upload');
+
+    const resultModal = document.getElementById('visites-result-modal');
+    const closeResultModalBtn = document.getElementById('close-visites-result-modal');
+    const closeResultActionBtn = document.getElementById('close-visites-result-action');
+    const saveResultBtn = document.getElementById('save-visites-result-btn');
+
+    let selectedVisitesFiles = [];
+
+    const resetUploadForm = () => {
+        selectedVisitesFiles = [];
+        if (fileInput) fileInput.value = '';
+        if (fileInfo) fileInfo.style.display = 'none';
+        if (dropzone) dropzone.style.borderColor = 'var(--border-color)';
+        if (dropzone) dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+    };
+
+    [closeUploadModalBtn, cancelUploadBtn].forEach(btn => {
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (uploadModal) uploadModal.classList.remove('open');
+            });
+        }
+    });
+
+    if (dropzone && fileInput) {
+        dropzone.addEventListener('click', () => fileInput.click());
+
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'var(--neon-blue)';
+            dropzone.style.backgroundColor = 'rgba(0, 242, 254, 0.05)';
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.style.borderColor = 'var(--border-color)';
+            dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'var(--border-color)';
+            dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+            
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleFileSelect(e.dataTransfer.files);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleFileSelect(e.target.files);
+            }
+        });
+    }
+
+    const handleFileSelect = (fileList) => {
+        const files = Array.from(fileList || []).filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
+        if (files.length === 0) {
+            showToast("Les fichiers doivent être au format Excel (.xlsx, .xls)", "error");
+            return;
+        }
+        selectedVisitesFiles = files;
+        if (fileNameSpan) {
+            if (files.length === 1) {
+                fileNameSpan.innerText = `Fichier : ${files[0].name}`;
+            } else {
+                fileNameSpan.innerText = `${files.length} fichiers : ${files.map(f => f.name).join(', ')}`;
+            }
+        }
+        if (fileInfo) fileInfo.style.display = 'flex';
+    };
+
+    if (fileClearBtn) {
+        fileClearBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetUploadForm();
+        });
+    }
+
+    // Modal display logic
+    function displayAnalysisResults(data) {
+        window.displayAnalysisResults = displayAnalysisResults;
+        document.getElementById('vr-res-vendeur').innerText = data.metadata.vendeur || 'N/A';
+        document.getElementById('vr-res-date').innerText = data.metadata.date || 'N/A';
+        document.getElementById('vr-res-tournee').innerText = data.metadata.tournee || 'N/A';
+        document.getElementById('vr-res-agence').innerText = data.metadata.agence || 'N/A';
+
+        document.getElementById('vr-kpi-total').innerText = data.summary.total;
+        document.getElementById('vr-kpi-ok').innerText = data.summary.ok;
+        document.getElementById('vr-kpi-no-ok').innerText = data.summary.no_ok;
+        document.getElementById('vr-kpi-acm').innerText = `${data.summary.acm}%`;
+
+        document.getElementById('vr-dist-avg').innerText = `${data.distance.average} m`;
+        document.getElementById('vr-dist-anom').innerText = `${data.distance.anomalies} anomalie(s)`;
+
+        const motifsList = document.getElementById('vr-motifs-list');
+        if (motifsList) {
+            motifsList.innerHTML = '';
+            const sortedMotifs = Object.entries(data.motifs).sort((a, b) => b[1] - a[1]);
+            if (sortedMotifs.length === 0) {
+                motifsList.innerHTML = '<span style="color: var(--text-muted);">Aucun motif de non-facturation (ACM 100%)</span>';
+            } else {
+                sortedMotifs.forEach(([motif, count]) => {
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.justify = 'space-between';
+                    row.style.borderBottom = '1px solid rgba(255, 255, 255, 0.05)';
+                    row.style.padding = '0.2rem 0';
+                    row.innerHTML = `<span style="color: var(--text-muted);">${motif}</span><strong class="neon-text-pink">${count}</strong>`;
+                    motifsList.appendChild(row);
+                });
+            }
+        }
+
+        document.getElementById('vr-badge-count-ok').innerText = data.summary.ok;
+        document.getElementById('vr-badge-count-no-ok').innerText = data.summary.no_ok;
+
+        activeResultTab = 'ok';
+        const toggleOk = document.getElementById('vr-toggle-ok');
+        const toggleNoOk = document.getElementById('vr-toggle-no-ok');
+        if (toggleOk) toggleOk.classList.add('is-active');
+        if (toggleNoOk) toggleNoOk.classList.remove('is-active');
+        
+        renderResultsTable();
+    };
+
+    const renderResultsTable = () => {
+        if (!analysisResultData) return;
+        const list = activeResultTab === 'ok' ? analysisResultData.clients_ok : analysisResultData.clients_no_ok;
+        const tbody = document.getElementById('vr-details-tbody');
+        
+        if (tbody) {
+            tbody.innerHTML = '';
+            if (list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Aucun client dans cette catégorie.</td></tr>';
+                return;
+            }
+            
+            list.forEach(c => {
+                const tr = document.createElement('tr');
+                const motifClass = activeResultTab === 'ok' ? 'neon-text-green' : 'neon-text-pink';
+                const noteText = c.note ? `<span style="color: var(--text-muted); font-size: 0.75rem; display: block; font-style: italic;">Note : ${c.note}</span>` : '';
+                tr.innerHTML = `
+                    <td><code>${c.code}</code></td>
+                    <td><strong>${c.name}</strong></td>
+                    <td>${c.time}</td>
+                    <td>${c.distance}</td>
+                    <td><strong class="${motifClass}">${c.motif}</strong>${noteText}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    };
+
+    // Toggle bindings
+    const tglOk = document.getElementById('vr-toggle-ok');
+    const tglNoOk = document.getElementById('vr-toggle-no-ok');
+    if (tglOk && tglNoOk) {
+        tglOk.addEventListener('click', () => {
+            activeResultTab = 'ok';
+            tglOk.classList.add('is-active');
+            tglNoOk.classList.remove('is-active');
+            renderResultsTable();
+        });
+
+        tglNoOk.addEventListener('click', () => {
+            activeResultTab = 'no_ok';
+            tglNoOk.classList.add('is-active');
+            tglOk.classList.remove('is-active');
+            renderResultsTable();
+        });
+    }
+
+    [closeResultModalBtn, closeResultActionBtn].forEach(btn => {
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (resultModal) resultModal.classList.remove('open');
+            });
+        }
+    });
+
+    if (submitUploadBtn) {
+        submitUploadBtn.addEventListener('click', async () => {
+            if (!selectedVisitesFiles || selectedVisitesFiles.length === 0) {
+                showToast("Veuillez sélectionner au moins un fichier Excel à analyser.", "warning");
+                return;
+            }
+
+            submitUploadBtn.disabled = true;
+            const originalContent = submitUploadBtn.innerHTML;
+
+            let successCount = 0;
+            let failCount = 0;
+            let lastResultData = null;
+
+            for (let i = 0; i < selectedVisitesFiles.length; i++) {
+                const file = selectedVisitesFiles[i];
+                submitUploadBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ANALYSE ${i + 1}/${selectedVisitesFiles.length}...`;
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const response = await fetch('/api/clients/analyse_visites', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        if (result.is_acm) {
+                            successCount++;
+                            showToast(result.message, "success");
+                        } else {
+                            // Automatically register to DB
+                            const saveRes = await fetch('/api/clients/enregistrer_visites', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    metadata: result.metadata,
+                                    clients_ok: result.clients_ok,
+                                    clients_no_ok: result.clients_no_ok
+                                })
+                            });
+                            const saveJson = await saveRes.json();
+                            if (saveJson.status === 'success') {
+                                successCount++;
+                                lastResultData = result;
+                            } else {
+                                failCount++;
+                                showToast(`Erreur d'enregistrement sur ${file.name}: ${saveJson.message}`, "error");
+                            }
+                        }
+                    } else {
+                        failCount++;
+                        showToast(`Erreur d'analyse sur ${file.name}: ${result.message}`, "error");
+                    }
+                } catch (err) {
+                    console.error("Error analyzing visit file:", file.name, err);
+                    failCount++;
+                }
+            }
+
+            submitUploadBtn.disabled = false;
+            submitUploadBtn.innerHTML = originalContent;
+
+            if (successCount > 0) {
+                showToast(`${successCount} rapport(s) de visites importé(s) et analysé(s) avec succès !`, "success");
+                if (uploadModal) uploadModal.classList.remove('open');
+                resetUploadForm();
+
+                if (typeof window.visitesUploadCallback === 'function') {
+                    await window.visitesUploadCallback();
+                }
+
+                if (selectedVisitesFiles.length === 1 && lastResultData) {
+                    analysisResultData = lastResultData;
+                    displayAnalysisResults(lastResultData);
+                    if (resultModal) resultModal.classList.add('open');
+                }
+            } else {
+                showToast("Aucun fichier n'a pu être importé.", "error");
+            }
+        });
+    }
+
+    // Save action click listener
+    if (saveResultBtn) {
+        saveResultBtn.addEventListener('click', async () => {
+            if (!analysisResultData) return;
+
+            saveResultBtn.disabled = true;
+            const originalContent = saveResultBtn.innerHTML;
+            saveResultBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ENREGISTREMENT...';
+
+            try {
+                const response = await fetch('/api/clients/enregistrer_visites', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(analysisResultData)
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    showToast("Rapport de visite enregistré avec succès !", "success");
+                    if (resultModal) resultModal.classList.remove('open');
+
+                    if (typeof window.visitesUploadCallback === 'function') {
+                        window.visitesUploadCallback();
+                    }
+
+                    if (typeof loadFacturationData === 'function') {
+                        await loadFacturationData();
+                    }
+
+                    const detailsSection = document.getElementById('cf-details-visites-section');
+                    if (detailsSection) {
+                        renderDetailedVisitsReport(analysisResultData);
+                    }
+                } else {
+                    showToast("Erreur d'enregistrement : " + result.message, "error");
+                }
+            } catch (err) {
+                console.error("Error saving visits to DB:", err);
+                showToast("Erreur de communication avec le serveur.", "error");
+            } finally {
+                saveResultBtn.disabled = false;
+                saveResultBtn.innerHTML = originalContent;
+            }
+        });
+    }
+
+    window.resetVisitesUploadForm = resetUploadForm;
+}
+
+let acmUploadInitialized = false;
+function initAcmUploadModal() {
+    if (acmUploadInitialized) return;
+    acmUploadInitialized = true;
+
+    const uploadModal = document.getElementById('acm-upload-modal');
+    const closeUploadModalBtn = document.getElementById('close-acm-upload-modal');
+    const cancelUploadBtn = document.getElementById('cancel-acm-upload');
+    const dropzone = document.getElementById('acm-dropzone');
+    const fileInput = document.getElementById('acm-file-input');
+    const fileInfo = document.getElementById('acm-file-info');
+    const fileNameSpan = document.getElementById('acm-file-name');
+    const fileClearBtn = document.getElementById('acm-file-clear');
+    const submitUploadBtn = document.getElementById('submit-acm-upload');
+
+    let selectedAcmFile = null;
+
+    const resetForm = () => {
+        selectedAcmFile = null;
+        if (fileInput) fileInput.value = '';
+        if (fileInfo) fileInfo.style.display = 'none';
+        if (dropzone) dropzone.style.borderColor = 'var(--border-color)';
+        if (dropzone) dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+    };
+
+    [closeUploadModalBtn, cancelUploadBtn].forEach(btn => {
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (uploadModal) uploadModal.classList.remove('open');
+            });
+        }
+    });
+
+    if (dropzone && fileInput) {
+        dropzone.addEventListener('click', () => fileInput.click());
+
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'var(--neon-green)';
+            dropzone.style.backgroundColor = 'rgba(0, 230, 118, 0.05)';
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.style.borderColor = 'var(--border-color)';
+            dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'var(--border-color)';
+            dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleFileSelect(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+    }
+
+    const handleFileSelect = (file) => {
+        if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+            showToast("Le fichier ACM doit être au format Excel (.xlsx, .xls)", "error");
+            return;
+        }
+        selectedAcmFile = file;
+        if (fileNameSpan) fileNameSpan.innerText = `Fichier : ${file.name}`;
+        if (fileInfo) fileInfo.style.display = 'flex';
+    };
+
+    if (fileClearBtn) {
+        fileClearBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetForm();
+        });
+    }
+
+    if (submitUploadBtn) {
+        submitUploadBtn.addEventListener('click', async () => {
+            if (!selectedAcmFile) {
+                showToast("Veuillez sélectionner le fichier ACM (acm.xlsx).", "warning");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', selectedAcmFile);
+
+            submitUploadBtn.disabled = true;
+            submitUploadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> IMPORTATION...';
+
+            try {
+                const response = await fetch('/api/clients/import_acm', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    showToast(result.message, "success");
+                    if (uploadModal) uploadModal.classList.remove('open');
+                    resetForm();
+                    if (typeof window.acmUploadCallback === 'function') {
+                        await window.acmUploadCallback();
+                    }
+                } else {
+                    showToast("Erreur d'importation : " + result.message, "error");
+                }
+            } catch (err) {
+                console.error("Error importing ACM file:", err);
+                showToast("Erreur de connexion avec le serveur.", "error");
+            } finally {
+                submitUploadBtn.disabled = false;
+                submitUploadBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> IMPORTER EN BASE';
+            }
+        });
+    }
+}
 let currentFilterType = 'all'; // 'all', 'som', 'vmm'
 let quantiChartInstance = null;
 let qualiChartInstance = null;
+let clientsFacturationChartInstance = null;
 let activeDropdownIndex = -1;
 let activeView = 'dashboard';
 let availableDates = [];
+
+// Prevent default drag and drop behaviors globally on window
+window.addEventListener('dragover', (e) => e.preventDefault(), false);
+window.addEventListener('drop', (e) => e.preventDefault(), false);
 
 // DOM Elements
 const totalCaEl = document.getElementById('total-ca');
@@ -59,6 +2458,31 @@ const focusSomBar = document.getElementById('focus-som-bar');
 const focusSomRealRest = document.getElementById('focus-som-real-rest');
 const focusSomRafJour = document.getElementById('focus-som-raf-jour');
 
+const chakibFamiliesProgressCard = document.getElementById('chakib-families-progress-card');
+let chakibFamiliesChartInstance = null;
+const chakibFocusProgressCard = document.getElementById('chakib-focus-progress-card');
+let chakibFocusChartInstance = null;
+let chakibFocusHistoryData = null;
+
+// Layout Manager Configurations & State
+const checkboxMap = {
+    'quanti-chart-card': 'toggle-quanti-chart',
+    'quali-chart-card': 'toggle-quali-chart',
+    'radar-chart-card': 'toggle-radar-chart',
+    'focus-card': 'toggle-focus-card',
+    'chakib-families-progress-card': 'toggle-chakib-families',
+    'chakib-focus-progress-card': 'toggle-chakib-focus',
+    'familles-grid-card': 'toggle-familles-grid',
+    'quanti-table-card': 'toggle-quanti-table',
+    'quali-table-card': 'toggle-quali-table',
+    'alerts-section': 'toggle-alerts-section'
+};
+let layoutStates = {
+    visible: {},
+    collapsed: {},
+    order: { left: [], right: [] }
+};
+
 // SVG Elements removed
 
 // Modal Elements
@@ -72,8 +2496,11 @@ const infoElapsedDays = document.getElementById('info-elapsed-days');
 
 // Init application
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize layout manager first to restore saved layout order and visibility states
+    initLayoutManager();
+
     // Load config from server
-    fetch('/api/config')
+    fetch('/api/config?_=' + Date.now())
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
@@ -90,12 +2517,65 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Proceed with initialization
-            fetchSuiviDates(() => {
-                fetchDashboardData();
-            });
+            const path = window.location.pathname;
+            const searchView = new URLSearchParams(window.location.search).get('view');
+            const onClientsRoute = path === '/clients';
+            const onDetailsRoute = path === '/details';
+            const onVendeur360Route = path === '/vendeur360' || (path === '/details' && searchView === 'vendeur360');
+            const onFdvRoute = path === '/fdv';
+            const onTerrainRoute = path === '/terrain';
+            const onFocusRoute = path === '/focus';
+            const onRapportRoute = path === '/rapport';
+            const onStockRoute = path === '/stock';
+            const onAnomalisRoute = path === '/anomalis';
+            const onTasksRoute = path === '/tasks';
+            const onEngagementRoute = path === '/engagement';
+            
+            if (onVendeur360Route) {
+                activeView = 'vendeur360';
+            } else if (onDetailsRoute) {
+                activeView = 'details';
+            } else if (onClientsRoute) {
+                activeView = 'clients';
+            } else if (onFdvRoute) {
+                activeView = 'fdv';
+            } else if (onTerrainRoute) {
+                activeView = 'terrain';
+            } else if (onFocusRoute) {
+                activeView = 'focus';
+            } else if (onRapportRoute) {
+                activeView = 'rapport';
+            } else if (onStockRoute) {
+                activeView = 'stock';
+            } else if (onAnomalisRoute) {
+                activeView = 'anomalis';
+            } else if (onTasksRoute) {
+                activeView = 'tasks';
+            } else if (onEngagementRoute) {
+                activeView = 'engagement';
+            } else {
+                activeView = 'dashboard';
+            }
+            
+            switchView(activeView);
+            
+            // Skip the main dashboard fetch when the user is on sub routes
+            if (!onDetailsRoute && !onVendeur360Route && !onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute && !onStockRoute && !onAnomalisRoute && !onTasksRoute && !onEngagementRoute) {
+                fetchSuiviDates(() => {
+                    fetchDashboardData();
+                });
+            } else {
+                fetchSuiviDates(() => {});
+            }
             setupEventListeners();
             initDetailsView();
             initMultiUploadView();
+            initAnomalisView();
+            initTasksView();
+            const dropdownList = document.getElementById('vendeur-dropdown-list');
+            if (dropdownList) {
+                loadVendeursList();
+            }
         })
         .catch(err => {
             console.error("Error loading config:", err);
@@ -130,6 +2610,10 @@ document.addEventListener('DOMContentLoaded', () => {
             setupEventListeners();
             initDetailsView();
             initMultiUploadView();
+            const dropdownList = document.getElementById('vendeur-dropdown-list');
+            if (dropdownList) {
+                loadVendeursList();
+            }
         });
 });
 
@@ -177,32 +2661,285 @@ function switchView(viewName) {
     const navDashboard = document.getElementById('nav-dashboard');
     const navRealisation = document.getElementById('nav-realisation');
     const navDetails = document.getElementById('nav-details');
+    const navVendeur360 = document.getElementById('nav-vendeur-360');
+    const navClients = document.getElementById('nav-clients');
+    const navClientsFacturation = document.getElementById('nav-clients-facturation');
+    const navFdv = document.getElementById('nav-fdv');
+    const navTerrain = document.getElementById('nav-terrain');
+    const navFocus = document.getElementById('nav-focus');
+    const navRapport = document.getElementById('nav-rapport');
+    const navStock = document.getElementById('nav-stock');
+    const navStockFavorites = document.getElementById('nav-stock-favorites');
+    const navAnomalis = document.getElementById('nav-anomalis');
+    const navTasks = document.getElementById('nav-tasks');
+    const navEngagement = document.getElementById('nav-engagement');
     
     const mainDashboard = document.getElementById('main-dashboard-container');
     const detailsContainer = document.getElementById('details-container');
-    const dateSelect = document.getElementById('date-select');
+    const clientsContainer = document.getElementById('clients-container');
+    const fdvContainer = document.getElementById('fdv-container');
+    const terrainContainer = document.getElementById('terrain-container');
+    const focusContainer = document.getElementById('focus-container');
+    const rapportContainer = document.getElementById('rapport-container');
+    const stockContainer = document.getElementById('stock-container');
+    const anomalisContainer = document.getElementById('anomalis-container');
+    const tasksContainer = document.getElementById('tasks-container');
+    const engagementContainer = document.getElementById('engagement-container');
     
-    // Remove active class from all
-    [navDashboard, navRealisation, navDetails].forEach(nav => {
+    const dateSelect = document.getElementById('date-select');
+    const timelapseCtrl = document.getElementById('timelapse-control');
+    
+    // Remove active class from all nav items
+    [navDashboard, navRealisation, navDetails, navVendeur360, navClients, navClientsFacturation, navFdv, navTerrain, navFocus, navRapport, navStock, navStockFavorites, navAnomalis, navTasks, navEngagement].forEach(nav => {
         if (nav) nav.classList.remove('active');
     });
     
-    if (viewName === 'details') {
-        if (navDetails) navDetails.classList.add('active');
-        if (mainDashboard) mainDashboard.style.display = 'none';
-        if (detailsContainer) detailsContainer.style.display = 'block';
-        if (dateSelect) dateSelect.style.display = 'none';
-        loadTrendsData();
+    // Hide all view containers
+    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, focusContainer, rapportContainer, stockContainer, anomalisContainer, tasksContainer, engagementContainer].forEach(container => {
+        if (container) container.style.display = 'none';
+    });
+    
+    // Show/hide Stock favorites sub nav item depending on active view
+    if (navStockFavorites) {
+        if (viewName === 'stock') {
+            navStockFavorites.style.display = 'flex';
+        } else {
+            navStockFavorites.style.display = 'none';
+        }
+    }
+    
+    // Show/hide Clients Facturation sub nav item depending on active view
+    if (navClientsFacturation) {
+        if (viewName === 'clients') {
+            navClientsFacturation.style.display = 'flex';
+        } else {
+            navClientsFacturation.style.display = 'none';
+        }
+    }
+
+    // Show/hide Vendeur 360 sub nav item depending on active view
+    if (navVendeur360) {
+        if (viewName === 'details' || viewName === 'vendeur360') {
+            navVendeur360.style.display = 'flex';
+        } else {
+            navVendeur360.style.display = 'none';
+        }
+    }
+    
+    // Default: hide date selector and timelapse control for subviews
+    if (dateSelect) dateSelect.style.display = 'none';
+    if (timelapseCtrl) timelapseCtrl.style.display = 'none';
+    if (timelapseIsPlaying) stopTimelapse();
+    
+    if (viewName === 'details' || viewName === 'vendeur360') {
+        if (detailsContainer) detailsContainer.style.display = '';
+        const searchView = new URLSearchParams(window.location.search).get('view');
+        const is360 = viewName === 'vendeur360' || searchView === 'vendeur360' || window.location.pathname === '/vendeur360';
+        if (is360) {
+            if (navVendeur360) navVendeur360.classList.add('active');
+            const btn360 = document.getElementById('details-subtab-vendeur360');
+            if (btn360) {
+                btn360.classList.add('active');
+                const btnAnalytics = document.getElementById('details-subtab-analytics');
+                if (btnAnalytics) btnAnalytics.classList.remove('active');
+                const secAnalytics = document.getElementById('details-analytics-section');
+                const sec360 = document.getElementById('vendeur-360-section');
+                if (secAnalytics) secAnalytics.style.display = 'none';
+                if (sec360) sec360.style.display = 'flex';
+                if (typeof loadVendeur360Data === 'function') loadVendeur360Data();
+            }
+        } else {
+            if (navDetails) navDetails.classList.add('active');
+            const btnAnalytics = document.getElementById('details-subtab-analytics');
+            if (btnAnalytics) {
+                btnAnalytics.classList.add('active');
+                const btn360 = document.getElementById('details-subtab-vendeur360');
+                if (btn360) btn360.classList.remove('active');
+                const secAnalytics = document.getElementById('details-analytics-section');
+                const sec360 = document.getElementById('vendeur-360-section');
+                if (secAnalytics) secAnalytics.style.display = 'block';
+                if (sec360) sec360.style.display = 'none';
+            }
+            loadTrendsData();
+        }
+    } else if (viewName === 'clients') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const viewType = urlParams.get('view');
+        if (viewType === 'facturation') {
+            if (navClientsFacturation) navClientsFacturation.classList.add('active');
+        } else if (viewType === 'afacturer') {
+            const navClientsAFacturer = document.getElementById('nav-clients-afacturer');
+            if (navClientsAFacturer) navClientsAFacturer.classList.add('active');
+        } else {
+            if (navClients) navClients.classList.add('active');
+        }
+        if (clientsContainer) clientsContainer.style.display = '';
+        if (viewType === 'facturation') {
+            initClientsFacturationView();
+        } else if (viewType === 'afacturer') {
+            initClientsAFacturerView();
+            initAFacturerV2();
+        }
+    } else if (viewName === 'fdv') {
+        if (navFdv) navFdv.classList.add('active');
+        if (fdvContainer) fdvContainer.style.display = '';
+    } else if (viewName === 'terrain') {
+        if (navTerrain) navTerrain.classList.add('active');
+        if (terrainContainer) terrainContainer.style.display = '';
+    } else if (viewName === 'focus') {
+        if (navFocus) navFocus.classList.add('active');
+        if (focusContainer) focusContainer.style.display = '';
+    } else if (viewName === 'rapport') {
+        if (navRapport) navRapport.classList.add('active');
+        if (rapportContainer) {
+            rapportContainer.style.display = '';
+            // Always reload the vendeur list when switching to rapport
+            loadVendeursList();
+        }
+    } else if (viewName === 'stock') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const isFav = urlParams.get('view') === 'favorites' || urlParams.get('view') === 'favorit';
+        if (isFav) {
+            if (navStockFavorites) navStockFavorites.classList.add('active');
+        } else {
+            if (navStock) navStock.classList.add('active');
+        }
+        if (stockContainer) stockContainer.style.display = '';
+        if (typeof window.initStockView === 'function') {
+            window.initStockView();
+        }
+    } else if (viewName === 'anomalis') {
+        if (navAnomalis) navAnomalis.classList.add('active');
+        if (anomalisContainer) anomalisContainer.style.display = '';
+        loadAnomalies();
+    } else if (viewName === 'tasks') {
+        if (navTasks) navTasks.classList.add('active');
+        if (tasksContainer) tasksContainer.style.display = '';
+        loadTasks();
+    } else if (viewName === 'engagement') {
+        if (navEngagement) navEngagement.classList.add('active');
+        if (engagementContainer) engagementContainer.style.display = '';
     } else {
+        // dashboard or realisation
         if (viewName === 'dashboard' && navDashboard) navDashboard.classList.add('active');
         if (viewName === 'realisation' && navRealisation) navRealisation.classList.add('active');
         
-        if (mainDashboard) mainDashboard.style.display = 'block';
-        if (detailsContainer) detailsContainer.style.display = 'none';
+        if (mainDashboard) mainDashboard.style.display = '';
         if (dateSelect) dateSelect.style.display = 'block';
+        if (timelapseCtrl) timelapseCtrl.style.display = 'flex';
         
         fetchDashboardData();
     }
+    setTimeout(injectCopyButtonsAppWide, 100);
+}
+
+function updateTaxToggleUI() {
+    const taxSelect = document.getElementById('tax-select');
+    if (taxSelect) {
+        taxSelect.value = currentTaxMode;
+    }
+    
+    // Update main dashboard quanti-table headers
+    const thReal = document.getElementById('th-quanti-real');
+    const thObj = document.getElementById('th-quanti-obj');
+    const thReal2025 = document.getElementById('th-quanti-real2025');
+    const thObjMois = document.getElementById('th-quanti-objmois');
+    const thRaf = document.getElementById('th-quanti-raf');
+    
+    if (thReal) thReal.innerText = `Réalisé (${currentTaxMode})`;
+    if (thObj) thObj.innerText = `Objectif (${currentTaxMode})`;
+    if (thReal2025) thReal2025.innerText = `Réal 2025 (${currentTaxMode})`;
+    if (thObjMois) thObjMois.innerText = `Obj Mois (${currentTaxMode})`;
+    if (thRaf) thRaf.innerText = `Reste à Faire (${currentTaxMode})`;
+
+    // Update details view headers
+    const thDetailsReal = document.getElementById('th-details-real');
+    const thDetailsObj = document.getElementById('th-details-obj');
+    if (thDetailsReal) thDetailsReal.innerText = `Réalisé (${currentTaxMode})`;
+    if (thDetailsObj) thDetailsObj.innerText = `Objectif (${currentTaxMode})`;
+
+    // Update terrain headers
+    const thTerrainReal = document.getElementById('th-terrain-real');
+    const thTerrainGlace = document.getElementById('th-terrain-glace');
+    if (thTerrainReal) thTerrainReal.innerText = `Real CA (${currentTaxMode})`;
+    if (thTerrainGlace) thTerrainGlace.innerText = `CA Glace (${currentTaxMode})`;
+
+    // Toggle Som Focus HT/TTC visibility
+    const focusSomObjHt = document.getElementById('focus-som-obj-ht');
+    const focusSomObjTtc = document.getElementById('focus-som-obj-ttc');
+    if (focusSomObjHt && focusSomObjTtc) {
+        if (currentTaxMode === 'HT') {
+            focusSomObjHt.parentElement.style.display = 'block';
+            focusSomObjTtc.parentElement.style.display = 'none';
+        } else {
+            focusSomObjHt.parentElement.style.display = 'none';
+            focusSomObjTtc.parentElement.style.display = 'block';
+        }
+    }
+
+    // Synchronize report tax mode radio buttons check state
+    const reportTaxTtc = document.getElementById('report-tax-mode-ttc');
+    const reportTaxHt = document.getElementById('report-tax-mode-ht');
+    if (currentTaxMode === 'HT') {
+        if (reportTaxHt) reportTaxHt.checked = true;
+    } else {
+        if (reportTaxTtc) reportTaxTtc.checked = true;
+    }
+}
+
+function applyTrendsTaxMode() {
+    if (!rawTrendsData) return;
+    
+    // Deep copy rawTrendsData
+    trendsData = JSON.parse(JSON.stringify(rawTrendsData));
+    
+    if (currentTaxMode === 'HT') {
+        if (trendsData.trends) {
+            for (let v in trendsData.trends) {
+                trendsData.trends[v] = trendsData.trends[v].map(pt => ({
+                    ...pt,
+                    real: Math.round(pt.real / 1.2),
+                    obj: Math.round(pt.obj / 1.2),
+                    encours: Math.round((pt.encours || 0) / 1.2)
+                }));
+            }
+        }
+    }
+}
+
+function applyTaxMode() {
+    if (!rawDashboardData) return;
+    
+    // Deep copy rawDashboardData so we don't modify the source
+    dashboardData = JSON.parse(JSON.stringify(rawDashboardData));
+    
+    if (currentTaxMode === 'HT') {
+        if (dashboardData.quantitative) {
+            dashboardData.quantitative = dashboardData.quantitative.map(r => ({
+                ...r,
+                real: Math.round(r.real / 1.2),
+                obj: Math.round(r.obj / 1.2),
+                real_2025: Math.round(r.real_2025 / 1.2),
+                h_2024: Math.round(r.h_2024 / 1.2),
+                obj_mois: Math.round(r.obj_mois / 1.2),
+                raf: Math.round(r.raf / 1.2),
+                encours: Math.round(r.encours / 1.2)
+            }));
+        }
+        
+        if (dashboardData.focus_som) {
+            dashboardData.focus_som = dashboardData.focus_som.map(item => ({
+                ...item,
+                ttc: Math.round(item.ttc / 1.2),
+                realise: Math.round(item.realise / 1.2),
+                rest: Math.round(item.rest / 1.2),
+                rest_jour: Math.round(item.rest_jour / 1.2)
+            }));
+        }
+    }
+    
+    applyTrendsTaxMode();
+    updateTaxToggleUI();
 }
 
 function fetchDashboardData() {
@@ -225,14 +2962,24 @@ function fetchDashboardData() {
     
     hideNoNextDayMessage();
     
-    fetch(`/api/data?category=${encodeURIComponent(category)}&date=${encodeURIComponent(queryDate)}`)
+    fetch(`/api/data?category=${encodeURIComponent(category)}&date=${encodeURIComponent(queryDate)}&_=${Date.now()}`)
         .then(response => response.json())
         .then(res => {
             if (res.status === 'success') {
-                dashboardData = res.data;
+                rawDashboardData = res.data;
+                applyTaxMode();
+                populateCategoryDropdown();
                 updateDashboard();
                 populateFilters();
                 prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS`;
+                const headerElapsedInput = document.getElementById('header-elapsed-days');
+                if (headerElapsedInput && dashboardData && dashboardData.workdays) {
+                    headerElapsedInput.value = dashboardData.workdays.elapsed;
+                }
+                // Initialize the correct tab based on URL (function defined later in file)
+                if (typeof initializeActiveTab === 'function') {
+                    initializeActiveTab();
+                }
             } else {
                 showToast("Erreur de chargement des données: " + res.message, "error");
                 prorataLabelEl.innerText = "OFFLINE";
@@ -248,39 +2995,87 @@ function fetchDashboardData() {
 // Setup Event Listeners
 function setupEventListeners() {
     // Search input filters
-    searchInput.addEventListener('input', handleSearchInput);
-    searchInput.addEventListener('keydown', (e) => {
-        const items = searchDropdown.querySelectorAll('.dropdown-item');
-        if (searchDropdown.style.display !== 'block' || items.length === 0) return;
+    if (searchInput && searchDropdown) {
+        searchInput.addEventListener('input', handleSearchInput);
+        searchInput.addEventListener('keydown', (e) => {
+            const items = searchDropdown.querySelectorAll('.dropdown-item');
+            if (searchDropdown.style.display !== 'block' || items.length === 0) return;
 
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            activeDropdownIndex = (activeDropdownIndex + 1) % items.length;
-            updateDropdownHighlight(items);
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            activeDropdownIndex = (activeDropdownIndex - 1 + items.length) % items.length;
-            updateDropdownHighlight(items);
-        } else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (activeDropdownIndex >= 0 && activeDropdownIndex < items.length) {
-                items[activeDropdownIndex].click();
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                activeDropdownIndex = (activeDropdownIndex + 1) % items.length;
+                updateDropdownHighlight(items);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                activeDropdownIndex = (activeDropdownIndex - 1 + items.length) % items.length;
+                updateDropdownHighlight(items);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (activeDropdownIndex >= 0 && activeDropdownIndex < items.length) {
+                    items[activeDropdownIndex].click();
+                }
+            } else if (e.key === 'Escape') {
+                searchDropdown.style.display = 'none';
+                activeDropdownIndex = -1;
             }
-        } else if (e.key === 'Escape') {
-            searchDropdown.style.display = 'none';
-            activeDropdownIndex = -1;
-        }
-    });
+        });
+    }
 
     document.addEventListener('click', (e) => {
-        if (!searchInput.contains(e.target) && !searchDropdown.contains(e.target)) {
+        if (searchInput && searchDropdown && !searchInput.contains(e.target) && !searchDropdown.contains(e.target)) {
             searchDropdown.style.display = 'none';
             activeDropdownIndex = -1;
         }
     });
 
     // Reset filter button
-    resetFilterBtn.addEventListener('click', resetSelection);
+    if (resetFilterBtn) {
+        resetFilterBtn.addEventListener('click', resetSelection);
+    }
+
+    // Radar Mode Switcher (QUANTI, QUALI, FOCUS)
+    const radarBtns = document.querySelectorAll('.radar-mode-btn');
+    radarBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const mode = btn.getAttribute('data-mode');
+            renderRadarChart(mode);
+        });
+    });
+
+    // Tax selector (HT / TTC)
+    const taxSelect = document.getElementById('tax-select');
+    if (taxSelect) {
+        taxSelect.value = currentTaxMode;
+        taxSelect.addEventListener('change', (e) => {
+            currentTaxMode = e.target.value;
+            localStorage.setItem('taxMode', currentTaxMode);
+            applyTaxMode();
+            updateDashboard();
+            if (activeView === 'details') {
+                loadTrendsData(document.getElementById('details-family-select')?.value || 'C.A (TTC)');
+            }
+            document.dispatchEvent(new CustomEvent('taxModeChanged', { detail: { taxMode: currentTaxMode } }));
+        });
+    }
+
+    // Synchronize report tax mode radio buttons change
+    const reportTaxTtcInput = document.getElementById('report-tax-mode-ttc');
+    const reportTaxHtInput = document.getElementById('report-tax-mode-ht');
+    if (reportTaxTtcInput && reportTaxHtInput) {
+        const handleRadioChange = (e) => {
+            currentTaxMode = e.target.value;
+            localStorage.setItem('taxMode', currentTaxMode);
+            applyTaxMode();
+            updateDashboard();
+            if (activeView === 'details') {
+                loadTrendsData(document.getElementById('details-family-select')?.value || 'C.A (TTC)');
+            }
+            document.dispatchEvent(new CustomEvent('taxModeChanged', { detail: { taxMode: currentTaxMode } }));
+        };
+        reportTaxTtcInput.addEventListener('change', handleRadioChange);
+        reportTaxHtInput.addEventListener('change', handleRadioChange);
+    }
 
     // Tab Type buttons (SOM/VMM)
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -301,8 +3096,8 @@ function setupEventListeners() {
         if (e.target === settingsModal) closeSettingsModal();
     });
     settingsForm.addEventListener('submit', handleSettingsSubmit);
-    
-    // Listen for selective reset checkboxes and button
+
+    // Danger zone handlers in settings modal
     const btnResetSelected = document.getElementById('btn-reset-selected');
     if (btnResetSelected) {
         btnResetSelected.addEventListener('click', handleSelectedTablesReset);
@@ -312,8 +3107,68 @@ function setupEventListeners() {
         btnRecreateDb.addEventListener('click', handleRecreateDatabaseFile);
     }
 
-
-
+    const headerElapsedInput = document.getElementById('header-elapsed-days');
+    if (headerElapsedInput) {
+        headerElapsedInput.addEventListener('change', () => {
+            if (!dashboardData) return;
+            const newElapsed = parseInt(headerElapsedInput.value);
+            if (isNaN(newElapsed) || newElapsed < 0 || newElapsed > dashboardData.workdays.total) {
+                showToast("Veuillez saisir un nombre de jours valide.", "error");
+                headerElapsedInput.value = dashboardData.workdays.elapsed;
+                return;
+            }
+            
+            // Update frontend data
+            dashboardData.workdays.elapsed = newElapsed;
+            dashboardData.workdays.rest = dashboardData.workdays.total - newElapsed;
+            
+            // Recalculate other displays
+            prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS`;
+            
+            // Update other workday fields on the screen if they exist
+            if (infoElapsedDays) infoElapsedDays.innerText = newElapsed;
+            if (inputRestDays) inputRestDays.value = dashboardData.workdays.rest;
+            
+            // Trigger instant redraw
+            updateDashboard();
+            
+            // Persist the change to the backend settings
+            const dateSelect = document.getElementById('date-select');
+            const dateVal = dateSelect ? dateSelect.value : 'default';
+            
+            // Retrieve currently excluded families to keep them
+            const excludedFamilies = [];
+            const container = document.getElementById('exclude-families-toggles');
+            if (container) {
+                container.querySelectorAll('.family-toggle-pill.excluded').forEach(pill => {
+                    excludedFamilies.push(pill.querySelector('span').innerText.trim());
+                });
+            }
+            
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    rest_days: dashboardData.workdays.rest,
+                    exclude_families: excludedFamilies,
+                    date: dateVal
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast("Jours travaillés mis à jour et sauvegardés !", "success");
+                } else {
+                    showToast("Erreur lors de la sauvegarde: " + data.message, "error");
+                }
+            })
+            .catch(err => {
+                console.error("Error saving workdays:", err);
+            });
+        });
+    }
 
     // Toggle methodology collapsible inside settings modal
     const toggleMethodologyBtn = document.getElementById('toggle-methodology-btn');
@@ -368,6 +3223,19 @@ function setupEventListeners() {
     if (generateVendeurReportBtn) {
         generateVendeurReportBtn.addEventListener('click', generateReportForSelectedVendeur);
     }
+    const resetVendeurSelectionBtn = document.getElementById('reset-vendeur-selection-btn');
+    if (resetVendeurSelectionBtn) {
+        resetVendeurSelectionBtn.addEventListener('click', () => {
+            selectedVendeurForReport = null;
+            const dropdownText = document.getElementById('dropdown-selected-text');
+            if (dropdownText) {
+                dropdownText.textContent = 'Sélectionner un vendeur (Optionnel)';
+                dropdownText.classList.add('placeholder');
+            }
+            updateSelectedVendeurDisplay();
+            renderDropdownList();
+        });
+    }
     if (vendeurSelectionModal) {
         vendeurSelectionModal.addEventListener('click', (e) => {
             if (e.target === vendeurSelectionModal) closeVendeurSelectionModal();
@@ -406,6 +3274,28 @@ function setupEventListeners() {
         }
     });
 
+    // Report format button switches (Complet vs Mini)
+    document.querySelectorAll('.report-format-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.report-format-btn').forEach(b => {
+                b.classList.remove('active');
+                b.style.background = 'transparent';
+                b.style.border = '1px solid transparent';
+                b.style.color = 'var(--text-muted)';
+                b.style.fontWeight = 'normal';
+                const icon = b.querySelector('i');
+                if (icon) icon.style.color = '';
+            });
+            btn.classList.add('active');
+            btn.style.background = 'var(--bg-card)';
+            btn.style.border = '1px solid var(--neon-blue)';
+            btn.style.color = 'var(--text-main)';
+            btn.style.fontWeight = 'bold';
+            const icon = btn.querySelector('i');
+            if (icon) icon.style.color = 'var(--neon-blue)';
+        });
+    });
+
     // Checkbox items - handle clicks on the whole label
     document.querySelectorAll('.checkbox-item').forEach(item => {
         item.addEventListener('click', (e) => {
@@ -419,6 +3309,7 @@ function setupEventListeners() {
             }
         });
     });
+
     if (copyReportBtn) {
         copyReportBtn.addEventListener('click', () => {
             const wrapper = document.getElementById('report-content-wrapper');
@@ -438,10 +3329,81 @@ function setupEventListeners() {
     if (downloadReportBtn) {
         downloadReportBtn.addEventListener('click', downloadReportAsPdf);
     }
+    const downloadReportImageBtn = document.getElementById('download-report-image-btn');
+    if (downloadReportImageBtn) {
+        downloadReportImageBtn.addEventListener('click', downloadReportAsImage);
+    }
+    const whatsappReportBtn = document.getElementById('whatsapp-report-btn');
+    if (whatsappReportBtn) {
+        whatsappReportBtn.addEventListener('click', handleWhatsappShareClick);
+    }
     const okReportBtn = document.getElementById('ok-report-btn');
     if (okReportBtn) {
         okReportBtn.addEventListener('click', closeAiReportModal);
     }
+
+    // ===== WHATSAPP EN MASSE HANDLERS =====
+    const handleBulkWhatsappClick = async (event) => {
+        const currentDate = document.getElementById('date-select')?.value || new Date().toISOString().split('T')[0];
+        const category = document.getElementById('category-select')?.value || 'All';
+
+        // Fetch list of vendeurs for current selection
+        let vendeurs = [];
+        try {
+            const resp = await fetch(`/api/vendeurs?category=${encodeURIComponent(category)}`);
+            const data = await resp.json();
+            if (data && data.vendeurs) {
+                vendeurs = data.vendeurs.map(v => typeof v === 'string' ? v : v.name || v.vendeur || String(v)).filter(Boolean);
+            }
+        } catch (err) {
+            showToast("Impossible de récupérer la liste des vendeurs.", "error");
+            return;
+        }
+
+        if (vendeurs.length > 0) {
+            openBulkWhatsappRecipientModal(vendeurs, currentDate, event?.currentTarget || null);
+            return;
+        }
+
+        if (vendeurs.length === 0) {
+            showToast("Aucun vendeur trouvé pour envoyer les rapports.", "warning");
+            return;
+        }
+
+        if (!confirm(`⚠️ Envoyer les rapports WhatsApp à ${vendeurs.length} vendeur(s) ?\n\nDate : ${currentDate}\nVendeurs : ${vendeurs.slice(0, 5).join(', ')}${vendeurs.length > 5 ? ` ...et ${vendeurs.length - 5} autres` : ''}\n\nCette opération peut prendre plusieurs minutes.`)) {
+            return;
+        }
+
+        const btn = document.getElementById('global-sidebar-whatsapp-bulk-btn');
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Envoi en cours...';
+        }
+
+        try {
+            const resp = await fetch('/api/send_bulk_whatsapp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vendeurs, date: currentDate })
+            });
+            const result = await resp.json();
+
+            if (result.status === 'success') {
+                showToast(`✅ ${result.message}`, "success");
+            } else {
+                showToast("Erreur : " + result.message, "error");
+            }
+        } catch (err) {
+            console.error("Bulk WhatsApp error:", err);
+            showToast("Erreur de communication avec le serveur.", "error");
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+    };
 
     // Theme Toggle event listener
     if (themeToggleBtn) {
@@ -461,16 +3423,78 @@ function setupEventListeners() {
         categorySelect.addEventListener('change', () => {
             // Reset individual search selection to avoid mismatch
             currentSelection = { type: 'global', name: '' };
-            searchInput.value = '';
-            resetFilterBtn.style.display = 'none';
+            if (searchInput) searchInput.value = '';
+            closeMainVendeurDropdown();
+            if (timelapseIsPlaying) stopTimelapse();
+            if (resetFilterBtn) resetFilterBtn.style.display = 'none';
             const categoryText = categorySelect.options[categorySelect.selectedIndex].text;
-            currentSelectionBadge.innerText = `GLOBAL / ${categoryText.toUpperCase()}`;
-            currentSelectionBadge.className = 'badge-blue';
+            if (currentSelectionBadge) {
+                currentSelectionBadge.innerText = `GLOBAL / ${categoryText.toUpperCase()}`;
+                currentSelectionBadge.className = 'badge-blue';
+            }
             fetchDashboardData();
             
             // Also refresh Details trends
             const familySelect = document.getElementById('details-family-select');
-            loadTrendsData(familySelect ? familySelect.value : 'C.A (ht)');
+            loadTrendsData(familySelect ? familySelect.value : 'C.A (TTC)');
+            
+            // Also refresh anomalies if on anomalies view
+            if (activeView === 'anomalis') {
+                loadAnomalies();
+            }
+        });
+    }
+
+    // Main Vendeur/Secteur selector event listeners
+    const mainVendeurToggle = document.getElementById('main-vendeur-toggle');
+    const mainVendeurSearch = document.getElementById('main-vendeur-search');
+    const mainVendeurMenu = document.getElementById('main-vendeur-menu');
+
+    if (mainVendeurToggle) {
+        mainVendeurToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleMainVendeurDropdown();
+        });
+    }
+    if (mainVendeurSearch) {
+        mainVendeurSearch.addEventListener('input', (e) => {
+            mainVendeurSearchQuery = e.target.value;
+            renderMainVendeurDropdownList();
+        });
+        mainVendeurSearch.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    }
+    if (mainVendeurMenu) {
+        mainVendeurMenu.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    }
+    document.addEventListener('click', (e) => {
+        const container = document.getElementById('main-vendeur-container');
+        if (container && !container.contains(e.target)) {
+            closeMainVendeurDropdown();
+        }
+    });
+
+    // Timelapse control events
+    const playBtn = document.getElementById('timelapse-play-btn');
+    const stopBtn = document.getElementById('timelapse-stop-btn');
+    const speedInd = document.getElementById('timelapse-speed-indicator');
+
+    if (playBtn) {
+        playBtn.addEventListener('click', () => {
+            toggleTimelapse();
+        });
+    }
+    if (stopBtn) {
+        stopBtn.addEventListener('click', () => {
+            stopTimelapse();
+        });
+    }
+    if (speedInd) {
+        speedInd.addEventListener('click', () => {
+            cycleTimelapseSpeed();
         });
     }
 
@@ -512,20 +3536,120 @@ function setupEventListeners() {
         });
     }
 
-    // Sidebar toggle for mobile
+    // ============================================
+    // SIDEBAR AUTO-HIDE
+    // ============================================
+    // Behavior:
+    //  - Toggle button (hamburger in header) collapses/expands the sidebar
+    //  - State persists in localStorage
+    //  - On screens ≤ 1024px the sidebar is hidden by default; the existing
+    //    .open class handles the slide-in overlay behavior
+    //  - Edge trigger (6px strip on the left) peeks the sidebar on hover
+    //    when it is collapsed
+    //  - Floating reopen button restores the sidebar
     const sidebar = document.getElementById('sidebar');
     const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
-    if (sidebarToggleBtn && sidebar) {
+    const sidebarReopenBtn = document.getElementById('sidebar-reopen-btn');
+    const sidebarEdgeTrigger = document.getElementById('sidebar-edge-trigger');
+
+    const SIDEBAR_STATE_KEY = 'madec_sidebar_collapsed';
+    const isSmallScreen = () => window.matchMedia('(max-width: 1024px)').matches;
+
+    function applySidebarCollapsed(collapsed) {
+        if (!sidebar) return;
+        if (collapsed) {
+            document.body.classList.add('sidebar-collapsed');
+            // Mobile uses .open as the slide-in flag — keep them in sync so
+            // the sidebar stays hidden on small screens even after collapse.
+            if (isSmallScreen()) sidebar.classList.remove('open');
+        } else {
+            document.body.classList.remove('sidebar-collapsed');
+        }
+        try { localStorage.setItem(SIDEBAR_STATE_KEY, collapsed ? '1' : '0'); } catch {}
+    }
+
+    function toggleSidebar() {
+        if (isSmallScreen()) {
+            // Mobile: toggle the slide-in overlay
+            if (!sidebar) return;
+            sidebar.classList.toggle('open');
+        } else {
+            // Desktop: toggle the collapsed/expanded state
+            const isCollapsed = document.body.classList.contains('sidebar-collapsed');
+            applySidebarCollapsed(!isCollapsed);
+        }
+    }
+
+    // Restore persisted state (desktop only — mobile always starts hidden)
+    if (!isSmallScreen()) {
+        let stored = '0';
+        try { stored = localStorage.getItem(SIDEBAR_STATE_KEY) || '0'; } catch {}
+        if (stored === '1') applySidebarCollapsed(true);
+    }
+
+    if (sidebarToggleBtn) {
         sidebarToggleBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            sidebar.classList.toggle('open');
+            toggleSidebar();
         });
     }
 
-    // Close sidebar on click outside (mobile)
+    if (sidebarReopenBtn) {
+        sidebarReopenBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (isSmallScreen()) {
+                if (sidebar) sidebar.classList.add('open');
+            } else {
+                applySidebarCollapsed(false);
+            }
+        });
+    }
+
+    // Edge trigger: hover peeks the sidebar temporarily while collapsed
+    let peekTimeout = null;
+    if (sidebarEdgeTrigger) {
+        sidebarEdgeTrigger.addEventListener('mouseenter', () => {
+            if (!document.body.classList.contains('sidebar-collapsed')) return;
+            if (sidebar) {
+                sidebar.style.transform = 'translateX(0)';
+                sidebar.style.boxShadow = '10px 0 30px rgba(0,0,0,0.8)';
+            }
+        });
+        sidebarEdgeTrigger.addEventListener('mouseleave', () => {
+            if (!document.body.classList.contains('sidebar-collapsed')) return;
+            if (peekTimeout) clearTimeout(peekTimeout);
+            peekTimeout = setTimeout(() => {
+                if (sidebar) {
+                    sidebar.style.transform = '';
+                    sidebar.style.boxShadow = '';
+                }
+            }, 150);
+        });
+    }
+
+    // Keep sidebar behavior in sync with viewport size changes
+    const mql = window.matchMedia('(max-width: 1024px)');
+    const onMqlChange = (ev) => {
+        if (ev.matches) {
+            // Switched to small screen — clear desktop collapsed state
+            document.body.classList.remove('sidebar-collapsed');
+            if (sidebar) sidebar.classList.remove('open');
+        } else {
+            // Switched to large screen — hide any mobile open state
+            if (sidebar) sidebar.classList.remove('open');
+            // Reapply persisted collapsed state
+            let stored = '0';
+            try { stored = localStorage.getItem(SIDEBAR_STATE_KEY) || '0'; } catch {}
+            if (stored === '1') document.body.classList.add('sidebar-collapsed');
+        }
+    };
+    if (mql.addEventListener) mql.addEventListener('change', onMqlChange);
+    else if (mql.addListener) mql.addListener(onMqlChange);
+
+    // Close sidebar on click outside (mobile only)
     document.addEventListener('click', (e) => {
-        if (sidebar && sidebar.classList.contains('open')) {
-            if (!sidebar.contains(e.target) && !sidebarToggleBtn.contains(e.target)) {
+        if (sidebar && sidebar.classList.contains('open') && isSmallScreen()) {
+            if (!sidebar.contains(e.target) && !sidebarToggleBtn.contains(e.target) && !sidebarReopenBtn.contains(e.target)) {
                 sidebar.classList.remove('open');
             }
         }
@@ -539,9 +3663,9 @@ function setupEventListeners() {
             navItems.forEach(nav => nav.classList.remove('active'));
             // Add active class to clicked
             item.classList.add('active');
-            
-            // Close sidebar on mobile
-            if (sidebar && sidebar.classList.contains('open')) {
+
+            // Auto-close sidebar on mobile after navigating
+            if (sidebar && sidebar.classList.contains('open') && isSmallScreen()) {
                 sidebar.classList.remove('open');
             }
         });
@@ -575,10 +3699,16 @@ function setupEventListeners() {
                 if (entry.isIntersecting) {
                     const id = entry.target.getAttribute('id');
                     navItems.forEach(nav => {
-                        if (nav.getAttribute('href') === `#${id}`) {
-                            nav.classList.add('active');
-                        } else {
-                            nav.classList.remove('active');
+                        // Only manage active state for in-page anchor links
+                        // (those whose href starts with "#"). Real-URL nav
+                        // items keep their server-rendered active class.
+                        const href = nav.getAttribute('href') || '';
+                        if (href.startsWith('#')) {
+                            if (href === `#${id}`) {
+                                nav.classList.add('active');
+                            } else {
+                                nav.classList.remove('active');
+                            }
                         }
                     });
                 }
@@ -592,6 +3722,9 @@ function setupEventListeners() {
     const dateSelect = document.getElementById('date-select');
     if (dateSelect) {
         dateSelect.addEventListener('change', () => {
+            if (timelapseIsPlaying) {
+                stopTimelapse();
+            }
             fetchDashboardData();
         });
     }
@@ -682,6 +3815,22 @@ function setupEventListeners() {
             for (let i = 0; i < uploadQueue.length; i++) {
                 const item = uploadQueue[i];
                 const statusEl = document.getElementById(`upload-file-status-${item.index}`);
+
+                // Check if the date already exists in the database
+                if (availableDates.includes(item.date)) {
+                    const dateParts = item.date.split('-');
+                    const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : item.date;
+                    const confirmOverwrite = confirm(`Les données pour la date ${formattedDate} (fichier ${item.file.name}) existent déjà. Voulez-vous les remplacer ?`);
+                    if (!confirmOverwrite) {
+                        if (statusEl) {
+                            statusEl.className = 'multi-file-status fail';
+                            statusEl.innerText = 'annulé';
+                        }
+                        failCount++;
+                        continue;
+                    }
+                }
+
                 if (statusEl) {
                     statusEl.className = 'multi-file-status uploading';
                     statusEl.innerText = 'importation...';
@@ -693,7 +3842,6 @@ function setupEventListeners() {
                 const formData = new FormData();
                 formData.append('file', item.file);
                 formData.append('date', item.date);
-                formData.append('rest_days', calculateRemainingWorkDays(item.date));
 
                 try {
                     const res = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -745,7 +3893,7 @@ function setupEventListeners() {
                     const detailsContainer = document.getElementById('details-container');
                     if (detailsContainer && detailsContainer.style.display !== 'none') {
                         const familySelect = document.getElementById('details-family-select');
-                        loadTrendsData(familySelect ? familySelect.value : 'C.A (ht)');
+                        loadTrendsData(familySelect ? familySelect.value : 'C.A (TTC)');
                     }
                 }
             });
@@ -856,11 +4004,12 @@ function toggleTheme(toLight) {
     // Save to server config file
     saveAppConfig({ light_mode: toLight });
     
-    // Re-render chart to update grid colors
+    // Re-render dashboard to pick up theme changes across all components
     if (dashboardData) {
-        renderQuantiChart();
-        renderQualiChart();
+        updateDashboard();
     }
+    // Re-render report charts to match theme change
+    renderReportCharts(false);
 }
 
 
@@ -899,10 +4048,9 @@ function applyThemeClass(themeName) {
         }
     });
     
-    // Also re-render chart to pick up theme color changes
+    // Re-render dashboard to pick up theme color changes
     if (dashboardData) {
-        renderQuantiChart();
-        renderQualiChart();
+        updateDashboard();
     }
 }
 
@@ -920,7 +4068,8 @@ function openSettingsModal() {
             .then(res => res.json())
             .then(res => {
                 if (res.status === 'success') {
-                    dashboardData = res.data;
+                    rawDashboardData = res.data;
+                    applyTaxMode();
                     openSettingsModal();
                 } else {
                     // Fallback to fetch config directly if data load failed (e.g. database empty)
@@ -1034,6 +4183,13 @@ function openSettingsModal() {
     
     infoTotalDays.innerText = dashboardData.workdays.total;
     infoElapsedDays.innerText = dashboardData.workdays.elapsed;
+
+    // Populate animations checkbox state
+    const configAnimCheckbox = document.getElementById('toggle-animations-config');
+    if (configAnimCheckbox) {
+        configAnimCheckbox.checked = localStorage.getItem('bgAnimationsEnabled') !== 'false';
+    }
+
     settingsModal.classList.add('open');
 }
 
@@ -1053,6 +4209,17 @@ function handleSettingsSubmit(e) {
         container.querySelectorAll('.family-toggle-pill.excluded').forEach(pill => {
             excludedFamilies.push(pill.querySelector('span').innerText.trim());
         });
+    }
+    
+    // Save background animation setting
+    const configAnimCheckbox = document.getElementById('toggle-animations-config');
+    if (configAnimCheckbox) {
+        const isAnimEnabled = configAnimCheckbox.checked;
+        const wasAnimEnabled = localStorage.getItem('bgAnimationsEnabled') !== 'false';
+        localStorage.setItem('bgAnimationsEnabled', isAnimEnabled ? 'true' : 'false');
+        if (isAnimEnabled !== wasAnimEnabled) {
+            window.dispatchEvent(new Event(isAnimEnabled ? 'startBgAnimation' : 'stopBgAnimation'));
+        }
     }
     
     // Explicitly apply theme selection from the modal selector on submission
@@ -1101,7 +4268,7 @@ function handleSettingsSubmit(e) {
     });
 }
 
-// Reset the selected database tables with confirmation
+// Reset selected tables in database
 function handleSelectedTablesReset() {
     const checkboxes = document.querySelectorAll('.reset-table-cb:checked');
     if (checkboxes.length === 0) {
@@ -1110,8 +4277,6 @@ function handleSelectedTablesReset() {
     }
     
     const selectedTables = Array.from(checkboxes).map(cb => cb.value);
-    
-    // Map table name to user-friendly French name
     const tableNamesFrench = {
         'qualitative_data': 'la table Qualitatif (qualitative_data)',
         'quantitative_data': 'la table Quantitatif (quantitative_data)',
@@ -1122,33 +4287,24 @@ function handleSelectedTablesReset() {
     };
     
     const frenchNames = selectedTables.map(t => tableNamesFrench[t] || t);
-    
-    // Create the confirmation message showing exactly what will be reset
     let warningMsg = "⚠️ DANGER : Cette action va réinitialiser (vider) toutes les données de :\n";
     frenchNames.forEach(name => {
         warningMsg += `  - ${name}\n`;
     });
     warningMsg += "\nCette action est irréversible.\n\nÊtes-vous absolument sûr de vouloir réinitialiser ces tables ?";
     
-    const isConfirmed = confirm(warningMsg);
-    if (!isConfirmed) {
-        return;
-    }
+    if (!confirm(warningMsg)) return;
     
-    // Disable reset button and checkboxes during execution to prevent concurrent operations
     const btnResetSelected = document.getElementById('btn-reset-selected');
     if (btnResetSelected) {
         btnResetSelected.disabled = true;
         btnResetSelected.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> RÉINITIALISATION...';
     }
-    
     checkboxes.forEach(cb => cb.disabled = true);
     
     fetch('/api/reset_db', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tables: selectedTables })
     })
     .then(res => res.json())
@@ -1156,14 +4312,12 @@ function handleSelectedTablesReset() {
         if (data.status === 'success') {
             showToast("Tables réinitialisées avec succès !", "success");
             closeSettingsModal();
-            setTimeout(() => {
-                window.location.reload();
-            }, 1500);
+            setTimeout(() => { window.location.reload(); }, 1500);
         } else {
             showToast("Erreur lors de la réinitialisation : " + data.message, "error");
             if (btnResetSelected) {
                 btnResetSelected.disabled = false;
-                btnResetSelected.innerHTML = '<i class="fa-solid fa-arrow-rotate-left"></i> RÉINITIALISER';
+                btnResetSelected.innerHTML = '<i class="fa-solid fa-arrow-rotate-left"></i> RÉINITIALISER LES TABLES SÉLECTIONNÉES';
             }
             checkboxes.forEach(cb => cb.disabled = false);
         }
@@ -1173,7 +4327,7 @@ function handleSelectedTablesReset() {
         showToast("Une erreur de communication est survenue.", "error");
         if (btnResetSelected) {
             btnResetSelected.disabled = false;
-            btnResetSelected.innerHTML = '<i class="fa-solid fa-arrow-rotate-left"></i> RÉINITIALISER';
+            btnResetSelected.innerHTML = '<i class="fa-solid fa-arrow-rotate-left"></i> RÉINITIALISER LES TABLES SÉLECTIONNÉES';
         }
         checkboxes.forEach(cb => cb.disabled = false);
     });
@@ -1226,24 +4380,99 @@ function handleRecreateDatabaseFile() {
 }
 
 
-
-
 // Reset Vendeur/Secteur filters to Global view
 function resetSelection() {
     currentSelection = { type: 'global', name: '' };
-    searchInput.value = '';
-    resetFilterBtn.style.display = 'none';
+    if (searchInput) searchInput.value = '';
+    closeMainVendeurDropdown();
+    updateMainVendeurSelectedText();
+    renderMainVendeurDropdownList();
+    if (resetFilterBtn) resetFilterBtn.style.display = 'none';
     const categorySelect = document.getElementById('category-select');
     const categoryText = categorySelect ? categorySelect.options[categorySelect.selectedIndex].text : "TOUTE L'AGENCE";
-    currentSelectionBadge.innerText = `GLOBAL / ${categoryText.toUpperCase()}`;
-    currentSelectionBadge.className = 'badge-blue';
+    if (currentSelectionBadge) {
+        currentSelectionBadge.innerText = `GLOBAL / ${categoryText.toUpperCase()}`;
+        currentSelectionBadge.className = 'badge-blue';
+    }
     updateDashboard();
+}
+
+let categoryDropdownPopulated = false;
+
+function getTeamName(cdz) {
+    if (!cdz) return '';
+    if (cdz.toUpperCase().includes('CHAKIB')) return 'Chakib Equipe';
+    if (cdz.toUpperCase().includes('BOUTMEZGUINE')) return 'Boutmezguine Equipe';
+    const firstWord = cdz.trim().split(' ')[0];
+    return firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase() + ' Equipe';
+}
+
+function populateCategoryDropdown() {
+    if (categoryDropdownPopulated) return;
+    const categorySelect = document.getElementById('category-select');
+    if (!categorySelect || !dashboardData || !dashboardData.fdv) return;
+    
+    // Extract unique CDZs
+    const cdzList = [...new Set(dashboardData.fdv.map(r => r.cdz).filter(c => c && c.trim() !== ''))];
+    
+    // Track if we have a default selected category
+    const savedCategory = categorySelect.value || 'Chakib Equipe';
+    
+    // Generate options
+    let html = '<option value="All">TOUTE L\'AGENCE</option>';
+    cdzList.forEach(cdz => {
+        const teamName = getTeamName(cdz);
+        const isSelected = (teamName === savedCategory) ? 'selected' : '';
+        html += `<option value="${teamName}" ${isSelected}>${teamName}</option>`;
+    });
+    
+    categorySelect.innerHTML = html;
+    categoryDropdownPopulated = true;
 }
 
 // Populate search autocomplete values
 function populateFilters() {
-    // Extract unique representatives & sectors
-    const uniqueVendeurs = [...new Set(dashboardData.quantitative.map(item => item.vendeur))].filter(v => v && v.toUpperCase() !== 'AUTRE').sort();
+    if (!dashboardData) return;
+
+    // Get current category select value
+    const categorySelect = document.getElementById('category-select');
+    const categoryVal = categorySelect ? categorySelect.value : 'All';
+
+    // 1. Get all vendeurs from roster (dashboardData.fdv) or fallback to quantitative if fdv is empty
+    let allowedSellers = [];
+    if (dashboardData.fdv && dashboardData.fdv.length > 0) {
+        let fdvList = dashboardData.fdv;
+        
+        // Filter fdv roster based on selected category, mimicking backend get_categorie
+        if (categoryVal === 'All') {
+            allowedSellers = fdvList.map(r => r.vendeur.trim());
+        } else if (categoryVal === 'Chakib Equipe') {
+            allowedSellers = fdvList.filter(r => (r.cdz || '').trim().toUpperCase() === 'CHAKIB ELFIL').map(r => r.vendeur.trim());
+        } else if (categoryVal === 'Boutmezguine Equipe') {
+            allowedSellers = fdvList.filter(r => (r.cdz || '').trim().toUpperCase() === 'BOUTMEZGUINE EL MOSTAFA').map(r => r.vendeur.trim());
+        } else {
+            // Check if matches dynamic CDZ team name
+            const matchedCdz = fdvList.find(r => r.cdz && getTeamName(r.cdz) === categoryVal);
+            if (matchedCdz) {
+                allowedSellers = fdvList.filter(r => (r.cdz || '').trim().toUpperCase() === matchedCdz.cdz.trim().toUpperCase()).map(r => r.vendeur.trim());
+            } else {
+                allowedSellers = fdvList.map(r => r.vendeur.trim());
+            }
+        }
+
+        // Always add the CDZ names to category team selections
+        if (categoryVal === 'All' || categoryVal === 'Chakib Equipe' || categoryVal === 'Boutmezguine Equipe') {
+            if (!allowedSellers.includes('CHAKIB ELFIL')) allowedSellers.push('CHAKIB ELFIL');
+            if (!allowedSellers.includes('BOUTMEZGUINE EL MOSTAFA')) allowedSellers.push('BOUTMEZGUINE EL MOSTAFA');
+        }
+    } else {
+        // Fallback to quantitative dataset unique vendors if fdv list is missing
+        allowedSellers = [...new Set(dashboardData.quantitative.map(item => item.vendeur))];
+    }
+
+    // Filter out virtual "AUTRE" and clean
+    const uniqueVendeurs = [...new Set(allowedSellers)].filter(v => v && v.toUpperCase() !== 'AUTRE').sort();
+
     const uniqueSecteursVmm = [...new Set(dashboardData.focus_vmm.map(item => item.secteur))].filter(s => s && s.toUpperCase() !== 'AUTRES SECTEURS').sort();
     const uniqueSecteursSom = [...new Set(dashboardData.focus_som.map(item => item.secteur))].filter(s => s && s.toUpperCase() !== 'AUTRES SECTEURS').sort();
     
@@ -1253,6 +4482,17 @@ function populateFilters() {
         ...uniqueSecteursSom.map(s => ({ name: s, type: 'secteur' })),
         { name: 'AUTRE', type: 'vendeur' }
     ];
+
+    mainDropdownItems = [
+        { name: 'RESET_GLOBAL', label: '-- TOUS LES VENDEURS --', type: 'global' },
+        ...uniqueVendeurs.map(v => ({ name: v, label: v, type: 'vendeur' })),
+        ...uniqueSecteursVmm.map(s => ({ name: s, label: s, type: 'secteur_vmm' })),
+        ...uniqueSecteursSom.map(s => ({ name: s, label: s, type: 'secteur_som' })),
+        { name: 'AUTRE', label: 'AUTRE', type: 'vendeur' }
+    ];
+
+    updateMainVendeurSelectedText();
+    renderMainVendeurDropdownList();
 }
 
 // Filter autocomplete dropdown dynamically
@@ -1298,12 +4538,17 @@ function handleSearchInput() {
 // Set active selection
 function selectFilter(type, name) {
     currentSelection = { type, name };
-    searchInput.value = name;
-    searchDropdown.style.display = 'none';
-    resetFilterBtn.style.display = 'inline-block';
+    if (searchInput) searchInput.value = name;
+    if (searchDropdown) searchDropdown.style.display = 'none';
+    if (resetFilterBtn) resetFilterBtn.style.display = 'inline-block';
     
-    currentSelectionBadge.innerText = `${type.toUpperCase()}: ${name}`;
-    currentSelectionBadge.className = type === 'vendeur' ? 'badge-blue' : 'badge-green';
+    updateMainVendeurSelectedText();
+    renderMainVendeurDropdownList();
+    
+    if (currentSelectionBadge) {
+        currentSelectionBadge.innerText = `${type.toUpperCase()}: ${name}`;
+        currentSelectionBadge.className = type === 'vendeur' ? 'badge-blue' : 'badge-green';
+    }
     
     updateDashboard();
 }
@@ -1311,6 +4556,28 @@ function selectFilter(type, name) {
 // Core rendering pipeline
 function updateDashboard() {
     if (!dashboardData) return;
+
+    if (!currentSelection || currentSelection.type === 'global') {
+        // Pick first available vendor from data instead of a hardcoded name
+        const activeSellers = [...new Set((dashboardData.quantitative || []).map(r => (r.vendeur || '').trim()))].filter(v => v && v.toUpperCase() !== 'AUTRE');
+        if (activeSellers.length > 0) {
+            selectFilter('vendeur', activeSellers[0]);
+        }
+        return;
+    }
+
+    if (currentSelection.type === 'vendeur') {
+        const hasSelectedVendeur = dashboardData.quantitative.some(r => r.vendeur.trim().toUpperCase() === currentSelection.name.toUpperCase());
+        if (!hasSelectedVendeur) {
+            console.log(`${currentSelection.name} not found in current category dataset. Selecting first active seller.`);
+            // Find another active seller in the dataset to select
+            const activeSellers = [...new Set(dashboardData.quantitative.map(r => r.vendeur.trim()))].filter(v => v && v.toUpperCase() !== 'AUTRE');
+            if (activeSellers.length > 0) {
+                selectFilter('vendeur', activeSellers[0]);
+                return;
+            }
+        }
+    }
 
     // 1. Get filtered datasets
     let quantiRecords = dashboardData.quantitative;
@@ -1338,26 +4605,37 @@ function updateDashboard() {
             focusVmm = focusVmm.filter(item => item.vendeur.trim().toLowerCase() === 'autre');
             focusSom = focusSom.filter(item => item.vendeur.trim().toLowerCase() === 'autre');
         } else {
+            // Get all vendors belonging to this CDZ
+            const teamSellers = [];
+            if (dashboardData && dashboardData.fdv) {
+                dashboardData.fdv.forEach(r => {
+                    if ((r.cdz || '').trim().toLowerCase() === targetName) {
+                        teamSellers.push(r.vendeur.trim().toLowerCase());
+                    }
+                });
+            }
+
             quantiRecords = quantiRecords.filter(item => {
                 const val = (item.vendeur || '').trim().toLowerCase();
-                return val === targetName || val.includes(targetName) || targetName.includes(val);
+                return val === targetName || teamSellers.includes(val) || val.includes(targetName) || targetName.includes(val);
             });
             
+            // For qualitative chart / table
             qualiRecords = qualiRecords.filter(item => {
                 const val = (item.vendeur || '').trim().toLowerCase();
-                return val === targetName || val.includes(targetName) || targetName.includes(val);
+                return val === targetName || teamSellers.includes(val) || val.includes(targetName) || targetName.includes(val);
             });
             
             // Filter Focus data by matching Vendeur name directly with 'AUTRE' fallback
             const origFocusVmm = focusVmm.filter(item => {
                 const val = (item.vendeur || '').trim().toLowerCase();
-                return val === targetName || val.includes(targetName) || targetName.includes(val);
+                return val === targetName || teamSellers.includes(val) || val.includes(targetName) || targetName.includes(val);
             });
             focusVmm = origFocusVmm.length > 0 ? origFocusVmm : focusVmm.filter(item => item.vendeur.trim().toLowerCase() === 'autre');
             
             const origFocusSom = focusSom.filter(item => {
                 const val = (item.vendeur || '').trim().toLowerCase();
-                return val === targetName || val.includes(targetName) || targetName.includes(val);
+                return val === targetName || teamSellers.includes(val) || val.includes(targetName) || targetName.includes(val);
             });
             focusSom = origFocusSom.length > 0 ? origFocusSom : focusSom.filter(item => item.vendeur.trim().toLowerCase() === 'autre');
         }
@@ -1379,16 +4657,24 @@ function updateDashboard() {
 
     // Apply Tab Type filtering (SOM / VMM)
     if (currentFilterType === 'som') {
+        const somSellers = new Set((dashboardData.fdv || []).filter(r => (r.role || '').toUpperCase().includes('SOM')).map(r => r.vendeur.trim().toUpperCase()));
         quantiRecords = quantiRecords.filter(item => {
-            // SOM families: LEVURE, MOUSSES, CONFITURE, CONSERVES, MARGAFRIQUE, SOM, etc.
             const fam = item.famille.toUpperCase();
+            if (fam === 'C.A (HT)' || fam === 'C.A (TTC)' || fam === 'C.A (ht)' || fam === 'C.A (ttc)') {
+                const sellerName = item.vendeur.trim().toUpperCase();
+                return somSellers.has(sellerName) || sellerName === 'CHAKIB ELFIL' || sellerName === 'BOUTMEZGUINE EL MOSTAFA';
+            }
             return fam !== 'VMM' && fam !== 'VIT' && fam !== 'CHAR' && !fam.includes('VMM');
         });
         focusVmm = []; // VMM focus empty
     } else if (currentFilterType === 'vmm') {
+        const vmmSellers = new Set((dashboardData.fdv || []).filter(r => (r.role || '').toUpperCase().includes('VMM')).map(r => r.vendeur.trim().toUpperCase()));
         quantiRecords = quantiRecords.filter(item => {
-            // VMM families
             const fam = item.famille.toUpperCase();
+            if (fam === 'C.A (HT)' || fam === 'C.A (TTC)' || fam === 'C.A (ht)' || fam === 'C.A (ttc)') {
+                const sellerName = item.vendeur.trim().toUpperCase();
+                return vmmSellers.has(sellerName) || sellerName === 'CHAKIB ELFIL' || sellerName === 'BOUTMEZGUINE EL MOSTAFA';
+            }
             return fam === 'VMM' || fam === 'VIT' || fam === 'CHAR' || fam.includes('VMM') || fam === 'BOUILLON' || fam === 'CONDIMENTS';
         });
         focusSom = []; // SOM focus empty
@@ -1396,12 +4682,24 @@ function updateDashboard() {
 
     // 2. Compute Top cards
     // Filter CA (ht) family or sum everything
-    const totalCaObj = quantiRecords.filter(r => r.famille === 'C.A (ht)').reduce((sum, r) => sum + r.obj, 0) || 1;
-    const totalCaReal = quantiRecords.filter(r => r.famille === 'C.A (ht)').reduce((sum, r) => sum + r.real, 0);
+    const targetNameUpper = (currentSelection && currentSelection.type === 'vendeur') ? currentSelection.name.trim().toUpperCase() : '';
+    const isCdzSelected = targetNameUpper === 'CHAKIB ELFIL' || targetNameUpper === 'BOUTMEZGUINE EL MOSTAFA' || 
+        ((dashboardData && dashboardData.fdv) ? dashboardData.fdv.some(r => (r.cdz || '').trim().toUpperCase() === targetNameUpper) : false);
+
+    let cardQuanti = quantiRecords;
+    if (isCdzSelected) {
+        cardQuanti = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === targetNameUpper);
+    }
+
+    const totalCaObj = cardQuanti.filter(r => r.famille === 'C.A (ht)' || r.famille === 'C.A (TTC)').reduce((sum, r) => sum + r.obj, 0) || 1;
+    const totalCaReal = cardQuanti.filter(r => r.famille === 'C.A (ht)' || r.famille === 'C.A (TTC)').reduce((sum, r) => sum + r.real, 0);
     
     // Dynamic values
     const achievementRate = Math.round((totalCaReal / totalCaObj) * 100);
-    const uniqueVendeursInSelection = [...new Set(quantiRecords.map(item => item.vendeur))].length;
+    let uniqueVendeursInSelection = [...new Set(quantiRecords.map(item => item.vendeur))].length;
+    if (isCdzSelected) {
+        uniqueVendeursInSelection = [...new Set(quantiRecords.map(item => item.vendeur).filter(v => v.trim().toUpperCase() !== targetNameUpper))].length;
+    }
 
     // Populate Top Cards
     animateNumber('total-ca', totalCaReal, ' DH');
@@ -1427,7 +4725,7 @@ function updateDashboard() {
     const diff = achievementRate - elapsedPct;
     const arrow = diff >= 0 ? '▲' : '▼';
     const diffSign = diff >= 0 ? '+' : '';
-    const diffColor = diff >= 0 ? 'neon-text-green' : 'neon-text-pink';
+    const diffColor = diff >= 0 ? 'neon-text-green' : (diff >= -20 ? 'neon-text-amber' : 'neon-text-pink');
     
     const vsProrataEl = document.getElementById('achievement-vs-prorata');
     if (vsProrataEl) {
@@ -1442,18 +4740,724 @@ function updateDashboard() {
     // Flow values update skipped (flow chart removed)
 
     // 4. Render Tables
+    let tableQuanti = quantiRecords;
+    if (isCdzSelected) {
+        tableQuanti = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === targetNameUpper);
+    }
     renderQuantiTable(quantiRecords);
+    const fHistData = (typeof focusHistoryData !== 'undefined') ? focusHistoryData : (window.focusHistoryData || (dashboardData && dashboardData.focusHistoryData) || null);
+    renderVendeursScorecardTable(quantiRecords, qualiRecords, fHistData, (dashboardData && dashboardData.vendeur_activites) ? dashboardData.vendeur_activites : {});
     renderQualiTable(qualiRecords);
 
     // 5. Render Focus
     renderFocusSections(focusVmm, focusSom);
+
+    // 5b. Render CHAKIB ELFIL Specific Families Progress Chart
+    if (currentSelection && currentSelection.type === 'vendeur' && currentSelection.name.trim().toUpperCase() === 'CHAKIB ELFIL') {
+        if (chakibFamiliesProgressCard) {
+            applyCardVisibility('chakib-families-progress-card');
+            
+            // Group the all-family records of CHAKIB ELFIL (individual data matching the spreadsheet source of truth)
+            const families = {};
+            const sellerQuanti = (dashboardData && dashboardData.quantitative) ? 
+                dashboardData.quantitative.filter(item => {
+                    return (item.vendeur || '').trim().toLowerCase() === 'chakib elfil';
+                }) : [];
+                
+            sellerQuanti.forEach(r => {
+                if (r.famille) {
+                    if (!families[r.famille]) {
+                        families[r.famille] = { real: 0, obj: 0 };
+                    }
+                    families[r.famille].real += r.real;
+                    families[r.famille].obj += r.obj;
+                }
+            });
+            
+            const customOrder = [
+                "C.A (TTC)",
+                "C.A (HT)",
+                "LEVURE",
+                "MOUSSES",
+                "BOUILLON",
+                "CONDIMENTS",
+                "CONFITURE",
+                "CONSERVES"
+            ];
+            
+            const sortedFamilies = Object.keys(families).sort((a, b) => {
+                const indexA = customOrder.indexOf(a.toUpperCase());
+                const indexB = customOrder.indexOf(b.toUpperCase());
+                
+                if (indexA !== -1 && indexB !== -1) {
+                    return indexA - indexB;
+                }
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+                return a.localeCompare(b);
+            });
+            
+            const labels = [];
+            const dataRates = [];
+            const backgroundColors = [];
+            const borderColors = [];
+            
+            const styles = getComputedStyle(document.body);
+            const gridColor = isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+            const textColor = isWhiteMode ? '#334155' : '#e2e8f0'; // Slate 700 / Slate 200 for excellent contrast
+            
+            // Resolve premium colors from current visual theme variables
+            const greenColor = (styles.getPropertyValue('--neon-green').trim() || '#15803d').substring(0, 7);
+            const amberColor = (styles.getPropertyValue('--neon-amber').trim() || '#b45309').substring(0, 7);
+            const pinkColor = (styles.getPropertyValue('--neon-pink').trim() || '#be185d').substring(0, 7);
+            
+            sortedFamilies.forEach(fam => {
+                const data = families[fam];
+                let rate = 0;
+                if (data.obj > 0) {
+                    rate = Math.round((data.real / data.obj) * 100);
+                } else if (data.real > 0) {
+                    rate = 100;
+                } else {
+                    rate = 100; // default to 100% since objective is 0 and they achieved 0
+                }
+                
+                const deviation = rate - 100;
+                
+                labels.push(fam);
+                dataRates.push(deviation);
+                
+                // Color formatting: Green for positive, Orange for -20 to 0, Red/Pink for < -20
+                let color = pinkColor;
+                if (deviation >= 0) {
+                    color = greenColor;
+                } else if (deviation >= -20) {
+                    color = amberColor;
+                }
+                
+                backgroundColors.push(color + 'ba'); // translucent
+                borderColors.push(color);
+            });
+            
+            // Inline plugin to draw value labels (+X% / -Y%) directly next to each horizontal bar
+            const deviationLabelsPlugin = {
+                id: 'deviationLabels',
+                afterDatasetsDraw(chart) {
+                    const { ctx, data } = chart;
+                    ctx.save();
+                    ctx.textBaseline = 'middle';
+                    ctx.font = 'bold 11px JetBrains Mono';
+                    
+                    chart.getDatasetMeta(0).data.forEach((bar, index) => {
+                        const val = data.datasets[0].data[index];
+                        const pctLabel = (val > 0 ? '+' : '') + val + '%';
+                        
+                        let color = pinkColor;
+                        if (val >= 0) {
+                            color = greenColor;
+                        } else if (val >= -20) {
+                            color = amberColor;
+                        }
+                        
+                        // bar.x is the end of the bar, bar.y is the vertical center of the bar
+                        if (val >= 0) {
+                            ctx.textAlign = 'left';
+                            ctx.fillStyle = color; // Match color of the positive bar (contrast-safe in both light and dark mode)
+                            ctx.fillText(pctLabel, bar.x + 8, bar.y);
+                        } else {
+                            ctx.textAlign = 'right';
+                            ctx.fillStyle = color; // Match color of the negative bar (contrast-safe in both light and dark mode)
+                            ctx.fillText(pctLabel, bar.x - 8, bar.y);
+                        }
+                    });
+                    ctx.restore();
+                }
+            };
+            
+            const canvas = document.getElementById('chakib-families-chart');
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                if (chakibFamiliesChartInstance) {
+                    chakibFamiliesChartInstance.destroy();
+                }
+                
+                chakibFamiliesChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Écart de Réalisation (%)',
+                            data: dataRates,
+                            backgroundColor: backgroundColors,
+                            borderColor: borderColors,
+                            borderWidth: 1.5,
+                            borderRadius: 4,
+                            barPercentage: 0.65
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y', // Horizontal bar chart
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const fam = context.label;
+                                        const val = context.raw;
+                                        const data = families[fam];
+                                        const pctLabel = (val > 0 ? '+' : '') + val + '%';
+                                        return ` Écart: ${pctLabel} | Réal: ${formatNumber(data.real)} DH | Obj: ${formatNumber(data.obj)} DH`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grace: '10%', // Prevent labels from getting cut off at visual edges
+                                suggestedMin: -20,
+                                suggestedMax: 20,
+                                grid: {
+                                    color: function(context) {
+                                        const val = context.tick ? context.tick.value : context.value;
+                                        if (val === 0) {
+                                            return isWhiteMode ? 'rgba(15, 23, 42, 0.6)' : '#00d4ff'; // Highlight origin
+                                        }
+                                        return gridColor;
+                                    },
+                                    lineWidth: function(context) {
+                                        const val = context.tick ? context.tick.value : context.value;
+                                        if (val === 0) {
+                                            return 2.5;
+                                        }
+                                        return 1;
+                                    }
+                                },
+                                ticks: {
+                                    color: function(context) {
+                                        const val = context.tick ? context.tick.value : context.value;
+                                        if (val === 0) {
+                                            return isWhiteMode ? '#0f172a' : '#00d4ff';
+                                        }
+                                        return isWhiteMode ? '#475569' : '#64748b';
+                                    },
+                                    font: function(context) {
+                                        const val = context.tick ? context.tick.value : context.value;
+                                        if (val === 0) {
+                                            return { family: 'JetBrains Mono', size: 9, weight: 'bold' };
+                                        }
+                                        return { family: 'JetBrains Mono', size: 9 };
+                                    },
+                                    callback: function(value) {
+                                        return (value > 0 ? '+' : '') + value + '%';
+                                    }
+                                }
+                            },
+                            y: {
+                                grid: { display: false },
+                                ticks: {
+                                    color: textColor,
+                                    font: { family: 'Inter', size: 11, weight: 'bold' }
+                                }
+                            }
+                        }
+                    },
+                    plugins: [deviationLabelsPlugin]
+                });
+            }
+        }
+        
+        if (chakibFocusProgressCard) {
+            applyCardVisibility('chakib-focus-progress-card');
+            if (!chakibFocusHistoryData) {
+                fetch('/api/focus/trend?agence=AGADIR')
+                .then(r => r.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        chakibFocusHistoryData = res;
+                        renderChakibFocusProgress(res.data, res.settings, res.total_days, res.focus_names);
+                    }
+                })
+                .catch(err => console.error("Error fetching CHAKIB ELFIL focus trend:", err));
+            } else {
+                renderChakibFocusProgress(chakibFocusHistoryData.data, chakibFocusHistoryData.settings, chakibFocusHistoryData.total_days, chakibFocusHistoryData.focus_names);
+            }
+        }
+    } else {
+        if (chakibFamiliesProgressCard) {
+            applyCardVisibility('chakib-families-progress-card');
+        }
+        if (chakibFamiliesChartInstance) {
+            chakibFamiliesChartInstance.destroy();
+            chakibFamiliesChartInstance = null;
+        }
+        if (chakibFocusProgressCard) {
+            applyCardVisibility('chakib-focus-progress-card');
+        }
+        if (chakibFocusChartInstance) {
+            chakibFocusChartInstance.destroy();
+            chakibFocusChartInstance = null;
+        }
+    }
 
     // 6. Render System Alerts
     updateSystemAlerts(quantiRecords, qualiRecords, focusVmm, focusSom, wDays);
 
     // 7. Render Charts (separated Quanti and Quali)
     renderQuantiChart(quantiRecords);
-    renderQualiChart(qualiRecords);
+    renderQualiChart(qualiRecords, quantiRecords);
+    renderRadarChart();
+}
+
+// Populate 3-column product family synthesis cards (Real, Obj Partiel, %, RAF)
+function renderFamillesGrid(records) {
+    const container = document.getElementById('familles-3col-container');
+    const badgeEl = document.getElementById('familles-count-badge');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!records || records.length === 0) {
+        container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono); font-size: 0.85rem;">Aucune donnée de famille disponible</div>';
+        if (badgeEl) badgeEl.innerText = '0 Familles';
+        return;
+    }
+
+    // Group records by Famille
+    const families = {};
+    records.forEach(r => {
+        if (!r || !r.famille) return;
+        if (!families[r.famille]) {
+            families[r.famille] = { real: 0, obj: 0, vendeurs: new Set() };
+        }
+        families[r.famille].real += (r.real || 0);
+        families[r.famille].obj += (r.obj || 0);
+        if (r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE') {
+            families[r.famille].vendeurs.add(r.vendeur.trim());
+        }
+    });
+
+    const customOrder = [
+        "LEVURE",
+        "MGM",
+        "MOUSSES",
+        "BOUILLON",
+        "CONDIMENTS",
+        "SAUCES TACOS",
+        "SAUCES",
+        "CONFITURE",
+        "CONSERVES",
+        "MISWAK",
+        "C.A (HT)",
+        "C.A (TTC)"
+    ];
+
+    const sortedFamNames = Object.keys(families).sort((a, b) => {
+        const indexA = customOrder.indexOf(a.toUpperCase());
+        const indexB = customOrder.indexOf(b.toUpperCase());
+        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+        if (indexA !== -1) return -1;
+        if (indexB !== -1) return 1;
+        return a.localeCompare(b);
+    });
+
+    if (badgeEl) badgeEl.innerText = `${sortedFamNames.length} Familles`;
+
+    const elapsedDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.elapsed) ? dashboardData.workdays.elapsed : 20;
+    const totalDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.total) ? dashboardData.workdays.total : 24;
+    const restDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.rest > 0) ? dashboardData.workdays.rest : 4;
+    const prorataRatio = (totalDays > 0) ? (elapsedDays / totalDays) : 1;
+
+    sortedFamNames.forEach(fam => {
+        const data = families[fam];
+        const real = data.real;
+        const objGlobal = data.obj;
+        const objPartiel = Math.round(objGlobal * prorataRatio);
+
+        const devPct = objGlobal > 0 ? Math.round(((real - objGlobal) / objGlobal) * 100) : 0;
+        const devSign = devPct >= 0 ? '+' : '';
+        const devText = objGlobal > 0 ? `${devSign}${devPct}%` : (real > 0 ? '#DIV/0!' : '0%');
+        const pctAchieved = objGlobal > 0 ? Math.round((real / objGlobal) * 100) : (real > 0 ? 100 : 0);
+
+        // Percent vs Obj Partiel for prorata comparison
+        let pctPartiel = 0;
+        if (objPartiel > 0) {
+            pctPartiel = Math.round((real / objPartiel) * 100);
+        } else if (real > 0) {
+            pctPartiel = 100;
+        }
+
+        // RAF Total & RAF Jour
+        const rafTotal = objGlobal - real;
+        let rafJour = 0;
+        if (restDays > 0) {
+            rafJour = Math.round(rafTotal / restDays);
+        } else {
+            rafJour = rafTotal;
+        }
+
+        // Visual Colors & Classes based on deviation % (matching Excel)
+        let pctClass = 'neon-text-pink';
+        let fillClass = 'pink-fill';
+        let badgeBg = 'rgba(239, 68, 68, 0.2)';
+        let badgeColor = '#dc2626';
+
+        if (devPct >= 0) {
+            pctClass = 'neon-text-green';
+            fillClass = 'green-fill';
+            badgeBg = 'rgba(34, 197, 94, 0.18)';
+            badgeColor = '#15803d';
+        } else if (devPct >= -20) {
+            pctClass = 'neon-text-amber';
+            fillClass = 'amber-fill';
+            badgeBg = 'rgba(245, 158, 11, 0.18)';
+            badgeColor = '#b45309';
+        }
+
+        const isCa = fam.toUpperCase().includes('C.A');
+        const cardGlow = isCa ? 'glow-blue' : (devPct >= 0 ? 'glow-green' : (devPct >= -20 ? 'glow-amber' : 'glow-pink'));
+        const displayFamName = (fam === 'SAUCES') ? 'SAUCES TACOS' : fam;
+
+        // Get individual vendor rows for this family (matching Excel image2)
+        const vendorRecords = records.filter(r => r && r.famille === fam && r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE' && r.vendeur.toUpperCase() !== 'CHAKIB ELFIL' && r.vendeur.toUpperCase() !== 'BOUTMEZGUINE EL MOSTAFA');
+        
+        // Sort vendors by obj descending, then real descending
+        vendorRecords.sort((a, b) => (b.obj || 0) - (a.obj || 0) || (b.real || 0) - (a.real || 0));
+
+        let vendorTableHtml = '';
+        if (vendorRecords.length > 0) {
+            let rowsHtml = '';
+            vendorRecords.forEach(r => {
+                const vReal = r.real || 0;
+                const vObjGlobal = r.obj || 0;
+                
+                let vPctText = '0%';
+                let vBadgeBg = 'rgba(239, 68, 68, 0.18)';
+                let vBadgeColor = '#be185d';
+
+                if (vObjGlobal > 0) {
+                    const vDevPct = Math.round(((vReal - vObjGlobal) / vObjGlobal) * 100);
+                    const vDevSign = vDevPct >= 0 ? '+' : '';
+                    vPctText = `${vDevSign}${vDevPct}%`;
+
+                    if (vDevPct >= 0) {
+                        vBadgeBg = 'rgba(34, 197, 94, 0.18)';
+                        vBadgeColor = '#15803d';
+                    } else if (vDevPct >= -20) {
+                        vBadgeBg = 'rgba(245, 158, 11, 0.18)';
+                        vBadgeColor = '#b45309';
+                    } else {
+                        vBadgeBg = 'rgba(239, 68, 68, 0.2)';
+                        vBadgeColor = '#dc2626';
+                    }
+                } else if (vReal > 0) {
+                    vPctText = '#DIV/0!';
+                    vBadgeBg = 'rgba(34, 197, 94, 0.18)';
+                    vBadgeColor = '#15803d';
+                } else {
+                    vPctText = '#DIV/0!';
+                    vBadgeBg = 'rgba(100, 116, 139, 0.18)';
+                    vBadgeColor = '#64748b';
+                }
+
+                const vRaf = vObjGlobal - vReal;
+
+                rowsHtml += `
+                    <tr>
+                        <td style="padding: 0.35rem 0.45rem; font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 125px; font-weight: 500;" title="${r.vendeur}">
+                            ${r.vendeur}
+                        </td>
+                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: var(--neon-blue); font-weight: 600;">
+                            ${formatNumber(vReal)}
+                        </td>
+                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: var(--text-main);">
+                            ${formatNumber(vObjGlobal)}
+                        </td>
+                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
+                            <span style="background: ${vBadgeBg}; color: ${vBadgeColor}; padding: 0.15rem 0.35rem; border-radius: 3px; font-size: 0.68rem; display: inline-block;">
+                                ${vPctText}
+                            </span>
+                        </td>
+                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: ${vRaf > 0 ? 'var(--neon-amber)' : 'var(--neon-green)'};">
+                            ${formatNumber(vRaf)}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            vendorTableHtml = `
+                <div class="famille-table-wrapper" style="max-height: 280px; overflow-y: auto; margin-top: 0.5rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                    <table class="cyber-table mini-famille-table" style="width: 100%; font-size: 0.72rem; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: rgba(0, 212, 255, 0.08); position: sticky; top: 0; z-index: 2;">
+                                <th style="padding: 0.4rem 0.45rem; text-align: left;">Représentant</th>
+                                <th style="padding: 0.4rem 0.4rem; text-align: right;">REAL</th>
+                                <th style="padding: 0.4rem 0.4rem; text-align: right;">OBJ</th>
+                                <th style="padding: 0.4rem 0.4rem; text-align: right;">%</th>
+                                <th style="padding: 0.4rem 0.4rem; text-align: right;">RAF</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rowsHtml}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        const card = document.createElement('div');
+        card.className = `cyber-card famille-card-3col ${cardGlow}`;
+        if (isCa) {
+            card.style.gridColumn = '1 / -1';
+        }
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.55rem;">
+                <span style="font-weight: 700; font-size: 0.88rem; font-family: var(--font-mono); color: var(--text-main); display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <i class="fa-solid fa-tag neon-text-blue" style="font-size: 0.8rem;"></i> ${displayFamName}
+                </span>
+                <span style="background: ${badgeBg}; color: ${badgeColor}; font-size: 0.7rem; font-weight: 800; padding: 0.2rem 0.55rem; border-radius: 4px; font-family: var(--font-mono); white-space: nowrap;">
+                    ${devText}
+                </span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-top: 0.5rem;">
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
+                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Réalisé</div>
+                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: var(--neon-blue); margin-top: 2px;">${formatNumber(real)} DH</div>
+                </div>
+
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
+                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Objectif (OBJ)</div>
+                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-main); margin-top: 2px;">${formatNumber(objGlobal)} DH</div>
+                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">Partiel: ${formatNumber(objPartiel)} DH</div>
+                </div>
+
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
+                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">% Écart (OBJ)</div>
+                    <div class="${pctClass}" style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); margin-top: 2px;">${devText}</div>
+                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">Taux: ${pctAchieved}%</div>
+                </div>
+
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
+                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Reste À Faire (RAF)</div>
+                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: ${rafTotal > 0 ? 'var(--neon-amber)' : 'var(--neon-green)'}; margin-top: 2px;">${formatNumber(rafTotal)} DH</div>
+                    <div style="font-size: 0.58rem; color: var(--neon-amber); margin-top: 1px; white-space: nowrap;">RAF/j: ${formatNumber(rafJour)} DH/j</div>
+                </div>
+            </div>
+
+            <div style="margin-top: 0.4rem;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: var(--text-muted); margin-bottom: 0.2rem;">
+                    <span>Taux d'Atteinte de l'Objectif</span>
+                    <span class="${pctClass}" style="font-weight: 700;">${pctAchieved}%</span>
+                </div>
+                <div class="progress-bar-container" style="height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                    <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(pctAchieved, 100)}%; height: 100%;"></div>
+                </div>
+            </div>
+
+            ${vendorTableHtml}
+        `;
+        container.appendChild(card);
+    });
+}
+
+// Populate Vendor Performance Scorecard Table (Max 100 Points)
+function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryData, vendeurActivites) {
+    const tbody = document.getElementById('vendeurs-scorecard-tbody');
+    const badgeEl = document.getElementById('vendeurs-score-count-badge');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (!quantiRecords || quantiRecords.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée disponible</td></tr>';
+        if (badgeEl) badgeEl.innerText = '0 Vendeurs';
+        return;
+    }
+
+    // 1. Group quantitative data by Vendeur
+    const vendorsMap = {};
+
+    quantiRecords.forEach(r => {
+        if (!r || !r.vendeur) return;
+        const vName = r.vendeur.trim();
+        const vUpper = vName.toUpperCase();
+        if (vUpper === 'AUTRE' || vUpper === 'CHAKIB ELFIL' || vUpper === 'BOUTMEZGUINE EL MOSTAFA') return;
+
+        if (!vendorsMap[vName]) {
+            vendorsMap[vName] = {
+                vendeur: vName,
+                caReal: 0,
+                caObj: 0,
+                tsm: 0,
+                acm: 0,
+                line: 0,
+                glaceDev: null,
+                tomateDev: null
+            };
+        }
+
+        const isCa = r.famille && (r.famille.toUpperCase().includes('C.A') || r.famille.toUpperCase().includes('CA'));
+        if (isCa) {
+            vendorsMap[vName].caReal += (r.real || 0);
+            vendorsMap[vName].caObj += (r.obj || 0);
+        }
+    });
+
+    // 2. Attach Qualitative data
+    if (qualiRecords && qualiRecords.length > 0) {
+        qualiRecords.forEach(r => {
+            if (!r || !r.vendeur) return;
+            const vName = r.vendeur.trim();
+            if (vendorsMap[vName]) {
+                vendorsMap[vName].tsm = r.tsm || 0;
+                vendorsMap[vName].acm = r.acm || 0;
+                vendorsMap[vName].line = r.line || 0;
+            }
+        });
+    }
+
+    // 3. Attach Focus Deviations if available
+    if (focusHistoryData) {
+        const glaceReps = (focusHistoryData.glace && focusHistoryData.glace.reps) ? focusHistoryData.glace.reps : [];
+        const tomateReps = (focusHistoryData.tomate && focusHistoryData.tomate.reps) ? focusHistoryData.tomate.reps : [];
+
+        Object.keys(vendorsMap).forEach(vName => {
+            const gRecs = glaceReps.filter(r => r.representative && r.representative.trim().toUpperCase() === vName.toUpperCase()).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+            const tRecs = tomateReps.filter(r => r.representative && r.representative.trim().toUpperCase() === vName.toUpperCase()).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+
+            if (gRecs.length > 0 && gRecs[0].deviation !== null) {
+                vendorsMap[vName].glaceDev = gRecs[0].deviation;
+            }
+            if (tRecs.length > 0 && tRecs[0].deviation !== null) {
+                vendorsMap[vName].tomateDev = tRecs[0].deviation;
+            }
+        });
+    }
+
+    // 4. Calculate Scores out of 100 for each vendor
+    const vendorScores = [];
+
+    Object.values(vendorsMap).forEach(v => {
+        // A. CA Score (Max 40 pts)
+        let scoreCa = 0;
+        if (v.caObj > 0) {
+            const ratio = v.caReal / v.caObj;
+            scoreCa = Math.min(40, Math.max(0, Math.round(ratio * 40)));
+        } else if (v.caReal > 0) {
+            scoreCa = 40;
+        }
+
+        // B. Focus Score (Max 30 pts: 15 pts Glace + 15 pts Tomate)
+        let scoreGlace = 15;
+        if (v.glaceDev !== null) {
+            scoreGlace = Math.min(15, Math.max(0, Math.round((1 + v.glaceDev) * 15)));
+        }
+        let scoreTomate = 15;
+        if (v.tomateDev !== null) {
+            scoreTomate = Math.min(15, Math.max(0, Math.round((1 + v.tomateDev) * 15)));
+        }
+        const scoreFocus = scoreGlace + scoreTomate;
+
+        // C. Qualitative Score (Max 30 pts: 10 pts TSM + 10 pts ACM + 10 pts LINE)
+        const scoreTsm = Math.min(10, Math.max(0, Math.round((v.tsm / 100) * 10)));
+        const scoreAcm = Math.min(10, Math.max(0, Math.round((v.acm / 100) * 10)));
+        const scoreLine = Math.min(10, Math.max(0, Math.round((v.line / 100) * 10)));
+        const scoreQuali = scoreTsm + scoreAcm + scoreLine;
+
+        // D. Total Score (/100)
+        const scoreTotal = Math.min(100, Math.max(0, scoreCa + scoreFocus + scoreQuali));
+
+        // Get activity role (SOM, VMM, SOM VMM)
+        const activite = (vendeurActivites && (vendeurActivites[v.vendeur] || vendeurActivites[v.vendeur.toUpperCase()])) ? (vendeurActivites[v.vendeur] || vendeurActivites[v.vendeur.toUpperCase()]) : 'SOM VMM';
+
+        vendorScores.push({
+            vendeur: v.vendeur,
+            activite: activite,
+            scoreCa: scoreCa,
+            scoreFocus: scoreFocus,
+            scoreQuali: scoreQuali,
+            scoreTotal: scoreTotal
+        });
+    });
+
+    // 5. Sort vendors by Score Total descending
+    vendorScores.sort((a, b) => b.scoreTotal - a.scoreTotal);
+
+    if (badgeEl) badgeEl.innerText = `${vendorScores.length} Vendeurs`;
+
+    // 6. Build HTML rows
+    vendorScores.forEach((v, index) => {
+        const rank = index + 1;
+        let rankBadge = `${rank}`;
+        let rankBg = 'rgba(255,255,255,0.05)';
+        let rankColor = 'var(--text-main)';
+
+        if (rank === 1) {
+            rankBadge = '🥇 1er';
+            rankBg = 'rgba(245, 158, 11, 0.25)';
+            rankColor = '#fbbf24';
+        } else if (rank === 2) {
+            rankBadge = '🥈 2ème';
+            rankBg = 'rgba(148, 163, 184, 0.25)';
+            rankColor = '#cbd5e1';
+        } else if (rank === 3) {
+            rankBadge = '🥉 3ème';
+            rankBg = 'rgba(217, 119, 6, 0.25)';
+            rankColor = '#f59e0b';
+        }
+
+        let statusBadge = '🔴 RETARD';
+        let statusBg = 'rgba(239, 68, 68, 0.18)';
+        let statusColor = '#dc2626';
+
+        if (v.scoreTotal >= 85) {
+            statusBadge = '🌟 EXCELLENT';
+            statusBg = 'rgba(34, 197, 94, 0.2)';
+            statusColor = '#15803d';
+        } else if (v.scoreTotal >= 70) {
+            statusBadge = '🟢 BON';
+            statusBg = 'rgba(0, 212, 255, 0.18)';
+            statusColor = '#00d4ff';
+        } else if (v.scoreTotal >= 50) {
+            statusBadge = '🟠 MOYEN';
+            statusBg = 'rgba(245, 158, 11, 0.18)';
+            statusColor = '#b45309';
+        }
+
+        const scoreBarColor = v.scoreTotal >= 85 ? '#22c55e' : (v.scoreTotal >= 70 ? '#00d4ff' : (v.scoreTotal >= 50 ? '#f59e0b' : '#ef4444'));
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="padding: 0.5rem; text-align: center; font-weight: 700; font-family: var(--font-mono);">
+                <span style="background: ${rankBg}; color: ${rankColor}; padding: 0.2rem 0.45rem; border-radius: 4px; font-size: 0.72rem; display: inline-block;">
+                    ${rankBadge}
+                </span>
+            </td>
+            <td style="padding: 0.5rem; font-weight: 600; color: var(--text-main); font-size: 0.78rem;">${v.vendeur}</td>
+            <td style="padding: 0.5rem; text-align: center;">
+                <span class="badge-blue" style="font-size: 0.65rem;">${v.activite}</span>
+            </td>
+            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--neon-blue); font-weight: 700;">${v.scoreCa} / 40</td>
+            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--neon-pink); font-weight: 700;">${v.scoreFocus} / 30</td>
+            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--neon-green); font-weight: 700;">${v.scoreQuali} / 30</td>
+            <td style="padding: 0.5rem; text-align: center; min-width: 130px;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                    <span style="font-size: 0.9rem; font-weight: 800; font-family: var(--font-mono); color: ${scoreBarColor}; width: 52px; text-align: right;">${v.scoreTotal}/100</span>
+                    <div style="width: 55px; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                        <div style="width: ${v.scoreTotal}%; height: 100%; background: ${scoreBarColor}; border-radius: 3px;"></div>
+                    </div>
+                </div>
+            </td>
+            <td style="padding: 0.5rem; text-align: center;">
+                <span style="background: ${statusBg}; color: ${statusColor}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.68rem; font-weight: 800; display: inline-block;">
+                    ${statusBadge}
+                </span>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
 }
 
 // Populate product family table
@@ -1474,7 +5478,7 @@ function renderQuantiTable(records) {
             <th>RAF Jour</th>
         `;
     }
-
+    
     // Group records by Famille to show totals
     const families = {};
     records.forEach(r => {
@@ -1527,9 +5531,9 @@ function renderQuantiTable(records) {
         return a.localeCompare(b);
     });
 
-    const restDays = (typeof dashboardData !== 'undefined' && dashboardData && dashboardData.workdays && dashboardData.workdays.rest > 1) ? dashboardData.workdays.rest : 5.8336;
-    const elapsedDays = (typeof dashboardData !== 'undefined' && dashboardData && dashboardData.workdays && dashboardData.workdays.elapsed) ? dashboardData.workdays.elapsed : 24;
-    const totalDays = (typeof dashboardData !== 'undefined' && dashboardData && dashboardData.workdays && dashboardData.workdays.total) ? dashboardData.workdays.total : 24;
+    const restDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.rest > 1) ? dashboardData.workdays.rest : 5.8336;
+    const elapsedDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.elapsed) ? dashboardData.workdays.elapsed : 24;
+    const totalDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.total) ? dashboardData.workdays.total : 24;
 
     sortedFamilies.forEach(fam => {
         const data = families[fam];
@@ -1616,7 +5620,6 @@ function renderQuantiTable(records) {
     }
 }
 
-// Populate qualitative seller table
 // Populate qualitative seller table
 function renderQualiTable(records) {
     qualiTableBody.innerHTML = '';
@@ -1803,9 +5806,62 @@ function renderFocusSections(focusVmm, focusSom) {
 // Generate Chart.js diagrams
 // Generate Quantitative Chart (Écart vs Obj %)
 function renderQuantiChart(quantiRecords) {
+    const targetNameUpper = (currentSelection && currentSelection.type === 'vendeur') ? currentSelection.name.trim().toUpperCase() : '';
+    const isCdzSelected = targetNameUpper === 'CHAKIB ELFIL' || targetNameUpper === 'BOUTMEZGUINE EL MOSTAFA' || 
+        ((dashboardData && dashboardData.fdv) ? dashboardData.fdv.some(r => (r.cdz || '').trim().toUpperCase() === targetNameUpper) : false);
+
+    // 1. If not provided, calculate based on active filters
     if (!quantiRecords) {
         if (dashboardData) {
             quantiRecords = dashboardData.quantitative;
+            
+            if (currentSelection && currentSelection.type === 'vendeur') {
+                const targetName = (currentSelection.name || '').trim().toLowerCase();
+                const teamSellers = [];
+                if (dashboardData.fdv) {
+                    dashboardData.fdv.forEach(r => {
+                        if ((r.cdz || '').trim().toLowerCase() === targetName) {
+                            teamSellers.push(r.vendeur.trim().toLowerCase());
+                        }
+                    });
+                }
+                quantiRecords = quantiRecords.filter(item => {
+                    const val = (item.vendeur || '').trim().toLowerCase();
+                    return val === targetName || teamSellers.includes(val) || val.includes(targetName) || targetName.includes(val);
+                });
+            } else if (currentSelection && currentSelection.type === 'secteur') {
+                const sectorFocusVmm = dashboardData.focus_vmm.filter(item => item.secteur.toLowerCase() === currentSelection.name.toLowerCase());
+                const sectorFocusSom = dashboardData.focus_som.filter(item => item.secteur.toLowerCase() === currentSelection.name.toLowerCase());
+                const sellersForSector = new Set([
+                    ...sectorFocusVmm.map(f => f.vendeur.toLowerCase()),
+                    ...sectorFocusSom.map(f => f.vendeur.toLowerCase())
+                ]);
+                if (sellersForSector.size > 0) {
+                    quantiRecords = quantiRecords.filter(item => sellersForSector.has(item.vendeur.toLowerCase()));
+                }
+            }
+
+            if (currentFilterType === 'som') {
+                const somSellers = new Set((dashboardData.fdv || []).filter(r => (r.role || '').toUpperCase().includes('SOM')).map(r => r.vendeur.trim().toUpperCase()));
+                quantiRecords = quantiRecords.filter(item => {
+                    const fam = item.famille.toUpperCase();
+                    if (fam === 'C.A (HT)' || fam === 'C.A (TTC)' || fam === 'C.A (ht)' || fam === 'C.A (ttc)') {
+                        const sellerName = item.vendeur.trim().toUpperCase();
+                        return somSellers.has(sellerName) || sellerName === 'CHAKIB ELFIL' || sellerName === 'BOUTMEZGUINE EL MOSTAFA';
+                    }
+                    return fam !== 'VMM' && fam !== 'VIT' && fam !== 'CHAR' && !fam.includes('VMM');
+                });
+            } else if (currentFilterType === 'vmm') {
+                const vmmSellers = new Set((dashboardData.fdv || []).filter(r => (r.role || '').toUpperCase().includes('VMM')).map(r => r.vendeur.trim().toUpperCase()));
+                quantiRecords = quantiRecords.filter(item => {
+                    const fam = item.famille.toUpperCase();
+                    if (fam === 'C.A (HT)' || fam === 'C.A (TTC)' || fam === 'C.A (ht)' || fam === 'C.A (ttc)') {
+                        const sellerName = item.vendeur.trim().toUpperCase();
+                        return vmmSellers.has(sellerName) || sellerName === 'CHAKIB ELFIL' || sellerName === 'BOUTMEZGUINE EL MOSTAFA';
+                    }
+                    return fam === 'VMM' || fam === 'VIT' || fam === 'CHAR' || fam.includes('VMM') || fam === 'BOUILLON' || fam === 'CONDIMENTS';
+                });
+            }
         } else {
             return;
         }
@@ -1814,7 +5870,7 @@ function renderQuantiChart(quantiRecords) {
     const canvas = document.getElementById('quanti-chart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    
+
     if (quantiChartInstance) {
         quantiChartInstance.destroy();
     }
@@ -1824,11 +5880,12 @@ function renderQuantiChart(quantiRecords) {
     const neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
     const neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
     const neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
+    const neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
 
-    // Extract the top 7 sellers by sales volume (real CA) to keep x-axis consistent
+    // Extract top sellers performance by volume (real CA)
     const sellerPerformances = {};
     quantiRecords.forEach(r => {
-        if (r.famille === 'C.A (ht)') {
+        if (r.famille === 'C.A (ht)' || r.famille === 'C.A (TTC)') {
             if (!sellerPerformances[r.vendeur]) {
                 sellerPerformances[r.vendeur] = { real: 0, obj: 0 };
             }
@@ -1839,7 +5896,24 @@ function renderQuantiChart(quantiRecords) {
 
     let labels = Object.keys(sellerPerformances);
     labels.sort((a,b) => sellerPerformances[b].real - sellerPerformances[a].real);
-    labels = labels.slice(0, 7); // Show top 7
+
+    // Ensure selected CDZ is shown when selected (expand limit to 15 to include all CDZ team members)
+    const maxLabels = isCdzSelected ? 15 : 7;
+    if (isCdzSelected) {
+        const cdzKey = Object.keys(sellerPerformances).find(k => k.trim().toUpperCase() === targetNameUpper);
+        if (cdzKey) {
+            const topCount = Math.min(labels.length, maxLabels);
+            const topSlice = labels.slice(0, topCount);
+            if (!topSlice.includes(cdzKey)) {
+                topSlice[topSlice.length - 1] = cdzKey;
+            }
+            labels = topSlice;
+        } else {
+            labels = labels.slice(0, maxLabels);
+        }
+    } else {
+        labels = labels.slice(0, maxLabels);
+    }
 
     // Deviation percentage data calculation
     const deviationData = labels.map(l => {
@@ -1847,9 +5921,14 @@ function renderQuantiChart(quantiRecords) {
         return perf.obj > 0 ? Math.round(((perf.real / perf.obj) - 1) * 100) : 0;
     });
 
-    // Colors for positive (green) and negative (pink) points
-    const pointBackgroundColors = deviationData.map(v => v >= 0 ? neonGreen : neonPink);
-    const pointBorderColors = deviationData.map(v => v >= 0 ? neonGreen : neonPink);
+    // Colors for positive (green) and negative (red/orange) points
+    const pointBackgroundColors = deviationData.map(v => v >= 0 ? neonGreen : (v >= -20 ? neonAmber : neonPink));
+    const pointBorderColors = deviationData.map(v => v >= 0 ? neonGreen : (v >= -20 ? neonAmber : neonPink));
+
+    // Dynamic point radii/borders (highlight selected seller/CDZ)
+    const pointRadii = labels.map(l => targetNameUpper && l.toUpperCase().includes(targetNameUpper) ? 9 : 5);
+    const pointHoverRadii = labels.map(l => targetNameUpper && l.toUpperCase().includes(targetNameUpper) ? 11 : 7);
+    const pointBorderWidths = labels.map(l => targetNameUpper && l.toUpperCase().includes(targetNameUpper) ? 4 : 2);
 
     // Plugin to display names and percentage values directly on top of each point
     const pointLabelsPlugin = {
@@ -1857,17 +5936,34 @@ function renderQuantiChart(quantiRecords) {
         afterDatasetsDraw(chart) {
             const { ctx, data } = chart;
             ctx.save();
-            ctx.font = 'bold 11px JetBrains Mono';
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'center';
-            
+
             chart.getDatasetMeta(0).data.forEach((point, index) => {
                 const val = data.datasets[0].data[index];
-                const parts = data.labels[index].split(' ');
+                const rawLabel = labels[index] || '';
+                const isSelectedVendeur = targetNameUpper && rawLabel.toUpperCase().includes(targetNameUpper);
+                
+                const parts = rawLabel.split(' ');
                 const shortName = (parts[0] + ' ' + (parts[1] || '')).trim();
                 const pctLabel = (val > 0 ? '+' : '') + val + '%';
-                
-                ctx.fillStyle = val >= 0 ? neonGreen : neonPink;
+
+                if (isSelectedVendeur) {
+                    const isLightMode = document.body.classList.contains('light-mode');
+                    ctx.font = 'bold 13px JetBrains Mono';
+                    ctx.fillStyle = neonBlue; // Neon highlight for selected seller/CDZ (dynamic blue/cyan)
+                    if (!isLightMode) {
+                        ctx.shadowColor = 'rgba(0, 240, 255, 0.6)';
+                        ctx.shadowBlur = 6;
+                    } else {
+                        ctx.shadowBlur = 0;
+                    }
+                } else {
+                    ctx.font = 'bold 11px JetBrains Mono';
+                    ctx.fillStyle = val >= 0 ? neonGreen : (val >= -20 ? neonAmber : neonPink);
+                    ctx.shadowBlur = 0;
+                }
+
                 if (val >= 0) {
                     ctx.fillText(shortName, point.x, point.y - 25);
                     ctx.fillText(pctLabel, point.x, point.y - 12);
@@ -1875,6 +5971,7 @@ function renderQuantiChart(quantiRecords) {
                     ctx.fillText(pctLabel, point.x, point.y + 14);
                     ctx.fillText(shortName, point.x, point.y + 27);
                 }
+                ctx.shadowBlur = 0;
             });
             ctx.restore();
         }
@@ -1892,8 +5989,9 @@ function renderQuantiChart(quantiRecords) {
                     borderWidth: 2,
                     pointBackgroundColor: pointBackgroundColors,
                     pointBorderColor: pointBorderColors,
-                    pointRadius: 5,
-                    pointHoverRadius: 7,
+                    pointRadius: pointRadii,
+                    pointHoverRadius: pointHoverRadii,
+                    pointBorderWidth: pointBorderWidths,
                     tension: 0.3, // smooth curves
                     fill: {
                         target: 'origin',
@@ -1960,10 +6058,39 @@ function renderQuantiChart(quantiRecords) {
 }
 
 // Generate Qualitative Chart (LINE, TSM, ACM)
-function renderQualiChart(qualiRecords) {
+function renderQualiChart(qualiRecords, quantiRecords) {
+    const targetNameUpper = (currentSelection && currentSelection.type === 'vendeur') ? currentSelection.name.trim().toUpperCase() : '';
+    const isCdzSelected = targetNameUpper === 'CHAKIB ELFIL' || targetNameUpper === 'BOUTMEZGUINE EL MOSTAFA' || 
+        ((dashboardData && dashboardData.fdv) ? dashboardData.fdv.some(r => (r.cdz || '').trim().toUpperCase() === targetNameUpper) : false);
+
     if (!qualiRecords) {
         if (dashboardData) {
             qualiRecords = dashboardData.qualitative;
+            if (currentSelection && currentSelection.type === 'vendeur') {
+                const targetName = (currentSelection.name || '').trim().toLowerCase();
+                const teamSellers = [];
+                if (dashboardData.fdv) {
+                    dashboardData.fdv.forEach(r => {
+                        if ((r.cdz || '').trim().toLowerCase() === targetName) {
+                            teamSellers.push(r.vendeur.trim().toLowerCase());
+                        }
+                    });
+                }
+                qualiRecords = qualiRecords.filter(item => {
+                    const val = (item.vendeur || '').trim().toLowerCase();
+                    return val === targetName || teamSellers.includes(val) || val.includes(targetName) || targetName.includes(val);
+                });
+            } else if (currentSelection && currentSelection.type === 'secteur') {
+                const sectorFocusVmm = dashboardData.focus_vmm.filter(item => item.secteur.toLowerCase() === currentSelection.name.toLowerCase());
+                const sectorFocusSom = dashboardData.focus_som.filter(item => item.secteur.toLowerCase() === currentSelection.name.toLowerCase());
+                const sellersForSector = new Set([
+                    ...sectorFocusVmm.map(f => f.vendeur.toLowerCase()),
+                    ...sectorFocusSom.map(f => f.vendeur.toLowerCase())
+                ]);
+                if (sellersForSector.size > 0) {
+                    qualiRecords = qualiRecords.filter(item => sellersForSector.has(item.vendeur.toLowerCase()));
+                }
+            }
         } else {
             return;
         }
@@ -1972,7 +6099,7 @@ function renderQualiChart(qualiRecords) {
     const canvas = document.getElementById('quali-chart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    
+
     if (qualiChartInstance) {
         qualiChartInstance.destroy();
     }
@@ -1989,23 +6116,94 @@ function renderQualiChart(qualiRecords) {
     const totalDays = (dashboardData && dashboardData.workdays) ? dashboardData.workdays.total : 24;
     const prorata = (elapsedDays / totalDays) * 100;
 
-    // Extract the top 7 sellers by sales volume (real CA) to keep x-axis consistent
+    // Extract the top sellers by sales volume (real CA) to keep x-axis consistent
     const sellerPerformances = {};
-    if (dashboardData && dashboardData.quantitative) {
-        dashboardData.quantitative.forEach(r => {
-            if (r.famille === 'C.A (ht)') {
-                if (!sellerPerformances[r.vendeur]) {
-                    sellerPerformances[r.vendeur] = { real: 0, obj: 0 };
+    
+    let recordsForVol = quantiRecords;
+    if (!recordsForVol) {
+        if (dashboardData) {
+            recordsForVol = dashboardData.quantitative;
+            if (currentSelection && currentSelection.type === 'vendeur') {
+                const targetName = (currentSelection.name || '').trim().toLowerCase();
+                const teamSellers = [];
+                if (dashboardData.fdv) {
+                    dashboardData.fdv.forEach(r => {
+                        if ((r.cdz || '').trim().toLowerCase() === targetName) {
+                            teamSellers.push(r.vendeur.trim().toLowerCase());
+                        }
+                    });
                 }
-                sellerPerformances[r.vendeur].real += r.real;
-                sellerPerformances[r.vendeur].obj += r.obj;
+                recordsForVol = recordsForVol.filter(item => {
+                    const val = (item.vendeur || '').trim().toLowerCase();
+                    return val === targetName || teamSellers.includes(val) || val.includes(targetName) || targetName.includes(val);
+                });
+            } else if (currentSelection && currentSelection.type === 'secteur') {
+                const sectorFocusVmm = dashboardData.focus_vmm.filter(item => item.secteur.toLowerCase() === currentSelection.name.toLowerCase());
+                const sectorFocusSom = dashboardData.focus_som.filter(item => item.secteur.toLowerCase() === currentSelection.name.toLowerCase());
+                const sellersForSector = new Set([
+                    ...sectorFocusVmm.map(f => f.vendeur.toLowerCase()),
+                    ...sectorFocusSom.map(f => f.vendeur.toLowerCase())
+                ]);
+                if (sellersForSector.size > 0) {
+                    recordsForVol = recordsForVol.filter(item => sellersForSector.has(item.vendeur.toLowerCase()));
+                }
             }
-        });
+            if (currentFilterType === 'som') {
+                const somSellers = new Set((dashboardData.fdv || []).filter(r => (r.role || '').toUpperCase().includes('SOM')).map(r => r.vendeur.trim().toUpperCase()));
+                recordsForVol = recordsForVol.filter(item => {
+                    const fam = item.famille.toUpperCase();
+                    if (fam === 'C.A (HT)' || fam === 'C.A (TTC)' || fam === 'C.A (ht)' || fam === 'C.A (ttc)') {
+                        const sellerName = item.vendeur.trim().toUpperCase();
+                        return somSellers.has(sellerName) || sellerName === 'CHAKIB ELFIL' || sellerName === 'BOUTMEZGUINE EL MOSTAFA';
+                    }
+                    return fam !== 'VMM' && fam !== 'VIT' && fam !== 'CHAR' && !fam.includes('VMM');
+                });
+            } else if (currentFilterType === 'vmm') {
+                const vmmSellers = new Set((dashboardData.fdv || []).filter(r => (r.role || '').toUpperCase().includes('VMM')).map(r => r.vendeur.trim().toUpperCase()));
+                recordsForVol = recordsForVol.filter(item => {
+                    const fam = item.famille.toUpperCase();
+                    if (fam === 'C.A (HT)' || fam === 'C.A (TTC)' || fam === 'C.A (ht)' || fam === 'C.A (ttc)') {
+                        const sellerName = item.vendeur.trim().toUpperCase();
+                        return vmmSellers.has(sellerName) || sellerName === 'CHAKIB ELFIL' || sellerName === 'BOUTMEZGUINE EL MOSTAFA';
+                    }
+                    return fam === 'VMM' || fam === 'VIT' || fam === 'CHAR' || fam.includes('VMM') || fam === 'BOUILLON' || fam === 'CONDIMENTS';
+                });
+            }
+        } else {
+            recordsForVol = [];
+        }
     }
+    
+    recordsForVol.forEach(r => {
+        if (r.famille === 'C.A (ht)' || r.famille === 'C.A (TTC)') {
+            if (!sellerPerformances[r.vendeur]) {
+                sellerPerformances[r.vendeur] = { real: 0, obj: 0 };
+            }
+            sellerPerformances[r.vendeur].real += r.real;
+            sellerPerformances[r.vendeur].obj += r.obj;
+        }
+    });
 
     let labels = Object.keys(sellerPerformances);
     labels.sort((a,b) => sellerPerformances[b].real - sellerPerformances[a].real);
-    labels = labels.slice(0, 7); // Show top 7
+
+    // Keep exact same label slicing logic as renderQuantiChart to keep x-axis consistent
+    const maxLabels = isCdzSelected ? 15 : 7;
+    if (isCdzSelected) {
+        const cdzKey = Object.keys(sellerPerformances).find(k => k.trim().toUpperCase() === targetNameUpper);
+        if (cdzKey) {
+            const topCount = Math.min(labels.length, maxLabels);
+            const topSlice = labels.slice(0, topCount);
+            if (!topSlice.includes(cdzKey)) {
+                topSlice[topSlice.length - 1] = cdzKey;
+            }
+            labels = topSlice;
+        } else {
+            labels = labels.slice(0, maxLabels);
+        }
+    } else {
+        labels = labels.slice(0, maxLabels);
+    }
 
     const lineData = [];
     const tsmData = [];
@@ -2048,9 +6246,9 @@ function renderQualiChart(qualiRecords) {
     });
 
     // Dynamic point colors mapping based on targets (LINE >= 100%, TSM/ACM >= prorata)
-    const linePointColors = lineData.map(v => v >= 100 ? neonGreen : neonPink);
-    const tsmPointColors = tsmData.map(v => v >= prorata ? neonGreen : neonPink);
-    const acmPointColors = acmData.map(v => v >= prorata ? neonGreen : neonPink);
+    const linePointColors = lineData.map(v => v >= 100 ? neonGreen : (v >= 80 ? neonAmber : neonPink));
+    const tsmPointColors = tsmData.map(v => v >= prorata ? neonGreen : (v >= prorata - 20 ? neonAmber : neonPink));
+    const acmPointColors = acmData.map(v => v >= prorata ? neonGreen : (v >= prorata - 20 ? neonAmber : neonPink));
 
     // Plugin to display LINE percentages and vendor codes directly on the point
     const qualiLabelsPlugin = {
@@ -2058,17 +6256,34 @@ function renderQualiChart(qualiRecords) {
         afterDatasetsDraw(chart) {
             const { ctx, data } = chart;
             ctx.save();
-            ctx.font = 'bold 11px JetBrains Mono';
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'center';
-            
+
             chart.getDatasetMeta(0).data.forEach((point, index) => {
                 const val = data.datasets[0].data[index];
-                const parts = data.labels[index].split(' ');
+                const rawLabel = labels[index] || '';
+                const isSelectedVendeur = targetNameUpper && rawLabel.toUpperCase().includes(targetNameUpper);
+                
+                const parts = rawLabel.split(' ');
                 const code = parts[0];
                 const label = val + '%';
-                
-                ctx.fillStyle = val >= 100 ? neonGreen : neonPink;
+
+                if (isSelectedVendeur) {
+                    const isLightMode = document.body.classList.contains('light-mode');
+                    ctx.font = 'bold 13px JetBrains Mono';
+                    ctx.fillStyle = neonBlue; // Neon highlight for selected vendeur/CDZ (dynamic blue/cyan)
+                    if (!isLightMode) {
+                        ctx.shadowColor = 'rgba(0, 240, 255, 0.6)';
+                        ctx.shadowBlur = 6;
+                    } else {
+                        ctx.shadowBlur = 0;
+                    }
+                } else {
+                    ctx.font = 'bold 11px JetBrains Mono';
+                    ctx.fillStyle = val >= 100 ? neonGreen : (val >= 80 ? neonAmber : neonPink);
+                    ctx.shadowBlur = 0;
+                }
+
                 if (val >= 100) {
                     ctx.fillText(code, point.x, point.y - 25);
                     ctx.fillText(label, point.x, point.y - 12);
@@ -2076,6 +6291,7 @@ function renderQualiChart(qualiRecords) {
                     ctx.fillText(label, point.x, point.y + 14);
                     ctx.fillText(code, point.x, point.y + 27);
                 }
+                ctx.shadowBlur = 0;
             });
             ctx.restore();
         }
@@ -2089,7 +6305,7 @@ function renderQualiChart(qualiRecords) {
             ctx.save();
             ctx.font = 'bold 9px JetBrains Mono';
             ctx.textBaseline = 'middle';
-            
+
             // 1. Draw 100% target line (Solid Pink/Red)
             const y100 = y.getPixelForValue(100);
             ctx.strokeStyle = neonPink;
@@ -2099,7 +6315,7 @@ function renderQualiChart(qualiRecords) {
             ctx.moveTo(left, y100);
             ctx.lineTo(right, y100);
             ctx.stroke();
-            
+
             ctx.fillStyle = neonPink;
             ctx.textAlign = 'right';
             ctx.fillText('OBJ 100%', right - 5, y100 - 8);
@@ -2113,11 +6329,11 @@ function renderQualiChart(qualiRecords) {
             ctx.moveTo(left, yProrata);
             ctx.lineTo(right, yProrata);
             ctx.stroke();
-            
+
             ctx.fillStyle = neonAmber;
             ctx.textAlign = 'left';
             ctx.fillText(`PRORATA ${prorata.toFixed(2)}%`, left + 5, yProrata - 8);
-            
+
             ctx.restore();
         }
     };
@@ -2214,6 +6430,271 @@ function renderQualiChart(qualiRecords) {
     });
 }
 
+// Radar Chart - Multi-Mode Performance Radar (QUANTI, QUALI, FOCUS)
+let dashboardRadarChartInstance = null;
+let currentDashboardRadarMode = 'quanti';
+
+function renderRadarChart(targetMode) {
+    if (targetMode) currentDashboardRadarMode = targetMode;
+    const canvas = document.getElementById('radar-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    if (dashboardRadarChartInstance) {
+        dashboardRadarChartInstance.destroy();
+    }
+
+    if (!dashboardData) return;
+
+    // Update Card Header Title and Toggle Buttons
+    const titleEl = document.getElementById('radar-card-title');
+    const toggleContainer = document.getElementById('radar-mode-toggle');
+    if (toggleContainer) {
+        const btns = toggleContainer.querySelectorAll('.radar-mode-btn');
+        btns.forEach(btn => {
+            if (btn.getAttribute('data-mode') === currentDashboardRadarMode) {
+                btn.classList.add('is-active');
+            } else {
+                btn.classList.remove('is-active');
+            }
+        });
+    }
+
+    if (titleEl) {
+        if (currentDashboardRadarMode === 'quanti') {
+            titleEl.innerHTML = '<i class="fa-solid fa-chart-area neon-text-blue"></i> PERFORMANCE GLOBALE : RADAR D\'ANALYSE';
+        } else if (currentDashboardRadarMode === 'quali') {
+            titleEl.innerHTML = '<i class="fa-solid fa-chart-pie neon-text-amber"></i> ANALYSE RADAR DE PERFORMANCE';
+        } else if (currentDashboardRadarMode === 'focus') {
+            titleEl.innerHTML = '<i class="fa-solid fa-crosshairs neon-text-purple"></i> FOCUS DU MOIS : RADAR PERFORMANCE';
+        }
+    }
+
+    const isWhiteMode = document.body.classList.contains('light-mode');
+    const neonBlue = '#00d4ff';
+    const neonAmber = '#f0a030';
+    const neonGreen = '#4cbb17';
+    const neonPink = '#ff2d55';
+    const neonPurple = '#a855f7';
+
+    let labels = [];
+    let datasets = [];
+
+    if (currentDashboardRadarMode === 'quanti') {
+        // IMAGE 2: Quantitative Product Families Radar Chart
+        const familleData = {};
+        if (dashboardData.quantitative) {
+            dashboardData.quantitative.forEach(r => {
+                if (r.famille && r.famille !== 'C.A (ht)' && r.famille !== 'C.A (TTC)' && r.famille !== 'C.A (HT)' && r.famille !== 'C.A (ttc)') {
+                    if (!familleData[r.famille]) {
+                        familleData[r.famille] = { real: 0, obj: 0 };
+                    }
+                    familleData[r.famille].real += r.real;
+                    familleData[r.famille].obj += r.obj;
+                }
+            });
+        }
+
+        let sortedFamilies = Object.keys(familleData).sort((a, b) => familleData[b].real - familleData[a].real).slice(0, 6);
+        if (sortedFamilies.length === 0) {
+            sortedFamilies = ['CONDIMENTS', 'LEVURE', 'MGM', 'CONSERVES', 'SAUCES', 'BOUILLON'];
+        }
+
+        labels = sortedFamilies;
+        const realPct = sortedFamilies.map(f => {
+            const item = familleData[f];
+            if (item && item.obj > 0) return Math.min(120, Math.round((item.real / item.obj) * 100));
+            return 0;
+        });
+        const objPct = sortedFamilies.map(() => 100);
+
+        datasets = [
+            {
+                label: 'Réalisé (%)',
+                data: realPct,
+                backgroundColor: 'rgba(0, 212, 255, 0.25)',
+                borderColor: isWhiteMode ? '#0070f3' : neonBlue,
+                borderWidth: 2.5,
+                pointBackgroundColor: realPct.map(v => v >= 80 ? neonGreen : neonPink),
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 5,
+                pointHoverRadius: 7
+            },
+            {
+                label: 'Objectif (100%)',
+                data: objPct,
+                backgroundColor: 'rgba(168, 85, 247, 0.08)',
+                borderColor: neonPurple,
+                borderWidth: 2,
+                borderDash: [5, 5],
+                pointBackgroundColor: neonPurple,
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 3.5,
+                pointHoverRadius: 5
+            }
+        ];
+    } else if (currentDashboardRadarMode === 'quali') {
+        // IMAGE 1: Qualitative Performance Radar Chart
+        labels = ['Couverture ACM', 'Facturation (OK)', 'Conformité (Distance)', 'Activité (Visites)'];
+        let acmVal = 25, factVal = 25, distVal = 12, visitVal = 18;
+
+        if (dashboardData.qualitative && dashboardData.qualitative.length > 0) {
+            const count = dashboardData.qualitative.length;
+            const avgAcm = (dashboardData.qualitative.reduce((s, r) => s + (r.acm || 0), 0) / count) * 100;
+            const avgTsm = (dashboardData.qualitative.reduce((s, r) => s + (r.tsm || 0), 0) / count) * 100;
+            acmVal = Math.round(avgAcm / 3);
+            factVal = Math.round(avgTsm / 2);
+            distVal = 15;
+            visitVal = 18;
+        }
+
+        datasets = [
+            {
+                label: 'Performance Vendeur',
+                data: [acmVal, factVal, distVal, visitVal],
+                backgroundColor: 'rgba(37, 99, 235, 0.25)',
+                borderColor: '#2563eb',
+                borderWidth: 2.5,
+                pointBackgroundColor: '#2563eb',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 5
+            },
+            {
+                label: 'Moyenne Agence (Cible)',
+                data: [25, 25, 12, 12],
+                backgroundColor: 'rgba(217, 119, 6, 0.15)',
+                borderColor: neonAmber,
+                borderWidth: 2,
+                borderDash: [5, 5],
+                pointBackgroundColor: neonAmber,
+                pointRadius: 4
+            }
+        ];
+    } else if (currentDashboardRadarMode === 'focus') {
+        // FOCUS MODE: Focus Products / Sectors Radar Chart
+        const focusList = [];
+        if (dashboardData.focus_vmm) {
+            dashboardData.focus_vmm.slice(0, 3).forEach(f => focusList.push({ name: f.secteur || f.vendeur, pct: f.percent || 0 }));
+        }
+        if (dashboardData.focus_som) {
+            dashboardData.focus_som.slice(0, 3).forEach(f => focusList.push({ name: f.secteur || f.vendeur, pct: f.percent || 0 }));
+        }
+        if (focusList.length === 0) {
+            focusList.push({ name: 'VMM TOMATE', pct: 85 }, { name: 'SOM BROTH', pct: 65 }, { name: 'CONFITURE', pct: 40 }, { name: 'MOUSSES', pct: 90 });
+        }
+
+        labels = focusList.map(i => i.name);
+        const realPct = focusList.map(i => Math.min(120, Math.round(i.pct)));
+        const objPct = focusList.map(() => 100);
+
+        datasets = [
+            {
+                label: 'Réalisé Focus (%)',
+                data: realPct,
+                backgroundColor: 'rgba(240, 160, 48, 0.25)',
+                borderColor: neonAmber,
+                borderWidth: 2.5,
+                pointBackgroundColor: realPct.map(v => v >= 80 ? neonGreen : neonPink),
+                pointBorderColor: '#fff',
+                pointRadius: 5
+            },
+            {
+                label: 'Objectif (100%)',
+                data: objPct,
+                backgroundColor: 'rgba(168, 85, 247, 0.08)',
+                borderColor: neonPurple,
+                borderWidth: 2,
+                borderDash: [5, 5],
+                pointBackgroundColor: neonPurple,
+                pointRadius: 3.5
+            }
+        ];
+    }
+
+    dashboardRadarChartInstance = new Chart(ctx, {
+        type: 'radar',
+        data: {
+            labels: labels,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                r: {
+                    angleLines: {
+                        color: isWhiteMode ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)'
+                    },
+                    grid: {
+                        color: isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)'
+                    },
+                    pointLabels: {
+                        color: isWhiteMode ? '#1e293b' : '#e2e8f0',
+                        font: {
+                            family: 'Inter',
+                            size: 11,
+                            weight: 'bold'
+                        }
+                    },
+                    ticks: {
+                        color: isWhiteMode ? '#475569' : '#64748b',
+                        backdropColor: 'transparent',
+                        font: {
+                            family: 'JetBrains Mono',
+                            size: 9
+                        },
+                        callback: function(value) {
+                            return value + '%';
+                        }
+                    },
+                    suggestedMin: 0,
+                    suggestedMax: 120
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: isWhiteMode ? '#1e293b' : '#e2e8f0',
+                        font: {
+                            family: 'Inter',
+                            weight: 'bold',
+                            size: 11
+                        },
+                        padding: 15,
+                        usePointStyle: true,
+                        pointStyle: 'circle'
+                    }
+                },
+                tooltip: {
+                    backgroundColor: isWhiteMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.85)',
+                    titleColor: isWhiteMode ? '#1e293b' : '#fff',
+                    bodyColor: isWhiteMode ? '#475569' : '#cbd5e1',
+                    borderColor: neonBlue,
+                    borderWidth: 1,
+                    padding: 12,
+                    displayColors: true,
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.r !== null) {
+                                label += context.parsed.r + '%';
+                            }
+                            return label;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
 // Helpers
 function formatNumber(num) {
     if (num === null || num === undefined) return '0';
@@ -2255,65 +6736,81 @@ function updateDropdownHighlight(items) {
 }
 
 // Cybernetic Toast notification system
-function showToast(message, type = 'info') {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop open';
-    backdrop.style.zIndex = '9999';
-    
-    let title = 'SYSTEM MESSAGE';
-    let iconClass = 'fa-circle-info';
-    let titleClass = 'neon-text-blue';
-    let borderClass = 'glow-blue';
-    
-    if (type === 'success') {
-        title = 'SUCCESS // COMPLETED';
-        iconClass = 'fa-circle-check';
-        titleClass = 'neon-text-green';
-        borderClass = 'glow-green';
-    } else if (type === 'error') {
-        title = 'ALERT // SYSTEM ERROR';
-        iconClass = 'fa-triangle-exclamation';
-        titleClass = 'neon-text-pink';
-        borderClass = 'glow-pink';
-    } else if (type === 'info') {
-        title = 'INFO // SYSTEM';
-        iconClass = 'fa-circle-info';
-        titleClass = 'neon-text-blue';
-        borderClass = 'glow-blue';
+function showToast(message, type = 'info', duration = 0) {
+    // 1. Get or create toast container
+    let container = document.getElementById('global-toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'global-toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
     }
-
-    backdrop.innerHTML = `
-        <div class="cyber-modal ${borderClass}" style="max-width: 450px; width: 90%; position: relative;">
-            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
-                <h3 class="${titleClass}"><i class="fa-solid ${iconClass}"></i> ${title}</h3>
-                <button class="close-btn popup-x-close-btn" aria-label="Fermer" style="background: transparent; border: none; font-size: 1.5rem; color: var(--text-muted); cursor: pointer; padding: 0 0.5rem; transition: color 0.2s;">&times;</button>
-            </div>
-            <div class="modal-body" style="padding: 1.5rem; text-align: center;">
-                <p style="font-family: var(--font-mono); font-size: 0.95rem; margin-bottom: 1.5rem; line-height: 1.5; color: var(--text-main);">${message}</p>
-                <button class="cyber-btn" id="popup-ok-btn" style="margin: 0 auto; min-width: 100px; justify-content: center;">OK</button>
-            </div>
-        </div>
+    
+    // 2. Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    
+    let iconClass = 'fa-circle-info';
+    if (type === 'success') iconClass = 'fa-circle-check';
+    else if (type === 'error') iconClass = 'fa-triangle-exclamation';
+    else if (type === 'warning') iconClass = 'fa-triangle-exclamation';
+    else if (type === 'loading') iconClass = 'fa-solid fa-circle-notch fa-spin';
+    
+    let contentHtml = `
+        <span class="toast-icon"><i class="fa-solid ${iconClass}"></i></span>
+        <span class="toast-message" style="flex-grow: 1;">${message}</span>
+        <button class="toast-close-x-btn" aria-label="Fermer" style="background: transparent; border: none; color: inherit; font-size: 1.1rem; cursor: pointer; margin-left: 0.5rem; padding: 0 4px; opacity: 0.8;">&times;</button>
     `;
+    if (type === 'loading') {
+        contentHtml = `
+            <div class="cyber-spinner" style="width: 18px; height: 18px; border-width: 2.5px; margin-right: 8px; flex-shrink: 0;"></div>
+            <span class="toast-message" style="flex-grow: 1;">${message}</span>
+            <button class="toast-close-x-btn" aria-label="Fermer" style="background: transparent; border: none; color: inherit; font-size: 1.1rem; cursor: pointer; margin-left: 0.5rem; padding: 0 4px; opacity: 0.8;">&times;</button>
+        `;
+    }
     
-    document.body.appendChild(backdrop);
+    toast.innerHTML = contentHtml;
+    container.appendChild(toast);
     
-    const closePopup = () => {
-        backdrop.classList.remove('open');
+    // Trigger transition
+    setTimeout(() => {
+        toast.classList.add('show');
+    }, 10);
+    
+    const closeHandle = () => {
+        toast.classList.remove('show');
         setTimeout(() => {
-            backdrop.remove();
-        }, 300);
+            toast.remove();
+            if (container.children.length === 0) {
+                container.remove();
+            }
+        }, 400);
     };
 
-    const okBtn = backdrop.querySelector('#popup-ok-btn');
-    if (okBtn) {
-        okBtn.focus();
-        okBtn.addEventListener('click', closePopup);
-    }
-    const closeXBtn = backdrop.querySelector('.popup-x-close-btn');
-    if (closeXBtn) {
-        closeXBtn.addEventListener('click', closePopup);
+    const xBtn = toast.querySelector('.toast-close-x-btn');
+    if (xBtn) {
+        xBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (autoCloseTimer) clearTimeout(autoCloseTimer);
+            closeHandle();
+        });
     }
 
+    
+    // Auto close non-loading toasts only if duration is explicitly passed (> 0)
+    let autoCloseTimer = null;
+    if (type !== 'loading' && duration > 0) {
+        autoCloseTimer = setTimeout(closeHandle, duration);
+    }
+
+    
+    return {
+        element: toast,
+        close: () => {
+            if (autoCloseTimer) clearTimeout(autoCloseTimer);
+            closeHandle();
+        }
+    };
 }
 
 // Variable to track veo animation state
@@ -2322,10 +6819,576 @@ let veoCtx = null;
 let veoAnimId = null;
 let veoTimeInterval = null;
 
+// Holds the most recent AI report so the WhatsApp button can send it
+let currentReportText = '';
+let currentReportTitle = '';
+// The vendeur name the report was generated for, if any. Used to
+// auto-fill the WhatsApp number from the FDV database.
+let currentReportVendeur = '';
+let currentVendeurWhatsappMessage = '';
+
 // Variable to track vendeur selection modal state
 let selectedVendeurForReport = null;
 let allVendeursList = [];
 let filteredVendeursList = [];
+let vendeurListRequest = null;
+let vendeurListRequestKey = '';
+let bulkWhatsappContext = null;
+
+function updateBulkWhatsappSelection() {
+    const checks = [...document.querySelectorAll('.bulk-whatsapp-vendeur-check')];
+    const selectedCount = checks.filter(check => check.checked).length;
+    const count = document.getElementById('bulk-whatsapp-selection-count');
+    const selectAll = document.getElementById('bulk-whatsapp-select-all');
+    const confirmBtn = document.getElementById('confirm-bulk-whatsapp');
+
+    if (count) count.textContent = `${selectedCount} SÉLECTIONNÉ${selectedCount > 1 ? 'S' : ''}`;
+    if (selectAll) {
+        selectAll.checked = checks.length > 0 && selectedCount === checks.length;
+        selectAll.indeterminate = selectedCount > 0 && selectedCount < checks.length;
+    }
+    if (confirmBtn) confirmBtn.disabled = selectedCount === 0;
+}
+
+function closeBulkWhatsappRecipientModal() {
+    const modal = document.getElementById('bulk-whatsapp-modal');
+    if (modal) modal.classList.remove('open');
+    bulkWhatsappContext = null;
+}
+
+function initBulkWhatsappRecipientModal() {
+    const modal = document.getElementById('bulk-whatsapp-modal');
+    if (!modal || modal.dataset.initialized === 'true') return;
+    modal.dataset.initialized = 'true';
+
+    const list = document.getElementById('bulk-whatsapp-vendeur-list');
+    const search = document.getElementById('bulk-whatsapp-search');
+    const selectAll = document.getElementById('bulk-whatsapp-select-all');
+    const close = () => closeBulkWhatsappRecipientModal();
+
+    document.getElementById('close-bulk-whatsapp-modal')?.addEventListener('click', close);
+    document.getElementById('cancel-bulk-whatsapp')?.addEventListener('click', close);
+    modal.addEventListener('click', event => {
+        if (event.target === modal) close();
+    });
+    selectAll?.addEventListener('change', () => {
+        document.querySelectorAll('.bulk-whatsapp-vendeur-check').forEach(check => {
+            check.checked = selectAll.checked;
+        });
+        updateBulkWhatsappSelection();
+    });
+    list?.addEventListener('change', updateBulkWhatsappSelection);
+    search?.addEventListener('input', () => {
+        const query = search.value.trim().toLocaleLowerCase();
+        list?.querySelectorAll('[data-bulk-vendeur-name]').forEach(row => {
+            row.style.display = row.dataset.bulkVendeurName.includes(query) ? 'flex' : 'none';
+        });
+    });
+    document.getElementById('confirm-bulk-whatsapp')?.addEventListener('click', () => {
+        const context = bulkWhatsappContext;
+        if (!context) return;
+        const vendeurs = [...document.querySelectorAll('.bulk-whatsapp-vendeur-check:checked')]
+            .map(check => check.value);
+        if (!vendeurs.length) {
+            showToast('Sélectionnez au moins un vendeur.', 'warning');
+            return;
+        }
+        close();
+        sendBulkWhatsappReports(vendeurs, context.date, context.sourceButton);
+    });
+}
+
+function openBulkWhatsappRecipientModal(vendeurs, date, sourceButton) {
+    const modal = document.getElementById('bulk-whatsapp-modal');
+    const list = document.getElementById('bulk-whatsapp-vendeur-list');
+    const search = document.getElementById('bulk-whatsapp-search');
+    if (!modal || !list) {
+        showToast('La fenêtre de sélection WhatsApp est indisponible.', 'error');
+        return;
+    }
+
+    initBulkWhatsappRecipientModal();
+    bulkWhatsappContext = { date, sourceButton };
+    list.replaceChildren();
+    vendeurs.sort((a, b) => a.localeCompare(b, 'fr')).forEach(vendeur => {
+        const row = document.createElement('label');
+        row.dataset.bulkVendeurName = vendeur.toLocaleLowerCase();
+        row.style.cssText = 'display:flex; align-items:center; gap:0.65rem; cursor:pointer; padding:0.55rem 0.65rem; border:1px solid var(--border-color); border-radius:4px; background:var(--card-bg); color:var(--text-main); font-size:0.84rem;';
+        const check = document.createElement('input');
+        check.type = 'checkbox';
+        check.className = 'bulk-whatsapp-vendeur-check';
+        check.value = vendeur;
+        check.checked = true;
+        check.style.cssText = 'accent-color:#25d366; width:15px; height:15px; flex:0 0 auto;';
+        const icon = document.createElement('i');
+        icon.className = 'fa-solid fa-user-tie';
+        icon.style.cssText = 'color:var(--neon-blue); font-size:0.75rem;';
+        const name = document.createElement('span');
+        name.textContent = vendeur;
+        row.append(check, icon, name);
+        list.appendChild(row);
+    });
+    if (search) search.value = '';
+    updateBulkWhatsappSelection();
+    modal.classList.add('open');
+}
+
+async function sendBulkWhatsappReports(vendeurs, date, button) {
+    const originalHtml = button ? button.innerHTML : '';
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Envoi en cours...';
+    }
+    try {
+        const response = await fetch('/api/send_bulk_whatsapp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ vendeurs, date })
+        });
+        const result = await response.json();
+        showToast(result.status === 'success' ? result.message : `Erreur : ${result.message}`, result.status === 'success' ? 'success' : 'error');
+    } catch (error) {
+        console.error('Bulk WhatsApp error:', error);
+        showToast('Erreur de communication avec le serveur.', 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+        }
+    }
+}
+
+async function openGlobalBulkWhatsappPicker() {
+    const button = document.getElementById('global-sidebar-whatsapp-bulk-btn');
+    const category = document.getElementById('category-select')?.value || 'All';
+    const date = document.getElementById('date-select')?.value || new Date().toISOString().split('T')[0];
+    const originalHtml = button ? button.innerHTML : '';
+
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Chargement...';
+    }
+    try {
+        const response = await fetch(`/api/vendeurs?category=${encodeURIComponent(category)}`);
+        const data = await response.json();
+        const vendeurs = (data?.vendeurs || [])
+            .map(vendeur => typeof vendeur === 'string' ? vendeur : vendeur.name || vendeur.vendeur || String(vendeur))
+            .filter(Boolean);
+
+        if (!vendeurs.length) {
+            showToast('Aucun vendeur disponible pour cet envoi.', 'warning');
+            return;
+        }
+        openBulkWhatsappRecipientModal(vendeurs, date, button);
+    } catch (error) {
+        console.error('Unable to load bulk WhatsApp recipients:', error);
+        showToast('Impossible de récupérer la liste des vendeurs.', 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+        }
+    }
+}
+
+// The global sidebar is rendered on every route, including Rapport. Delegate
+// its click directly so it does not depend on route-specific initialization.
+document.addEventListener('click', event => {
+    const button = event.target.closest('#global-sidebar-whatsapp-bulk-btn');
+    if (!button) return;
+    event.preventDefault();
+    openGlobalBulkWhatsappPicker();
+});
+
+// Main dashboard vendor/sector dropdown state
+let mainVendeurSearchQuery = '';
+let mainDropdownItems = [];
+
+// Toggle main vendor dropdown
+function toggleMainVendeurDropdown() {
+    const menu = document.getElementById('main-vendeur-menu');
+    const toggle = document.getElementById('main-vendeur-toggle');
+    if (menu && toggle) {
+        const isOpen = menu.classList.contains('open');
+        if (isOpen) {
+            closeMainVendeurDropdown();
+        } else {
+            // Close other dropdowns
+            closeVendeurDropdown(); 
+            
+            menu.classList.add('open');
+            toggle.classList.add('open');
+            
+            // Focus on search input
+            setTimeout(() => {
+                const searchInput = document.getElementById('main-vendeur-search');
+                if (searchInput) searchInput.focus();
+            }, 50);
+        }
+    }
+}
+
+// Close main vendor dropdown
+function closeMainVendeurDropdown() {
+    const menu = document.getElementById('main-vendeur-menu');
+    const toggle = document.getElementById('main-vendeur-toggle');
+    if (menu) menu.classList.remove('open');
+    if (toggle) toggle.classList.remove('open');
+    
+    // Reset search query
+    const searchInput = document.getElementById('main-vendeur-search');
+    if (searchInput) searchInput.value = '';
+    mainVendeurSearchQuery = '';
+}
+
+// Update toggle button text to show current selection
+function updateMainVendeurSelectedText() {
+    const selectedTextSpan = document.getElementById('main-vendeur-selected-text');
+    if (!selectedTextSpan) return;
+
+    if (!currentSelection || currentSelection.type === 'global') {
+        selectedTextSpan.textContent = '-- TOUS LES VENDEURS --';
+    } else {
+        selectedTextSpan.textContent = `${currentSelection.type.toUpperCase()}: ${currentSelection.name}`;
+    }
+}
+
+// Render main dropdown items
+function renderMainVendeurDropdownList() {
+    const listContainer = document.getElementById('main-vendeur-list');
+    if (!listContainer) return;
+
+    const query = mainVendeurSearchQuery.toLowerCase().trim();
+    const filtered = mainDropdownItems.filter(item => {
+        if (item.type === 'global') return !query;
+        return item.label.toLowerCase().includes(query);
+    });
+
+    if (filtered.length === 0) {
+        listContainer.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; font-family: var(--font-mono);"><i class="fa-solid fa-magnifying-glass"></i> AUCUN RÉSULTAT</div>';
+        return;
+    }
+
+    listContainer.innerHTML = filtered.map(item => {
+        const isSelected = (item.type === 'global' && currentSelection.type === 'global') ||
+            (item.type.startsWith('secteur') && currentSelection.type === 'secteur' && currentSelection.name === item.name) ||
+            (item.type === currentSelection.type && currentSelection.name === item.name);
+
+        const iconClass = item.type === 'global' ? 'fa-globe' : 
+                          item.type === 'vendeur' ? 'fa-user' : 
+                          item.type === 'secteur_vmm' ? 'fa-bolt' : 'fa-ice-cream';
+
+        const badgeText = item.type === 'global' ? 'Tous' : 
+                          item.type === 'vendeur' ? 'Vendeur' : 
+                          item.type === 'secteur_vmm' ? 'VMM' : 'SOM';
+
+        const badgeColor = item.type === 'global' ? 'badge-blue' : 
+                            item.type === 'vendeur' ? 'badge-blue' : 
+                            item.type === 'secteur_vmm' ? 'badge-green' : 'badge-green';
+
+        const itemStyle = 'display: flex; align-items: center; gap: 0.75rem; padding: 0.65rem 0.85rem; margin-bottom: 0.25rem; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); font-size: 0.85rem; transition: all 0.2s;';
+        const selectedStyle = isSelected ? ' border-color: var(--primary-color); background: rgba(0, 212, 255, 0.12); font-weight: 600;' : '';
+
+        return `
+            <div class="main-dropdown-item ${isSelected ? 'selected' : ''}" data-type="${item.type}" data-name="${item.name}" style="${itemStyle}${selectedStyle}">
+                <i class="fa-solid ${iconClass}" style="color: var(--primary-color); font-size: 0.85rem; width: 16px; text-align: center; flex-shrink: 0;"></i>
+                <span style="flex: 1; color: var(--text-main); font-size: 0.85rem;">${item.label}</span>
+                <span class="dropdown-item-meta ${badgeColor}" style="margin-right: 0.5rem; font-size: 0.7rem; padding: 0.15rem 0.45rem;">${badgeText}</span>
+                ${isSelected ? '<i class="fa-solid fa-check" style="color: var(--primary-color); font-size: 0.85rem;"></i>' : ''}
+            </div>
+        `;
+    }).join('');
+
+    const items = listContainer.querySelectorAll('.main-dropdown-item');
+    items.forEach(el => {
+        el.addEventListener('click', () => {
+            const type = el.dataset.type;
+            const name = el.dataset.name;
+
+            if (type === 'global') {
+                resetSelection();
+            } else {
+                const normType = type.startsWith('secteur') ? 'secteur' : type;
+                selectFilter(normType, name);
+            }
+            closeMainVendeurDropdown();
+        });
+    });
+}
+
+// Day-by-day Animated Timelapse playback state
+let timelapseIsPlaying = false;
+let timelapseTimer = null;
+let timelapseSpeed = 2000; // default 2s per step
+let timelapseCurrentIndex = -1;
+
+// Beautiful, cyberpunk-themed non-blocking toast notification system
+function showTransientToast(message, type = 'info') {
+    let toastContainer = document.getElementById('transient-toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'transient-toast-container';
+        toastContainer.style.cssText = 'position: fixed; bottom: 24px; right: 24px; z-index: 10000; display: flex; flex-direction: column; gap: 8px; pointer-events: none;';
+        document.body.appendChild(toastContainer);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = 'cyber-toast';
+    
+    let icon = 'fa-circle-info';
+    let colorClass = 'neon-text-blue';
+    let borderColor = 'var(--neon-blue)';
+    
+    if (type === 'success') {
+        icon = 'fa-circle-check';
+        colorClass = 'neon-text-green';
+        borderColor = 'var(--neon-green)';
+    } else if (type === 'error' || type === 'warning') {
+        icon = 'fa-triangle-exclamation';
+        colorClass = 'neon-text-pink';
+        borderColor = 'var(--neon-pink)';
+    }
+    
+    toast.style.cssText = `
+        background: rgba(10, 12, 22, 0.95);
+        border: 1px solid ${borderColor};
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5), inset 0 0 10px rgba(0, 212, 255, 0.1);
+        color: var(--text-main);
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 250px;
+        max-width: 400px;
+        pointer-events: auto;
+        opacity: 0;
+        transform: translateY(20px);
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    `;
+    
+    toast.innerHTML = `
+        <i class="fa-solid ${icon} ${colorClass}" style="font-size: 1.1rem;"></i>
+        <span style="flex-grow: 1;">${message}</span>
+    `;
+    
+    toastContainer.appendChild(toast);
+    
+    // Trigger transition
+    setTimeout(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateY(0)';
+    }, 10);
+    
+    // Auto remove after 2.8s
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-20px)';
+        setTimeout(() => {
+            toast.remove();
+        }, 300);
+    }, 2800);
+}
+
+// Start day-by-day timelapse chronological playback
+function startTimelapse() {
+    if (availableDates.length <= 1) {
+        showTransientToast("Pas assez de dates pour lancer le timelapse.", "warning");
+        return;
+    }
+    
+    // Switch to dashboard view if not already there
+    if (activeView === 'details') {
+        showView('dashboard');
+    }
+    
+    timelapseIsPlaying = true;
+    
+    // Update UI controls
+    const playBtn = document.getElementById('timelapse-play-btn');
+    const stopBtn = document.getElementById('timelapse-stop-btn');
+    const container = document.getElementById('timelapse-control');
+    const progressContainer = document.getElementById('timelapse-progress-container');
+    const progressText = document.getElementById('timelapse-progress-text');
+    
+    if (playBtn) playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+    if (playBtn) playBtn.title = "Mettre en pause";
+    if (stopBtn) stopBtn.style.display = 'inline-block';
+    if (container) container.classList.add('playing');
+    if (progressContainer) progressContainer.style.display = 'flex';
+    if (progressText) progressText.style.display = 'inline-block';
+    
+    // Find where to start in chronological order (oldest first)
+    const chronoDates = [...availableDates].reverse();
+    const dateSelect = document.getElementById('date-select');
+    const currentDate = dateSelect ? dateSelect.value : '';
+    
+    let currentChronoIdx = chronoDates.indexOf(currentDate);
+    
+    // If at the end, restart from the oldest date
+    if (currentChronoIdx === -1 || currentChronoIdx >= chronoDates.length - 1) {
+        timelapseCurrentIndex = 0;
+    } else {
+        timelapseCurrentIndex = currentChronoIdx;
+    }
+    
+    showTransientToast("Démarrage du timelapse...", "info");
+    
+    // Execute first step
+    runTimelapseStep();
+}
+
+// Pause timelapse playback
+function pauseTimelapse() {
+    timelapseIsPlaying = false;
+    if (timelapseTimer) {
+        clearTimeout(timelapseTimer);
+        timelapseTimer = null;
+    }
+    
+    const playBtn = document.getElementById('timelapse-play-btn');
+    const container = document.getElementById('timelapse-control');
+    if (playBtn) playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+    if (playBtn) playBtn.title = "Lancer le timelapse";
+    if (container) container.classList.remove('playing');
+    
+    showTransientToast("Timelapse mis en pause.", "info");
+}
+
+// Stop timelapse playback
+function stopTimelapse() {
+    timelapseIsPlaying = false;
+    if (timelapseTimer) {
+        clearTimeout(timelapseTimer);
+        timelapseTimer = null;
+    }
+    timelapseCurrentIndex = -1;
+    
+    const playBtn = document.getElementById('timelapse-play-btn');
+    const stopBtn = document.getElementById('timelapse-stop-btn');
+    const container = document.getElementById('timelapse-control');
+    const progressContainer = document.getElementById('timelapse-progress-container');
+    const progressText = document.getElementById('timelapse-progress-text');
+    const progressBar = document.getElementById('timelapse-progress-bar');
+    
+    if (playBtn) playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+    if (playBtn) playBtn.title = "Lancer le timelapse";
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (container) container.classList.remove('playing');
+    if (progressContainer) progressContainer.style.display = 'none';
+    if (progressText) progressText.style.display = 'none';
+    if (progressBar) progressBar.style.width = '0%';
+    
+    // Restore latest date if playing was stopped
+    const dateSelect = document.getElementById('date-select');
+    if (dateSelect && availableDates.length > 0 && dateSelect.value !== availableDates[0]) {
+        dateSelect.value = availableDates[0];
+        fetchDashboardData();
+    }
+}
+
+// Toggle play/pause
+function toggleTimelapse() {
+    if (timelapseIsPlaying) {
+        pauseTimelapse();
+    } else {
+        startTimelapse();
+    }
+}
+
+// Cycle speed: 2s -> 1s -> 4s -> 2s
+function cycleTimelapseSpeed() {
+    const indicator = document.getElementById('timelapse-speed-indicator');
+    if (!indicator) return;
+    
+    if (timelapseSpeed === 2000) {
+        timelapseSpeed = 1000;
+        indicator.textContent = '1s';
+    } else if (timelapseSpeed === 1000) {
+        timelapseSpeed = 4000;
+        indicator.textContent = '4s';
+    } else {
+        timelapseSpeed = 2000;
+        indicator.textContent = '2s';
+    }
+    
+    // If playing, restart the step delay
+    if (timelapseIsPlaying) {
+        if (timelapseTimer) {
+            clearTimeout(timelapseTimer);
+        }
+        timelapseTimer = setTimeout(runTimelapseStep, timelapseSpeed);
+    }
+    
+    showTransientToast(`Intervalle réglé à ${timelapseSpeed / 1000}s`, "success");
+}
+
+// Promise-safe frame-rate safe step execution
+function runTimelapseStep() {
+    if (!timelapseIsPlaying) return;
+    
+    const chronoDates = [...availableDates].reverse();
+    if (timelapseCurrentIndex >= chronoDates.length) {
+        stopTimelapse();
+        showTransientToast("Timelapse terminé !", "success");
+        return;
+    }
+    
+    const targetDate = chronoDates[timelapseCurrentIndex];
+    const dateSelect = document.getElementById('date-select');
+    if (dateSelect) {
+        dateSelect.value = targetDate;
+    }
+    
+    // Update progress bar and text day-by-day
+    const progressBar = document.getElementById('timelapse-progress-bar');
+    const progressText = document.getElementById('timelapse-progress-text');
+    if (chronoDates.length > 0) {
+        const pct = Math.round(((timelapseCurrentIndex + 1) / chronoDates.length) * 100);
+        if (progressBar) progressBar.style.width = `${pct}%`;
+        if (progressText) progressText.textContent = `${timelapseCurrentIndex + 1}/${chronoDates.length}`;
+    }
+    
+    prorataLabelEl.innerText = "TIMELAPSE...";
+    const categorySelect = document.getElementById('category-select');
+    const category = categorySelect ? categorySelect.value : 'All';
+    
+    let queryDate = targetDate;
+    if (activeView === 'realisation') {
+        const idx = availableDates.indexOf(targetDate);
+        if (idx > 0) {
+            queryDate = availableDates[idx - 1];
+        }
+    }
+    
+    fetch(`/api/data?category=${encodeURIComponent(category)}&date=${encodeURIComponent(queryDate)}&_=${Date.now()}`)
+        .then(response => response.json())
+        .then(res => {
+            if (res.status === 'success' && timelapseIsPlaying) {
+                rawDashboardData = res.data;
+                applyTaxMode();
+                updateDashboard();
+                populateFilters();
+                
+                prorataLabelEl.innerText = `TIMELAPSE: ${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} J`;
+                
+                // Move to next index for the next frame
+                timelapseCurrentIndex++;
+                
+                // Wait for speed delay, then run the next frame
+                timelapseTimer = setTimeout(runTimelapseStep, timelapseSpeed);
+            } else {
+                stopTimelapse();
+            }
+        })
+        .catch(err => {
+            console.error("Timelapse fetch error:", err);
+            stopTimelapse();
+            showTransientToast("Erreur lors du timelapse.", "error");
+        });
+}
 
 // Open Vendeur Selection Modal
 function openVendeurSelectionModal() {
@@ -2340,7 +7403,7 @@ function openVendeurSelectionModal() {
     // Reset dropdown display
     const dropdownText = document.getElementById('dropdown-selected-text');
     if (dropdownText) {
-        dropdownText.textContent = '-- Sélectionner un vendeur --';
+        dropdownText.textContent = 'Sélectionner un vendeur';
         dropdownText.classList.add('placeholder');
     }
 
@@ -2372,18 +7435,19 @@ function closeVendeurSelectionModal() {
 function toggleVendeurDropdown() {
     const dropdownMenu = document.getElementById('vendeur-dropdown-menu');
     const dropdownToggle = document.getElementById('vendeur-dropdown-toggle');
-    if (dropdownMenu) {
-        const isOpen = dropdownMenu.classList.toggle('open');
-        if (dropdownToggle) {
-            dropdownToggle.classList.toggle('open', isOpen);
-        }
-        if (isOpen) {
-            // Focus search input
-            setTimeout(() => {
-                const searchInput = document.getElementById('vendeur-dropdown-search');
-                if (searchInput) searchInput.focus();
-            }, 100);
-        }
+    if (!dropdownMenu) return;
+
+    const isOpen = dropdownMenu.classList.toggle('open');
+    if (dropdownToggle) {
+        dropdownToggle.classList.toggle('open', isOpen);
+    }
+
+    if (isOpen) {
+        // Focus search input
+        setTimeout(() => {
+            const searchInput = document.getElementById('vendeur-dropdown-search');
+            if (searchInput) searchInput.focus();
+        }, 50);
     }
 }
 
@@ -2398,6 +7462,7 @@ function closeVendeurDropdown() {
 // Load vendeurs list from API
 function loadVendeursList() {
     const dropdownList = document.getElementById('vendeur-dropdown-list');
+    if (!dropdownList) return Promise.resolve([]);
 
     // Show loading
     dropdownList.innerHTML = '<div class="dropdown-loading"><i class="fa-solid fa-circle-notch fa-spin"></i><span>Chargement...</span></div>';
@@ -2417,9 +7482,22 @@ function loadVendeursList() {
         url += '?' + params.join('&');
     }
 
+    // The report route initializes the dropdown from two lifecycle paths.
+    // Reuse an in-flight request (or its matching result) instead of fetching
+    // the exact same vendor list twice.
+    if (vendeurListRequest && vendeurListRequestKey === url) {
+        return vendeurListRequest;
+    }
+    if (vendeurListRequestKey === url && allVendeursList.length > 0) {
+        filteredVendeursList = [...allVendeursList];
+        renderDropdownList();
+        return Promise.resolve(allVendeursList);
+    }
+
     console.log('[VendeurModal] Fetching vendeurs from:', url);
 
-    fetch(url)
+    vendeurListRequestKey = url;
+    vendeurListRequest = fetch(url)
         .then(res => {
             console.log('[VendeurModal] Response status:', res.status);
             return res.json();
@@ -2431,38 +7509,51 @@ function loadVendeursList() {
                 filteredVendeursList = [...allVendeursList];
                 console.log('[VendeurModal] Rendering', allVendeursList.length, 'vendeurs');
                 renderDropdownList();
+                return allVendeursList;
             } else {
                 dropdownList.innerHTML = '<div class="dropdown-empty"><i class="fa-solid fa-exclamation-triangle"></i><span>Erreur de chargement</span></div>';
+                return [];
             }
         })
         .catch(err => {
             console.error('[VendeurModal] Error loading vendeurs:', err);
             dropdownList.innerHTML = '<div class="dropdown-empty"><i class="fa-solid fa-exclamation-triangle"></i><span>Erreur de connexion</span></div>';
+            vendeurListRequestKey = '';
+            return [];
+        })
+        .finally(() => {
+            vendeurListRequest = null;
         });
+
+    return vendeurListRequest;
 }
 
 // Render dropdown list
 function renderDropdownList() {
     const dropdownList = document.getElementById('vendeur-dropdown-list');
+    if (!dropdownList) return;
 
     if (filteredVendeursList.length === 0) {
         dropdownList.innerHTML = '<div class="dropdown-empty"><i class="fa-solid fa-users-slash"></i><span>Aucun vendeur trouvé</span></div>';
         return;
     }
 
-    let html = '';
-    filteredVendeursList.forEach((vendeur) => {
+    // Show count header
+    const countHtml = `<div style="padding: 0.5rem 0.85rem; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border-color); background: var(--bg-color);"><i class="fa-solid fa-list"></i> ${filteredVendeursList.length} vendeur${filteredVendeursList.length > 1 ? 's' : ''} disponible${filteredVendeursList.length > 1 ? 's' : ''}</div>`;
+    const itemsHtml = filteredVendeursList.map((vendeur) => {
         const isSelected = selectedVendeurForReport === vendeur;
-        html += `
-            <div class="dropdown-item ${isSelected ? 'selected' : ''}" data-vendeur="${vendeur}">
-                <i class="fa-solid fa-user-tie dropdown-item-icon"></i>
-                <span class="dropdown-item-text">${vendeur}</span>
-                ${isSelected ? '<i class="fa-solid fa-check dropdown-item-check"></i>' : ''}
+        const itemStyle = 'display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 0.85rem; margin-bottom: 0.25rem; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); font-size: 0.85rem;';
+        const selectedStyle = isSelected ? ' border-color: var(--primary-color); background: rgba(0, 212, 255, 0.15);' : '';
+        return `
+            <div class="dropdown-item ${isSelected ? 'selected' : ''}" data-vendeur="${vendeur}" style="${itemStyle}${selectedStyle}">
+                <i class="fa-solid fa-user-tie" style="color: var(--primary-color); font-size: 0.85rem; width: 16px; text-align: center; flex-shrink: 0;"></i>
+                <span class="dropdown-item-text" style="flex: 1; color: var(--text-main); font-size: 0.85rem;">${vendeur}</span>
+                ${isSelected ? '<i class="fa-solid fa-check" style="color: var(--primary-color); font-size: 0.9rem;"></i>' : ''}
             </div>
         `;
-    });
+    }).join('');
 
-    dropdownList.innerHTML = html;
+    dropdownList.innerHTML = countHtml + itemsHtml;
 
     // Add click event listeners
     const items = dropdownList.querySelectorAll('.dropdown-item');
@@ -2497,10 +7588,14 @@ function selectVendeur(vendeur) {
 // Update selected vendeur display
 function updateSelectedVendeurDisplay() {
     const display = document.getElementById('selected-vendeur-display');
+    const resetVendeurBtn = document.getElementById('reset-vendeur-selection-btn');
+    if (!display) return;
     if (selectedVendeurForReport) {
-        display.innerHTML = `<i class="fa-solid fa-user-check"></i> <span style="color: var(--primary-color); font-weight: 600;">${selectedVendeurForReport}</span>`;
+        display.innerHTML = `<i class="fa-solid fa-user-check" style="color: var(--neon-blue);"></i> <span style="color: var(--neon-blue); font-weight: 600;">${selectedVendeurForReport}</span>`;
+        if (resetVendeurBtn) resetVendeurBtn.style.display = 'inline-block';
     } else {
-        display.innerHTML = '<i class="fa-solid fa-user-check"></i> <span>Aucun vendeur sélectionné</span>';
+        display.innerHTML = '<i class="fa-solid fa-user-check"></i> <span style="color: var(--text-muted);">Aucun vendeur sélectionné (Génération globale)</span>';
+        if (resetVendeurBtn) resetVendeurBtn.style.display = 'none';
     }
 }
 
@@ -2530,11 +7625,6 @@ function getSelectedAnalysisOptions() {
 
 // Generate report for selected vendeur
 function generateReportForSelectedVendeur() {
-    if (!selectedVendeurForReport) {
-        showToast("Veuillez sélectionner un vendeur", "warning");
-        return;
-    }
-
     // Get selected options
     const options = getSelectedAnalysisOptions();
     const selectedOptions = Object.keys(options).filter(k => options[k]);
@@ -2544,54 +7634,61 @@ function generateReportForSelectedVendeur() {
         return;
     }
 
-    // Close vendeur selection modal
-    closeVendeurSelectionModal();
+    const vendeurForReport = selectedVendeurForReport;
 
-    // Open AI report modal with the selected vendeur and options
-    openAiReportModalForVendeur(selectedVendeurForReport, options);
-}
-
-// Open AI Report modal & run backend generation (modified to show vendeur selection first)
-function openAiReportModal() {
-    // Check if a specific vendor is already selected
-    const categorySelect = document.getElementById('category-select');
-    const selectedCategory = categorySelect ? categorySelect.value : 'All';
-    const selectedVendeur = currentSelection && currentSelection.type === 'vendeur' ? currentSelection.name : null;
-
-    // If a specific vendor is selected, generate report directly
-    if (selectedVendeur) {
-        // Use default options (all checked ones)
-        const options = getSelectedAnalysisOptions();
-        openAiReportModalForVendeur(selectedVendeur, options);
-    } else {
-        // Otherwise, show the vendeur selection modal
-        openVendeurSelectionModal();
+    // Update dashboard selection if a specific vendor is selected
+    if (vendeurForReport) {
+        if (typeof selectFilter === 'function') {
+            selectFilter('vendeur', vendeurForReport);
+        } else {
+            currentSelection = { type: 'vendeur', name: vendeurForReport };
+            if (typeof updateDashboard === 'function') {
+                updateDashboard();
+            }
+        }
     }
+
+    // Open AI report for the selected vendeur and options
+    openAiReportModalForVendeur(vendeurForReport, options);
 }
 
-// Open AI Report modal for a specific vendeur
+// Redirects header/modal calls to the new tab page
+function openAiReportModal() {
+    if (timelapseIsPlaying) stopTimelapse();
+    window.location.href = '/rapport';
+}
+
+// Open AI Report for a specific vendeur (displays in the tab panel, not modal)
 function openAiReportModalForVendeur(vendeurName, options = null) {
-    const modal = document.getElementById('ai-report-modal');
+    const modal = document.getElementById('ai-report-modal'); // Keep reference for backwards compatibility
     const loading = document.getElementById('report-loading');
     const content = document.getElementById('report-content-wrapper');
-    const aiIcon = document.getElementById('ai-report-icon');
-    const aiLabel = document.getElementById('ai-report-label');
-    const aiBtn = document.getElementById('ai-report-btn');
+    const generateBtn = document.getElementById('generate-vendeur-report-btn');
+    const initialState = document.getElementById('report-initial-state');
+    const actionsHeader = document.getElementById('report-actions-header');
 
     const copyBtn = document.getElementById('copy-report-btn');
     const downloadBtn = document.getElementById('download-report-btn');
     const okBtn = document.getElementById('ok-report-btn');
-    const titleEl = document.getElementById('report-modal-title');
+    const titleEl = document.getElementById('report-title-display') || document.getElementById('report-modal-title');
 
-    if (!modal) return;
+    // Show the result panel (hidden by default until first generate)
+    const resultPanel = document.getElementById('rp-result-panel');
+    if (resultPanel) resultPanel.style.display = 'block';
 
-    modal.classList.add('open');
-    loading.style.display = 'flex';
-    content.style.display = 'none';
+    if (modal) modal.classList.add('open');
+    if (actionsHeader) actionsHeader.style.display = 'none';
+    if (loading) loading.style.display = 'flex';
+    if (content) content.style.display = 'none';
 
     if (copyBtn) copyBtn.style.display = 'none';
     if (downloadBtn) downloadBtn.style.display = 'none';
     if (okBtn) okBtn.style.display = 'none';
+
+    if (generateBtn) {
+        generateBtn.disabled = true;
+        generateBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> EN COURS...';
+    }
 
     const categorySelect = document.getElementById('category-select');
     const selectedCategory = categorySelect ? categorySelect.value : 'All';
@@ -2600,7 +7697,11 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     const selectedDate = dateSelect ? dateSelect.value : 'default';
 
     let url = '/api/generate_report';
-    const params = [];
+    const activeFormatBtn = document.querySelector('.report-format-btn.active');
+    const reportFormat = activeFormatBtn ? activeFormatBtn.getAttribute('data-format') : 'complet';
+    const isMiniReport = reportFormat === 'mini';
+    
+    const params = [`tax_mode=${currentTaxMode}`, `report_type=${reportFormat}`];
     if (vendeurName) params.push(`vendeur=${encodeURIComponent(vendeurName)}`);
     else if (selectedCategory && selectedCategory !== 'All') params.push(`category=${encodeURIComponent(selectedCategory)}`);
     if (selectedDate && selectedDate !== 'default') params.push(`date=${encodeURIComponent(selectedDate)}`);
@@ -2626,10 +7727,6 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
         }
     }
 
-    if (aiIcon) aiIcon.className = 'fa-solid fa-circle-notch fa-spin';
-    if (aiLabel) aiLabel.innerText = 'ANALYSING...';
-    if (aiBtn) aiBtn.disabled = true;
-
     // Start Veo canvas animation
     startVeoAnimation();
 
@@ -2639,43 +7736,85 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            loading.style.display = 'none';
-            content.style.display = 'block';
+            if (loading) loading.style.display = 'none';
+            if (content) {
+                content.style.display = isMiniReport ? 'none' : 'block';
+                content.innerHTML = isMiniReport ? '' : parseMarkdown(data.report);
+            }
+            if (actionsHeader) actionsHeader.style.display = 'flex';
 
             // Clear any previously queued charts
             window.reportChartsToRender = [];
 
-            content.innerHTML = parseMarkdown(data.report);
+            // Store the report text so the WhatsApp button can read it later
+            currentReportText = data.report || '';
+            currentReportTitle = (titleEl && titleEl.innerText) ? titleEl.innerText : 'Rapport IA';
+            currentReportVendeur = vendeurName || '';
 
-            // Render the charts!
-            renderReportCharts();
+            if (data.focus_names) {
+                window.focusNames = data.focus_names;
+            }
+
+            const waTemplate = document.getElementById('whatsapp-mini-image-template');
+            const waZoomWrapper = document.getElementById('wa-zoom-wrapper');
+            const waZoomToolbar = document.getElementById('wa-zoom-toolbar');
+            if (waTemplate) {
+                if (isMiniReport && data.summary_data) {
+                    waTemplate.style.display = 'block';
+                    if (waZoomWrapper) waZoomWrapper.style.display = 'block';
+                    if (waZoomToolbar) waZoomToolbar.style.display = 'flex';
+                    populateWaTemplate(data.summary_data, currentReportVendeur, selectedDate);
+                } else {
+                    waTemplate.style.display = 'none';
+                    if (waZoomWrapper) waZoomWrapper.style.display = 'none';
+                    if (waZoomToolbar) waZoomToolbar.style.display = 'none';
+                }
+            }
+
+            // Mini reports are rendered directly as the image-ready KPI card.
+            if (!isMiniReport) renderReportCharts();
 
             if (copyBtn) copyBtn.style.display = 'inline-block';
             if (downloadBtn) downloadBtn.style.display = 'inline-block';
+            const downloadImageBtn = document.getElementById('download-report-image-btn');
+            if (downloadImageBtn) downloadImageBtn.style.display = 'inline-block';
             if (okBtn) okBtn.style.display = 'inline-block';
+            const whatsappBtn = document.getElementById('whatsapp-report-btn');
+            if (whatsappBtn) whatsappBtn.style.display = 'inline-flex';
 
-            showToast("Rapport d'analyse IA généré avec succès !", "success");
+            stopVeoAnimation(true);
         } else {
+            stopVeoAnimation(false);
             closeAiReportModal();
             showToast("Erreur de génération du rapport: " + data.message, "error");
         }
     })
     .catch(err => {
         console.error(err);
+        stopVeoAnimation(false);
         closeAiReportModal();
         showToast("Erreur de connexion lors de l'analyse IA.", "error");
     })
     .finally(() => {
-        stopVeoAnimation();
+        const aiIcon = document.getElementById('ai-report-icon');
+        const aiLabel = document.getElementById('ai-report-label');
+        const aiBtn = document.getElementById('ai-report-btn');
         if (aiIcon) aiIcon.className = 'fa-solid fa-brain';
         if (aiLabel) aiLabel.innerText = 'ANALYSE IA';
         if (aiBtn) aiBtn.disabled = false;
+        
+        if (generateBtn) {
+            generateBtn.disabled = false;
+            generateBtn.innerHTML = '<i class="fa-solid fa-brain"></i> GÉNÉRER LE RAPPORT';
+        }
     });
 }
 
-// Close AI Report modal
+// Resets/Clears the report view in the tab panel
 function closeAiReportModal() {
     const modal = document.getElementById('ai-report-modal');
+    currentReportVendeur = '';
+    currentVendeurWhatsappMessage = '';
     if (modal) {
         modal.classList.remove('open');
         const innerModal = modal.querySelector('.report-modal');
@@ -2689,7 +7828,701 @@ function closeAiReportModal() {
             fullscreenBtn.title = "Plein écran";
         }
     }
+    
+    const loading = document.getElementById('report-loading');
+    const content = document.getElementById('report-content-wrapper');
+    const actionsHeader = document.getElementById('report-actions-header');
+    const resultPanel = document.getElementById('rp-result-panel');
+
+    // Hide the entire result panel on reset
+    if (resultPanel) resultPanel.style.display = 'none';
+    if (loading) loading.style.display = 'none';
+    if (content) content.style.display = 'none';
+    if (actionsHeader) actionsHeader.style.display = 'none';
+
     stopVeoAnimation();
+}
+
+// Build a WhatsApp-friendly version of the current AI report.
+// WhatsApp has a hard limit (~65k chars for media, ~4k for the URL parameter
+// used by wa.me), so we trim and adapt the markdown to plain text.
+function buildWhatsappReportText() {
+    if (!currentReportText) {
+        return '';
+    }
+    // Convert common markdown to plain text
+    let txt = currentReportText
+        // Headings
+        .replace(/^#+\s+(.*)$/gm, '*$1*')
+        // Bold
+        .replace(/\*\*(.+?)\*\*/g, '*$1*')
+        // Italic (single asterisks already converted above)
+        .replace(/_(.+?)_/g, '_$1_')
+        // Bullets
+        .replace(/^\s*[-*]\s+/gm, '• ')
+        // Tables: keep simple text, drop pipes & dashes
+        .replace(/^\|.*\|$/gm, (line) => line.replace(/\|/g, '  ').replace(/[-:]+/g, '').trim())
+        // Code fences
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/`([^`]+)`/g, '$1');
+
+    // Compose a clean, short header + body
+    const header = (currentReportTitle || 'Rapport IA') + '\n' + '='.repeat((currentReportTitle || 'Rapport IA').length) + '\n\n';
+    const fullText = header + txt;
+
+    // Hard cap to keep the wa.me URL within reasonable limits
+    const MAX = 3500;
+    if (fullText.length > MAX) {
+        return fullText.substring(0, MAX) + '\n\n… [Rapport tronqué pour WhatsApp, voir le dashboard pour la version complète]';
+    }
+    return fullText;
+}
+
+// Short pointer message used when sending the rapport as a PDF.
+// (The PDF is downloaded separately and the user attaches it manually
+// in WhatsApp.)
+function buildPdfPointerMessage() {
+    const v = currentReportVendeur || (currentSelection && currentSelection.type === 'vendeur' ? currentSelection.name : '') || '';
+    if (v) {
+        return `Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance de ${v} (KPI Analytics).\n\nLe PDF a été téléchargé sur votre appareil — il suffit de le joindre à ce message.\n\nCordialement,\n— KPI Analytics`;
+    }
+    return `Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance global de l'agence (KPI Analytics).\n\nLe PDF a été téléchargé sur votre appareil — il suffit de le joindre à ce message.\n\nCordialement,\n— KPI Analytics`;
+}
+
+// Open WhatsApp with the current report pre-filled.
+// If `phone` is provided (digits only, including country code), the chat
+// is opened directly with that number. Otherwise WhatsApp lets the user
+// pick the recipient.
+//
+// `format` is 'text' (default) or 'pdf':
+//   - 'text': wa.me/?text=<full rapport>  (current behaviour)
+//   - 'pdf' : the rapport is rendered as a PDF, downloaded to the user's
+//             machine, then wa.me opens with a short pointer message.
+//             The user attaches the downloaded PDF manually in the chat.
+function sendReportViaWhatsapp(phone, format) {
+    format = format || 'text';
+    if (format === 'pdf') {
+        return sendReportPdfViaWhatsapp(phone);
+    }
+    if (format === 'image') {
+        const activeFormatBtn = document.querySelector('.report-format-btn.active');
+        const isMini = activeFormatBtn && activeFormatBtn.getAttribute('data-format') === 'mini';
+        const elementId = isMini ? 'whatsapp-mini-image-template' : 'report-content-wrapper';
+        
+        copyReportImageToClipboard(elementId, (success) => {
+            if (success) {
+                const text = "Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance sous forme d'image (faites Ctrl+V pour la coller et l'envoyer dans WhatsApp) :\n\nCordialement,\n— KPI Analytics";
+                const encoded = encodeURIComponent(text);
+                let url;
+                const cleanPhone = normalizePhoneForWhatsapp(phone);
+                if (cleanPhone) {
+                    url = `https://wa.me/${cleanPhone}?text=${encoded}`;
+                } else {
+                    url = `https://wa.me/?text=${encoded}`;
+                }
+                window.open(url, '_blank', 'noopener,noreferrer');
+                closeWhatsappShareDialog();
+            }
+        });
+        return;
+    }
+    const text = currentVendeurWhatsappMessage || buildWhatsappReportText();
+    if (!text) {
+        showToast("Aucun rapport à envoyer. Générez d'abord un rapport.", "warning");
+        return;
+    }
+    const encoded = encodeURIComponent(text);
+    let url;
+    const cleanPhone = normalizePhoneForWhatsapp(phone);
+    if (cleanPhone) {
+        url = `https://wa.me/${cleanPhone}?text=${encoded}`;
+    } else {
+        url = `https://wa.me/?text=${encoded}`;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+    showToast("WhatsApp ouvert avec le rapport pré-rempli.", "success");
+}
+
+function copyReportImageToClipboard(elementId, callback) {
+    const element = document.getElementById(elementId);
+    if (!element) {
+        showToast("Rapport introuvable.", "error");
+        if (callback) callback(false);
+        return;
+    }
+    
+    const loader = showToast("Génération de l'image...", "loading");
+    
+    let hasResolved = false;
+    const timeoutTimer = setTimeout(() => {
+        if (!hasResolved) {
+            hasResolved = true;
+            loader.close();
+            showToast("La génération de l'image a expiré (temps limite dépassé).", "error");
+            if (callback) callback(false);
+        }
+    }, 12000); // 12 seconds safety timeout
+
+    html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
+    }).then(canvas => {
+        if (hasResolved) return;
+        hasResolved = true;
+        clearTimeout(timeoutTimer);
+        
+        if (!canvas || canvas.width === 0 || canvas.height === 0) {
+            loader.close();
+            showToast("Erreur: Le canvas généré est vide.", "error");
+            if (callback) callback(false);
+            return;
+        }
+
+        canvas.toBlob(blob => {
+            loader.close();
+            if (!blob) {
+                showToast("Erreur de génération de l'image.", "error");
+                if (callback) callback(false);
+                return;
+            }
+            try {
+                const item = new ClipboardItem({ "image/png": blob });
+                navigator.clipboard.write([item]).then(() => {
+                    showToast("Image copiée ! Prête à coller (Ctrl+V) sur WhatsApp.", "success");
+                    if (callback) callback(true);
+                }).catch(err => {
+                    console.error("Clipboard write failed: ", err);
+                    showToast("Erreur de copie. Votre navigateur bloque la copie d'image.", "warning");
+                    if (callback) callback(false);
+                });
+            } catch (err) {
+                console.error("Clipboard API error: ", err);
+                showToast("Votre navigateur ne supporte pas la copie directe d'images.", "warning");
+                if (callback) callback(false);
+            }
+        }, "image/png");
+    }).catch(err => {
+        if (hasResolved) return;
+        hasResolved = true;
+        clearTimeout(timeoutTimer);
+        loader.close();
+        console.error("html2canvas error: ", err);
+        showToast("Erreur de conversion: " + err, "error");
+        if (callback) callback(false);
+    });
+}
+
+function copyCardAsImage(cardOrId) {
+    const card = typeof cardOrId === 'string' ? document.getElementById(cardOrId) : cardOrId;
+    if (!card) {
+        showToast("Élément introuvable.", "error");
+        return;
+    }
+    
+    const isCollapsed = card.classList.contains('collapsed');
+    if (isCollapsed) {
+        showToast("Veuillez maximiser le tableau ou graphique avant de le copier.", "warning");
+        return;
+    }
+    
+    // Hide card actions temporarily so they are not captured in the image
+    const actions = card.querySelector('.card-actions');
+    if (actions) {
+        actions.style.visibility = 'hidden';
+    }
+    
+    const loader = showToast("Génération de l'image...", "loading");
+    
+    // Freeze canvases to dynamic images to avoid blank spaces on capture
+    const canvases = Array.from(card.querySelectorAll('canvas'));
+    const swaps = [];
+    canvases.forEach(canvas => {
+        try {
+            const dataUrl = canvas.toDataURL('image/png');
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            img.style.width = canvas.style.width || (canvas.width + 'px');
+            img.style.height = canvas.style.height || (canvas.height + 'px');
+            img.style.display = 'block';
+            canvas.parentNode.insertBefore(img, canvas);
+            canvas.style.display = 'none';
+            swaps.push({ canvas, img });
+        } catch (e) {
+            console.error("Canvas freeze failed: ", e);
+        }
+    });
+
+    // Get computed theme background color to serve as solid background
+    const bodyBgColor = getComputedStyle(document.body).backgroundColor || '#0c0c0e';
+    
+    let hasResolved = false;
+    const timeoutTimer = setTimeout(() => {
+        if (!hasResolved) {
+            hasResolved = true;
+            loader.close();
+            if (actions) {
+                actions.style.visibility = 'visible';
+            }
+            swaps.forEach(({ canvas: origCanvas, img }) => {
+                origCanvas.style.display = '';
+                if (img && img.parentNode) img.remove();
+            });
+            showToast("La génération de l'image a expiré (temps limite dépassé).", "error");
+        }
+    }, 12000); // 12 seconds safety timeout
+
+    html2canvas(card, {
+        scale: 2.5, // higher resolution for crisp text
+        useCORS: true,
+        backgroundColor: bodyBgColor,
+        logging: false
+    }).then(canvas => {
+        if (hasResolved) return;
+        hasResolved = true;
+        clearTimeout(timeoutTimer);
+
+        // Restore actions and canvases
+        if (actions) {
+            actions.style.visibility = 'visible';
+        }
+        swaps.forEach(({ canvas: origCanvas, img }) => {
+            origCanvas.style.display = '';
+            img.remove();
+        });
+        
+        if (!canvas || canvas.width === 0 || canvas.height === 0) {
+            loader.close();
+            showToast("Erreur: Le canvas généré est vide.", "error");
+            return;
+        }
+
+        canvas.toBlob(blob => {
+            loader.close();
+            if (!blob) {
+                showToast("Erreur de génération de l'image.", "error");
+                return;
+            }
+            try {
+                const item = new ClipboardItem({ "image/png": blob });
+                navigator.clipboard.write([item]).then(() => {
+                    showToast("Image copiée ! Prête à coller (Ctrl+V) sur WhatsApp.", "success");
+                }).catch(err => {
+                    console.error("Clipboard write failed: ", err);
+                    showToast("Erreur de copie. Le navigateur bloque la copie d'images.", "warning");
+                });
+            } catch (err) {
+                console.error("Clipboard API error: ", err);
+                showToast("Votre navigateur ne supporte pas la copie directe d'images.", "warning");
+            }
+        }, "image/png");
+    }).catch(err => {
+        if (hasResolved) return;
+        hasResolved = true;
+        clearTimeout(timeoutTimer);
+
+        // Clean up on error
+        loader.close();
+        if (actions) {
+            actions.style.visibility = 'visible';
+        }
+        swaps.forEach(({ canvas: origCanvas, img }) => {
+            origCanvas.style.display = '';
+            img.remove();
+        });
+        console.error("html2canvas error: ", err);
+        showToast("Erreur de conversion: " + err, "error");
+    });
+}
+
+function injectCopyButtonsAppWide() {
+    document.querySelectorAll('canvas, table').forEach(el => {
+        // Skip background particles canvas or print/modal tables
+        if (el.id === 'bg-particles' || el.closest('#pdf-print-zone') || el.closest('.modal-content')) return;
+        
+        // Find containing card
+        const card = el.closest('.cyber-card');
+        if (!card) return;
+        
+        // Skip if copy button already exists
+        if (card.querySelector('.copy-btn')) return;
+        
+        // Find or create header
+        let header = card.querySelector('.card-header, .table-header, .chart-header, .focus-header, .focus-trend-header, .table-header-row');
+        if (!header) {
+            header = document.createElement('div');
+            header.className = 'card-header';
+            header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;';
+            card.insertBefore(header, card.firstChild);
+        }
+        
+        // Find or create card-actions container
+        let actions = header.querySelector('.card-actions');
+        if (!actions) {
+            actions = document.createElement('div');
+            actions.className = 'card-actions';
+            actions.style.cssText = 'margin-left: auto; display: flex; gap: 0.5rem; align-items: center; z-index: 10;';
+            
+            header.style.display = 'flex';
+            header.style.alignItems = 'center';
+            header.style.justifyContent = 'space-between';
+            
+            header.appendChild(actions);
+        }
+        
+        // Add copy button
+        if (!actions.querySelector('.copy-btn')) {
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'card-action-btn copy-btn';
+            copyBtn.title = 'Copier comme image';
+            copyBtn.style.cssText = 'background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 0.8rem; transition: color 0.2s;';
+            copyBtn.innerHTML = '<i class="fa-solid fa-copy"></i>';
+            
+            actions.insertBefore(copyBtn, actions.firstChild);
+            
+            copyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                copyCardAsImage(card);
+            });
+        }
+    });
+}
+
+
+// PDF variant: render the current report to a PDF, trigger a download,
+// then open WhatsApp with a short "voir PDF ci-joint" message.
+function sendReportPdfViaWhatsapp(phone) {
+    const element = document.getElementById('report-content-wrapper');
+    if (!element || element.style.display === 'none') {
+        showToast("Aucun rapport disponible à exporter en PDF.", "error");
+        return;
+    }
+    const selectedVendeur = (currentReportVendeur || (currentSelection && currentSelection.type === 'vendeur' ? currentSelection.name : null)) || '';
+    const filename = selectedVendeur
+        ? `Rapport_KPI_${selectedVendeur.replace(/\s+/g, '_')}.pdf`
+        : 'Rapport_KPI_Agence_Agadir.pdf';
+    const shortMsg = selectedVendeur
+        ? `Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance de ${selectedVendeur} (KPI Analytics).\n\nCordialement,\n— KPI Analytics`
+        : `Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance global de l'agence (KPI Analytics).\n\nCordialement,\n— KPI Analytics`;
+
+    showPdfOverlay();
+    element.classList.add('pdf-print-mode');
+    advancePdfStep(1);
+
+    // Freeze Chart.js canvases as static images so html2canvas captures them
+    setTimeout(() => {
+        advancePdfStep(2);
+        const restoreCharts = freezeChartsForPdf(element);
+
+        const opt = {
+            margin:       [8, 10, 10, 10],
+            filename:     filename,
+            image:        { type: 'jpeg', quality: 0.97 },
+            html2canvas:  {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                logging: false,
+                scrollX: 0,
+                scrollY: -window.scrollY,
+                windowWidth: 794,
+                width: 794,
+                backgroundColor: '#ffffff'
+            },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:    { mode: ['css', 'legacy'] }
+        };
+        advancePdfStep(3);
+        return html2pdf().set(opt).from(element).outputPdf('blob')
+            .then((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+                // Open WhatsApp with the short pointer message
+                const encoded = encodeURIComponent(shortMsg);
+                let waUrl;
+                const cleanPhone = normalizePhoneForWhatsapp(phone);
+                if (cleanPhone) {
+                    waUrl = `https://wa.me/${cleanPhone}?text=${encoded}`;
+                } else {
+                    waUrl = `https://wa.me/?text=${encoded}`;
+                }
+                advancePdfStep(4);
+                setTimeout(() => {
+                    hidePdfOverlay(true);
+                    window.open(waUrl, '_blank', 'noopener,noreferrer');
+                }, 400);
+            })
+            .catch((err) => {
+                console.error('PDF generation failed', err);
+                hidePdfOverlay(false);
+                showToast('Erreur lors de la génération du PDF.', 'error');
+            })
+            .finally(() => {
+                restoreCharts();
+                element.classList.remove('pdf-print-mode');
+            });
+    }, 800);
+}
+
+// Handles WhatsApp button click in the actions bar
+function handleWhatsappShareClick() {
+    if (!currentReportText) {
+        showToast("Aucun rapport à envoyer. Générez d'abord un rapport.", "warning");
+        return;
+    }
+    const activeFormatBtn = document.querySelector('.report-format-btn.active');
+    const isMini = activeFormatBtn && activeFormatBtn.getAttribute('data-format') === 'mini';
+    
+    if (isMini) {
+        if (currentReportVendeur) {
+            fetch('/api/fdv?vendeur=' + encodeURIComponent(currentReportVendeur))
+                .then(r => r.json())
+                .then(d => {
+                    let phone = '';
+                    if (d.status === 'success' && d.rows && d.rows.length > 0) {
+                        const row = d.rows[0];
+                        const rawPhone = row.whatsapp || row.telephone || '';
+                        phone = rawPhone.replace(/^\+/, '').trim();
+                    }
+                    sendReportViaWhatsapp(phone, 'image');
+                })
+                .catch(err => {
+                    console.error(err);
+                    sendReportViaWhatsapp('', 'image');
+                });
+        } else {
+            sendReportViaWhatsapp('', 'image');
+        }
+    } else {
+        openWhatsappShareDialog();
+    }
+}
+
+// Small modal that asks for an optional phone number, then opens WhatsApp.
+function openWhatsappShareDialog() {
+    if (!currentReportText) {
+        showToast("Aucun rapport à envoyer. Générez d'abord un rapport.", "warning");
+        return;
+    }
+    // Build a small inline modal dynamically (no extra CSS needed —
+    // reuses .modal-backdrop / .cyber-modal styling already in the page).
+    let overlay = document.getElementById('whatsapp-share-modal');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'whatsapp-share-modal';
+        overlay.className = 'modal-backdrop';
+        overlay.innerHTML = `
+            <div class="cyber-modal" style="max-width: 460px;">
+                <div class="modal-header">
+                    <h3 style="color: #25D366;"><i class="fa-brands fa-whatsapp"></i> ENVOYER VIA WHATSAPP</h3>
+                    <button class="close-btn" id="whatsapp-share-close-btn" title="Fermer">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+                        <i class="fa-solid fa-circle-info"></i>
+                        Le rapport sera copié dans le message WhatsApp. Si le rapport a été
+                        généré pour un vendeur, son numéro est <b>récupéré automatiquement depuis
+                        la base FDV</b> — vous pouvez le corriger ci-dessous si besoin.
+                    </p>
+                    <div class="form-group" id="whatsapp-share-vendeur-row" style="display:none;">
+                        <label class="tech-label"><i class="fa-solid fa-user"></i> VENDEUR</label>
+                        <div class="font-mono" id="whatsapp-share-vendeur" style="color:var(--neon-blue); font-weight:600;"></div>
+                    </div>
+                    <div class="form-group">
+                        <label class="tech-label"><i class="fa-solid fa-phone"></i> NUMÉRO WHATSAPP</label>
+                        <input type="tel" id="whatsapp-share-phone" class="cyber-input" placeholder="Ex: 212600000000 (indicatif +212 pour Maroc)">
+                        <div id="whatsapp-share-fdv-info" style="display:none; margin-top:.4rem; font-size:.72rem; color:var(--neon-green);">
+                            <i class="fa-solid fa-database"></i> <span id="whatsapp-share-fdv-info-text"></span>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label class="tech-label"><i class="fa-solid fa-file-export"></i> FORMAT D'ENVOI</label>
+                        <div style="display:flex; gap:.5rem;">
+                            <label id="whatsapp-share-fmt-text-label" class="cyber-select" style="flex:1; cursor:pointer; display:flex; align-items:center; gap:.5rem; padding:.6rem .8rem; border-radius:6px; background:rgba(37,211,102,0.12); border-color:#25D366;">
+                                <input type="radio" name="whatsapp-share-format" value="text" checked style="accent-color:#25D366;">
+                                <span><i class="fa-solid fa-message"></i> <b>Texte</b><br><small style="color:var(--text-muted);">Rapport complet collé dans le message</small></span>
+                            </label>
+                            <label id="whatsapp-share-fmt-image-label" class="cyber-select" style="flex:1; cursor:pointer; display:flex; align-items:center; gap:.5rem; padding:.6rem .8rem; border-radius:6px;">
+                                <input type="radio" name="whatsapp-share-format" value="image" style="accent-color:#0284c7;">
+                                <span><i class="fa-solid fa-image" style="color:#0284c7;"></i> <b>Image</b><br><small style="color:var(--text-muted);">Copie l'image à coller (Ctrl+V) sur WhatsApp</small></span>
+                            </label>
+                            <label id="whatsapp-share-fmt-pdf-label" class="cyber-select" style="flex:1; cursor:pointer; display:flex; align-items:center; gap:.5rem; padding:.6rem .8rem; border-radius:6px;">
+                                <input type="radio" name="whatsapp-share-format" value="pdf" style="accent-color:#f87171;">
+                                <span><i class="fa-solid fa-file-pdf" style="color:#f87171;"></i> <b>PDF</b><br><small style="color:var(--text-muted);">PDF téléchargé, à joindre manuellement</small></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label class="tech-label"><i class="fa-solid fa-eye"></i> APERÇU DU MESSAGE</label>
+                        <pre id="whatsapp-share-preview" class="font-mono" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); border-radius: 4px; padding: 0.75rem; max-height: 220px; overflow-y: auto; font-size: 0.72rem; white-space: pre-wrap; word-break: break-word; color: var(--text-main);"></pre>
+                    </div>
+                    <button id="whatsapp-share-send-btn" class="cyber-btn-submit" style="margin-top: 1rem; width: 100%; background: #25D366; color: #fff; border-color: #25D366;">
+                        <i class="fa-brands fa-whatsapp"></i> <span id="whatsapp-share-send-label">OUVRIR WHATSAPP</span>
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        // Close on backdrop click
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeWhatsappShareDialog();
+        });
+        document.getElementById('whatsapp-share-close-btn').addEventListener('click', closeWhatsappShareDialog);
+        document.getElementById('whatsapp-share-send-btn').addEventListener('click', () => {
+            const phoneInput = document.getElementById('whatsapp-share-phone');
+            const fmtRadio = document.querySelector('input[name="whatsapp-share-format"]:checked');
+            const format = fmtRadio ? fmtRadio.value : 'text';
+            sendReportViaWhatsapp(phoneInput ? phoneInput.value.trim() : '', format);
+            // Close the dialog only in text mode
+            if (format === 'text') {
+                closeWhatsappShareDialog();
+            }
+        });
+
+        // Update label + preview when the user toggles the format
+        document.querySelectorAll('input[name="whatsapp-share-format"]').forEach((r) => {
+            r.addEventListener('change', () => {
+                updateWhatsappFormatUi();
+            });
+        });
+    }
+
+    function updateWhatsappFormatUi() {
+        const fmtRadio = document.querySelector('input[name="whatsapp-share-format"]:checked');
+        const format = fmtRadio ? fmtRadio.value : 'text';
+        const label = document.getElementById('whatsapp-share-send-label');
+        const textLabel = document.getElementById('whatsapp-share-fmt-text-label');
+        const imageLabel = document.getElementById('whatsapp-share-fmt-image-label');
+        const pdfLabel = document.getElementById('whatsapp-share-fmt-pdf-label');
+        const preview = document.getElementById('whatsapp-share-preview');
+        
+        if (label) {
+            if (format === 'pdf') {
+                label.textContent = 'GÉNÉRER PDF + WHATSAPP';
+            } else if (format === 'image') {
+                label.textContent = "COPIER L'IMAGE + WHATSAPP";
+            } else {
+                label.textContent = 'OUVRIR WHATSAPP';
+            }
+        }
+        if (textLabel) textLabel.style.background = (format === 'text') ? 'rgba(37,211,102,0.12)' : '';
+        if (textLabel) textLabel.style.borderColor = (format === 'text') ? '#25D366' : '';
+        if (imageLabel) imageLabel.style.background = (format === 'image') ? 'rgba(2,132,199,0.12)' : '';
+        if (imageLabel) imageLabel.style.borderColor = (format === 'image') ? '#0284c7' : '';
+        if (pdfLabel)  pdfLabel.style.background  = (format === 'pdf')  ? 'rgba(248,113,113,0.12)' : '';
+        if (pdfLabel)  pdfLabel.style.borderColor  = (format === 'pdf')  ? '#f87171' : '';
+        
+        if (preview) {
+            if (format === 'pdf') {
+                preview.textContent = buildPdfPointerMessage();
+            } else if (format === 'image') {
+                preview.textContent = "Bonjour,\n\nVeuillez trouver ci-joint le rapport de performance sous forme d'image (copiée dans votre presse-papier, faites simplement Ctrl+V pour la coller et l'envoyer dans WhatsApp).\n\nCordialement,\n— KPI Analytics";
+            } else {
+                preview.textContent = currentVendeurWhatsappMessage || buildWhatsappReportText();
+            }
+        }
+    }
+
+    // Refresh the preview (text or PDF pointer)
+    updateWhatsappFormatUi();
+
+    // Reset the FDV hint
+    const phoneInput = document.getElementById('whatsapp-share-phone');
+    const fdvInfo = document.getElementById('whatsapp-share-fdv-info');
+    const fdvInfoText = document.getElementById('whatsapp-share-fdv-info-text');
+    const vendeurRow = document.getElementById('whatsapp-share-vendeur-row');
+    const vendeurEl = document.getElementById('whatsapp-share-vendeur');
+    if (fdvInfo) fdvInfo.style.display = 'none';
+    if (vendeurRow) vendeurRow.style.display = 'none';
+    if (phoneInput) phoneInput.value = '';
+
+    // If the report was generated for a specific vendeur, fetch the
+    // phone number and optimized WhatsApp message from the backend.
+    if (currentReportVendeur && phoneInput) {
+        if (vendeurRow) vendeurRow.style.display = '';
+        if (vendeurEl) vendeurEl.textContent = currentReportVendeur;
+        
+        // Show placeholder during fetch
+        const previewEl = document.getElementById('whatsapp-share-preview');
+        const fmtRadio = document.querySelector('input[name="whatsapp-share-format"]:checked');
+        const format = fmtRadio ? fmtRadio.value : 'text';
+        if (previewEl && format === 'text') {
+            previewEl.textContent = "Génération du rapport WhatsApp optimisé...";
+        }
+        
+        // Fast lookup to auto-fill the phone number instantly (6ms)
+        fetch('/api/fdv?vendeur=' + encodeURIComponent(currentReportVendeur))
+            .then((r) => r.json())
+            .then((d) => {
+                if (d.status === 'success' && d.rows && d.rows.length > 0) {
+                    const row = d.rows[0];
+                    const rawPhone = row.whatsapp || row.telephone || '';
+                    if (rawPhone) {
+                        phoneInput.value = rawPhone.replace(/^\+/, '').trim();
+                        if (fdvInfo) {
+                            fdvInfo.style.display = '';
+                            fdvInfo.style.color = 'var(--neon-green)';
+                        }
+                        if (fdvInfoText) {
+                            fdvInfoText.textContent = 'Numéro récupéré depuis la base FDV. Vous pouvez le modifier ci-dessus.';
+                        }
+                        phoneInput.focus();
+                    } else {
+                        if (fdvInfo) {
+                            fdvInfo.style.display = '';
+                            fdvInfo.style.color = 'var(--neon-amber)';
+                        }
+                        if (fdvInfoText) {
+                            fdvInfoText.textContent = 'Ce vendeur est dans la FDV mais n\'a pas de numéro WhatsApp — renseignez-le ci-dessus.';
+                        }
+                    }
+                }
+            })
+            .catch((e) => console.error('FDV fast lookup failed', e));
+
+        // Slow lookup to fetch the optimized message text
+        fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(currentReportVendeur) + '&include_rapport=true')
+            .then((r) => r.json())
+            .then((d) => {
+                if (d.status === 'success' && d.message) {
+                    currentVendeurWhatsappMessage = d.message;
+                    if (d.phone && !phoneInput.value) {
+                        phoneInput.value = d.phone.replace(/^\+/, '').trim();
+                        if (fdvInfo) {
+                            fdvInfo.style.display = '';
+                            fdvInfo.style.color = 'var(--neon-green)';
+                        }
+                        if (fdvInfoText) {
+                            fdvInfoText.textContent = 'Numéro récupéré depuis la base FDV. Vous pouvez le modifier ci-dessus.';
+                        }
+                        phoneInput.focus();
+                    }
+                }
+                updateWhatsappFormatUi();
+            })
+            .catch((e) => {
+                console.error('FDV lookup failed', e);
+                updateWhatsappFormatUi();
+            });
+    }
+
+    overlay.classList.add('open');
+    setTimeout(() => {
+        if (phoneInput && !phoneInput.value) phoneInput.focus();
+    }, 50);
+}
+
+function closeWhatsappShareDialog() {
+    const overlay = document.getElementById('whatsapp-share-modal');
+    if (overlay) overlay.classList.remove('open');
 }
 
 // Toggle Fullscreen on report modal
@@ -2714,167 +8547,382 @@ function toggleReportFullscreen() {
 }
 
 // Start Veo canvas animation loop
+// ─── AI REPORT LOADER ────────────────────────────────────────────────────────
+const AI_STATUS_MESSAGES = [
+    'Initialisation de l\'analyse…',
+    'Chargement des données KPI…',
+    'Calcul des écarts de performance…',
+    'Analyse des tendances mensuelles…',
+    'Évaluation des objectifs terrain…',
+    'Comparaison avec le prorata temporel…',
+    'Identification des points critiques…',
+    'Synthèse qualitative en cours…',
+    'Rédaction du rapport par l\'IA…',
+    'Finalisation du document…',
+];
+
+let aiLoaderTimerInterval = null;
+let aiLoaderStatusInterval = null;
+let aiLoaderProgressInterval = null;
+
 function startVeoAnimation() {
-    veoCanvas = document.getElementById('veo-canvas');
-    if (!veoCanvas) return;
-    veoCtx = veoCanvas.getContext('2d');
-    
-    // Set size based on bounding box
-    const rect = veoCanvas.getBoundingClientRect();
-    veoCanvas.width = rect.width;
-    veoCanvas.height = rect.height;
-    
-    // Start REC timecode clock
-    const timecodeEl = document.getElementById('veo-timecode');
-    let seconds = 0;
-    if (veoTimeInterval) clearInterval(veoTimeInterval);
-    veoTimeInterval = setInterval(() => {
-        seconds++;
-        const hrs = String(Math.floor(seconds / 3600)).padStart(2, '0');
-        const mins = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
-        const secs = String(seconds % 60).padStart(2, '0');
-        if (timecodeEl) timecodeEl.innerText = `REC ${hrs}:${mins}:${secs}`;
+    const shell = document.querySelector('.ai-loader-shell');
+    if (!shell) return;
+
+    // Reset state
+    const bar   = document.getElementById('ai-loader-bar');
+    const timer = document.getElementById('ai-loader-timer');
+    const status = document.getElementById('ai-loader-status');
+    if (bar)    bar.style.width = '0%';
+    if (timer)  timer.textContent = '00:00';
+    if (status) status.textContent = AI_STATUS_MESSAGES[0];
+
+    // Timer clock
+    let secs = 0;
+    if (aiLoaderTimerInterval) clearInterval(aiLoaderTimerInterval);
+    aiLoaderTimerInterval = setInterval(() => {
+        secs++;
+        const m = String(Math.floor(secs / 60)).padStart(2,'0');
+        const s = String(secs % 60).padStart(2,'0');
+        if (timer) timer.textContent = `${m}:${s}`;
     }, 1000);
-    
-    // Generate particle nodes representing neural activations
-    const particles = [];
-    const particleCount = 40;
-    for (let i = 0; i < particleCount; i++) {
-        particles.push({
-            x: Math.random() * veoCanvas.width,
-            y: Math.random() * veoCanvas.height,
-            vx: (Math.random() - 0.5) * 1.6,
-            vy: (Math.random() - 0.5) * 1.6,
-            r: Math.random() * 2 + 1,
-            pulse: Math.random() * Math.PI
-        });
-    }
-    
-    function draw() {
-        if (!veoCtx) return;
-        veoCtx.clearRect(0, 0, veoCanvas.width, veoCanvas.height);
-        
-        // Render digital grids
-        veoCtx.strokeStyle = 'rgba(0, 212, 255, 0.04)';
-        veoCtx.lineWidth = 1;
-        const gridSize = 40;
-        for (let x = 0; x < veoCanvas.width; x += gridSize) {
-            veoCtx.beginPath();
-            veoCtx.moveTo(x, 0);
-            veoCtx.lineTo(x, veoCanvas.height);
-            veoCtx.stroke();
-        }
-        for (let y = 0; y < veoCanvas.height; y += gridSize) {
-            veoCtx.beginPath();
-            veoCtx.moveTo(0, y);
-            veoCtx.lineTo(veoCanvas.width, y);
-            veoCtx.stroke();
-        }
-        
-        // Update particles
-        particles.forEach(p => {
-            p.x += p.vx;
-            p.y += p.vy;
-            p.pulse += 0.03;
-            
-            if (p.x < 0 || p.x > veoCanvas.width) p.vx *= -1;
-            if (p.y < 0 || p.y > veoCanvas.height) p.vy *= -1;
-            
-            const alpha = 0.3 + Math.sin(p.pulse) * 0.3;
-            veoCtx.fillStyle = `rgba(0, 212, 255, ${alpha})`;
-            veoCtx.beginPath();
-            veoCtx.arc(p.x, p.y, p.r + Math.sin(p.pulse) * 1, 0, Math.PI * 2);
-            veoCtx.fill();
-        });
-        
-        // Render synaptic node lines
-        veoCtx.lineWidth = 0.5;
-        for (let i = 0; i < particles.length; i++) {
-            for (let j = i + 1; j < particles.length; j++) {
-                const p1 = particles[i];
-                const p2 = particles[j];
-                const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-                if (dist < 80) {
-                    const alpha = (1 - dist / 80) * 0.2;
-                    veoCtx.strokeStyle = `rgba(0, 212, 255, ${alpha})`;
-                    veoCtx.beginPath();
-                    veoCtx.moveTo(p1.x, p1.y);
-                    veoCtx.lineTo(p2.x, p2.y);
-                    veoCtx.stroke();
-                }
-            }
-        }
-        
-        // Scan line laser sweep
-        const scanY = (Date.now() / 15) % veoCanvas.height;
-        veoCtx.strokeStyle = 'rgba(0, 212, 255, 0.12)';
-        veoCtx.lineWidth = 2;
-        veoCtx.beginPath();
-        veoCtx.moveTo(0, scanY);
-        veoCtx.lineTo(veoCanvas.width, scanY);
-        veoCtx.stroke();
-        
-        veoAnimId = requestAnimationFrame(draw);
-    }
-    
-    draw();
+
+    // Rotating status messages
+    let msgIdx = 1;
+    if (aiLoaderStatusInterval) clearInterval(aiLoaderStatusInterval);
+    aiLoaderStatusInterval = setInterval(() => {
+        if (!status) return;
+        status.style.animation = 'none';
+        void status.offsetWidth; // reflow
+        status.style.animation = '';
+        status.textContent = AI_STATUS_MESSAGES[msgIdx % AI_STATUS_MESSAGES.length];
+        msgIdx++;
+    }, 2800);
+
+    // Simulated progress bar (fills to ~90%, the last 10% on success)
+    let prog = 0;
+    if (aiLoaderProgressInterval) clearInterval(aiLoaderProgressInterval);
+    aiLoaderProgressInterval = setInterval(() => {
+        if (!bar) return;
+        const remaining = 90 - prog;
+        prog += Math.random() * Math.min(remaining * 0.25, 8);
+        prog = Math.min(prog, 90);
+        bar.style.width = prog + '%';
+    }, 1200);
 }
 
-function stopVeoAnimation() {
-    if (veoAnimId) cancelAnimationFrame(veoAnimId);
-    if (veoTimeInterval) clearInterval(veoTimeInterval);
-    veoAnimId = null;
-    veoTimeInterval = null;
-    if (veoCtx && veoCanvas) {
-        veoCtx.clearRect(0, 0, veoCanvas.width, veoCanvas.height);
-    }
+function stopVeoAnimation(success = true) {
+    clearInterval(aiLoaderTimerInterval);
+    clearInterval(aiLoaderStatusInterval);
+    clearInterval(aiLoaderProgressInterval);
+    aiLoaderTimerInterval = null;
+    aiLoaderStatusInterval = null;
+    aiLoaderProgressInterval = null;
+
+    const bar    = document.getElementById('ai-loader-bar');
+    const status = document.getElementById('ai-loader-status');
+    if (bar)    bar.style.width = success ? '100%' : '0%';
+    if (status) status.textContent = success ? 'Rapport généré avec succès !' : 'Erreur lors de l\'analyse.';
 }
+
+// ─── PDF OVERLAY ─────────────────────────────────────────────────────────────
+function showPdfOverlay() {
+    const overlay = document.getElementById('pdf-overlay');
+    if (!overlay) return;
+
+    // Reset all steps
+    for (let i = 1; i <= 4; i++) {
+        const s = document.getElementById(`pdf-step-${i}`);
+        if (s) s.className = 'pdf-step';
+    }
+    const ring  = document.getElementById('pdf-ring-fill');
+    const icon  = document.getElementById('pdf-ring-icon');
+    const label = document.getElementById('pdf-overlay-label');
+    if (ring)  ring.style.strokeDashoffset = '263.9';
+    if (icon)  { icon.className = 'fa-solid fa-file-pdf pdf-ring-icon'; }
+    if (label) { label.textContent = 'Préparation…'; label.className = 'pdf-overlay-label font-mono'; }
+
+    overlay.style.display = 'flex';
+    _pdfStep(1);
+}
+
+function _pdfStep(n) {
+    const steps = [
+        { label: 'Mise en forme du contenu', pct: 0.18 },
+        { label: 'Capture des graphiques',   pct: 0.48 },
+        { label: 'Génération PDF A4',         pct: 0.82 },
+        { label: 'Téléchargement du fichier', pct: 1.00 },
+    ];
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById(`pdf-step-${i}`);
+        if (!el) continue;
+        if (i < n)  el.className = 'pdf-step done';
+        else if (i === n) el.className = 'pdf-step active';
+        else el.className = 'pdf-step';
+    }
+    const s = steps[n - 1];
+    const ring  = document.getElementById('pdf-ring-fill');
+    const label = document.getElementById('pdf-overlay-label');
+    if (ring)  ring.style.strokeDashoffset = String(263.9 * (1 - s.pct));
+    if (label) label.textContent = s.label + '…';
+}
+
+function advancePdfStep(n) { _pdfStep(n); }
+
+function hidePdfOverlay(success = true) {
+    const ring  = document.getElementById('pdf-ring-fill');
+    const icon  = document.getElementById('pdf-ring-icon');
+    const label = document.getElementById('pdf-overlay-label');
+    if (ring)  ring.style.strokeDashoffset = '0';
+    if (success) {
+        if (icon)  icon.className = 'fa-solid fa-circle-check pdf-ring-icon done';
+        if (label) { label.textContent = 'PDF Téléchargé !'; label.className = 'pdf-overlay-label font-mono done'; }
+        for (let i = 1; i <= 4; i++) {
+            const s = document.getElementById(`pdf-step-${i}`);
+            if (s) s.className = 'pdf-step done';
+        }
+    }
+    setTimeout(() => {
+        const overlay = document.getElementById('pdf-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }, success ? 1200 : 800);
+}
+
 
 // Convert DOM report element into ink-friendly printable A4 PDF via html2pdf
+// Locks the wrapper width via inline styles on the element AND its ancestors,
+// so the captured canvas matches the printable width regardless of CSS selector
+// issues (the wrapper has both .report-markdown-content and .pdf-print-mode
+// classes — descendant selectors don't match the wrapper itself).
+// Returns a restore function that reverts the inline styles.
+function lockWrapperForCapture(element, widthPx) {
+    const width = widthPx || 1100;
+    const saved = [];
+    let node = element;
+    const stopTags = new Set(['MAIN', 'BODY', 'HTML']);
+    while (node && !stopTags.has(node.tagName)) {
+        saved.push({
+            node,
+            maxWidth:   node.style.maxWidth,
+            width:      node.style.width,
+            margin:     node.style.margin,
+            padding:    node.style.padding,
+            boxSizing:  node.style.boxSizing,
+            overflow:   node.style.overflow,
+            transform:  node.style.transform
+        });
+        node.style.maxWidth  = width + 'px';
+        node.style.width     = '100%';
+        node.style.margin    = '0 auto';
+        node.style.boxSizing = 'border-box';
+        // Don't clip — any overflow gets captured by html2canvas.
+        node.style.overflow  = 'visible';
+        // Reset any inherited translate that would shift capture origin.
+        node.style.transform = 'none';
+        node = node.parentElement;
+    }
+    return function unlock() {
+        saved.forEach(s => {
+            s.node.style.maxWidth  = s.maxWidth  || '';
+            s.node.style.width     = s.width     || '';
+            s.node.style.margin    = s.margin    || '';
+            s.node.style.padding   = s.padding   || '';
+            s.node.style.boxSizing = s.boxSizing || '';
+            s.node.style.overflow  = s.overflow  || '';
+            s.node.style.transform = s.transform || '';
+        });
+    };
+}
+
 function downloadReportAsPdf() {
     const element = document.getElementById('report-content-wrapper');
     if (!element || element.style.display === 'none') {
         showToast("Aucun rapport disponible.", "error");
         return;
     }
-    
+
     const selectedVendeur = currentSelection.type === 'vendeur' ? currentSelection.name : null;
-    const filename = selectedVendeur 
+    const filename = selectedVendeur
         ? `Rapport_KPI_${selectedVendeur.replace(/\s+/g, '_')}.pdf`
         : 'Rapport_KPI_Agence_Agadir.pdf';
-        
-    showToast("Génération du PDF...", "info");
-    
-    // Apply printing visual mode override
+
+    showPdfOverlay();
     element.classList.add('pdf-print-mode');
-    
-    const opt = {
-        margin:       [10, 10],
-        filename:     filename,
-        image:        { type: 'jpeg', quality: 0.97 },
-        html2canvas:  {
-            scale: 1.5,
-            useCORS: true,
-            allowTaint: true,
-            logging: false,
-            scrollX: 0,
-            scrollY: -window.scrollY,
-            windowWidth: 794
-        },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
-    };
-    
-    html2pdf().set(opt).from(element).save()
-        .then(() => {
-            showToast("PDF téléchargé !", "success");
+    advancePdfStep(1);
+
+    let hasResolved = false;
+    let restoreCharts = () => {};
+    let unlock = () => {};
+
+    const timeoutTimer = setTimeout(() => {
+        if (!hasResolved) {
+            hasResolved = true;
+            hidePdfOverlay(false);
+            showToast("La génération du PDF a expiré (temps limite dépassé).", "error");
+            restoreCharts();
+            unlock();
             element.classList.remove('pdf-print-mode');
-        })
-        .catch(err => {
-            console.error(err);
-            showToast("Erreur PDF: " + err, "error");
+        }
+    }, 15000); // 15 seconds safety timeout
+
+    setTimeout(() => {
+        if (hasResolved) return;
+        advancePdfStep(2);
+        restoreCharts = freezeChartsForPdf(element);
+        unlock        = lockWrapperForCapture(element, 794);
+
+        const opt = {
+            margin:       [8, 10, 10, 10],
+            filename:     filename,
+            image:        { type: 'jpeg', quality: 0.97 },
+            html2canvas:  {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                logging: false,
+                scrollX: 0,
+                scrollY: -window.scrollY,
+                windowWidth: 794,
+                width: 794,
+                backgroundColor: '#ffffff'
+            },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:    { mode: ['css', 'legacy'] }
+        };
+
+        advancePdfStep(3);
+        html2pdf().set(opt).from(element).save()
+            .then(() => {
+                if (hasResolved) return;
+                hasResolved = true;
+                clearTimeout(timeoutTimer);
+                advancePdfStep(4);
+                setTimeout(() => hidePdfOverlay(true), 400);
+            })
+            .catch(err => {
+                if (hasResolved) return;
+                hasResolved = true;
+                clearTimeout(timeoutTimer);
+                console.error(err);
+                hidePdfOverlay(false);
+                showToast('Erreur PDF: ' + err, 'error');
+            })
+            .finally(() => {
+                restoreCharts();
+                unlock();
+                element.classList.remove('pdf-print-mode');
+            });
+    }, 800);
+}
+
+// Export the rapport as a single tall PNG image — same capture pipeline as PDF,
+// but skips the jsPDF stage and downloads the raw canvas. Useful for sharing
+// in messengers that don't accept PDFs (WhatsApp, Telegram, etc.).
+function downloadReportAsImage() {
+    const activeFormatBtn = document.querySelector('.report-format-btn.active');
+    const isMini = activeFormatBtn && activeFormatBtn.getAttribute('data-format') === 'mini';
+    const elementId = isMini ? 'whatsapp-mini-image-template' : 'report-content-wrapper';
+    
+    const element = document.getElementById(elementId);
+    if (!element || element.style.display === 'none') {
+        showToast("Aucun rapport disponible.", "error");
+        return;
+    }
+
+    const selectedVendeur = currentSelection.type === 'vendeur' ? currentSelection.name : null;
+    const vendorSlug = selectedVendeur ? selectedVendeur.replace(/\s+/g, '_') : 'Agence_Agadir';
+    const filename = `Rapport_KPI_${vendorSlug}.png`;
+
+    showPdfOverlay();
+    if (!isMini) {
+        element.classList.add('pdf-print-mode');
+    }
+    advancePdfStep(1);
+
+    let hasResolved = false;
+    let restoreCharts = () => {};
+    let unlock = () => {};
+
+    const timeoutTimer = setTimeout(() => {
+        if (!hasResolved) {
+            hasResolved = true;
+            hidePdfOverlay(false);
+            showToast("La génération de l'image a expiré (temps limite dépassé).", "error");
+            restoreCharts();
+            unlock();
+            element.classList.remove('pdf-print-mode');
+        }
+    }, 15000); // 15 seconds safety timeout
+
+    setTimeout(() => {
+        if (hasResolved) return;
+        advancePdfStep(2);
+        restoreCharts = isMini ? () => {} : freezeChartsForPdf(element);
+        unlock        = isMini ? () => {} : lockWrapperForCapture(element, 794);
+
+        const captureWidth = isMini ? 520 : 794;
+        const opt = {
+            margin:       [0, 0],
+            filename:     filename,
+            image:        { type: 'png', quality: 1.0 },
+            html2canvas:  {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                logging: false,
+                scrollX: 0,
+                scrollY: -window.scrollY,
+                windowWidth: captureWidth,
+                width: captureWidth,
+                backgroundColor: '#ffffff'
+            },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:    { mode: ['css', 'legacy'] }
+        };
+
+        advancePdfStep(3);
+        html2pdf().set(opt).from(element).toContainer().toCanvas().get('canvas').then((canvas) => {
+            if (hasResolved) return;
+            canvas.toBlob((blob) => {
+                if (hasResolved) return;
+                hasResolved = true;
+                clearTimeout(timeoutTimer);
+
+                if (!blob) {
+                    advancePdfStep(4);
+                    hidePdfOverlay(false);
+                    showToast("Erreur lors de la génération de l'image.", "error");
+                    return;
+                }
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+                advancePdfStep(4);
+                setTimeout(() => hidePdfOverlay(true), 400);
+
+                const sizeMb = (blob.size / (1024 * 1024)).toFixed(2);
+                showToast(`Image téléchargée ! (${sizeMb} Mo)`, "success");
+            }, 'image/png');
+        }).catch((err) => {
+            if (hasResolved) return;
+            hasResolved = true;
+            clearTimeout(timeoutTimer);
+            console.error('Image export failed', err);
+            advancePdfStep(4);
+            hidePdfOverlay(false);
+            showToast("Erreur image: " + err, "error");
+        }).finally(() => {
+            restoreCharts();
+            unlock();
             element.classList.remove('pdf-print-mode');
         });
+    }, 800);
 }
 
 // Helper to render beautiful HTML table and queue a chart if applicable
@@ -2887,6 +8935,7 @@ function renderTableHtml(rows) {
     let isQuantiTable = headers.some(h => h.toLowerCase().includes('famille')) && headers.some(h => h.toLowerCase().includes('réalisé'));
     let isQualiTable = headers.some(h => h.toLowerCase().includes('facturé') || h.toLowerCase().includes('commandes') || h.toLowerCase().includes('acm') || h.toLowerCase().includes('tsm'));
     let isRankTable = headers.some(h => h.toLowerCase().includes('vendeur')) && headers.some(h => h.toLowerCase().includes('taux'));
+    let isDailySalesTable = headers.some(h => h.toLowerCase().includes('date')) && headers.some(h => h.toLowerCase().includes('ventes réelles')) && headers.some(h => h.toLowerCase().includes('objectif du jour'));
     
     let tableId = "report-table-" + Math.random().toString(36).substring(2, 9);
     let chartCanvasId = "chart-" + tableId;
@@ -3031,10 +9080,50 @@ function renderTableHtml(rows) {
     }
     // 4. If it's a rank/performer list table (multiple sellers' CA), render a bar chart comparing performance
     else if (isRankTable && dataRows.length > 1) {
+        // 18 px per seller row + 60 px for legend/axes, capped at 300px for PDF friendliness
+        const rankChartH = Math.min(300, Math.max(250, dataRows.length * 18 + 60));
+        html += `
+        <div class="report-chart-card rank-chart-card">
+            <div class="report-chart-header">
+                <span class="tech-label"><i class="fa-solid fa-trophy neon-text-amber"></i> CLASSEMENT DES PERFORMANCES</span>
+            </div>
+            <div class="report-chart-body" style="height: ${rankChartH}px;">
+                <canvas id="${chartCanvasId}"></canvas>
+            </div>
+        </div>
+        `;
+        
+        if (!window.reportChartsToRender) window.reportChartsToRender = [];
+        
+        let items = [];
+        dataRows.forEach(row => {
+            if (row.length >= 3) {
+                let seller = row[0].replace(/\*\*/g, '').trim();
+                let realVal = parseFloat(row[1].replace(/,/g, '').replace(/\s/g, '').replace(/\*/g, '')) || 0;
+                let objVal = parseFloat(row[2].replace(/,/g, '').replace(/\s/g, '').replace(/\*/g, '')) || 0;
+                items.push({ seller, realVal, objVal });
+            }
+        });
+        
+        // Sort by realVal ascending (A to B)
+        items.sort((a, b) => a.realVal - b.realVal);
+        
+        let labels = items.map(x => x.seller);
+        let realVals = items.map(x => x.realVal);
+        let objVals = items.map(x => x.objVal);
+        
+        window.reportChartsToRender.push({
+            id: chartCanvasId,
+            type: 'rank',
+            data: { labels, realVals, objVals }
+        });
+    }
+    // 5. If it's a daily sales table, render a bar chart comparing daily sales
+    else if (isDailySalesTable && dataRows.length > 0) {
         html += `
         <div class="report-chart-card">
             <div class="report-chart-header">
-                <span class="tech-label"><i class="fa-solid fa-trophy neon-text-amber"></i> CLASSEMENT DES PERFORMANCES</span>
+                <span class="tech-label"><i class="fa-solid fa-chart-bar neon-text-pink"></i> VENTES QUOTIDIENNES NON CUMULÉES (DH)</span>
             </div>
             <div class="report-chart-body">
                 <canvas id="${chartCanvasId}"></canvas>
@@ -3050,11 +9139,11 @@ function renderTableHtml(rows) {
         
         dataRows.forEach(row => {
             if (row.length >= 3) {
-                let seller = row[0].replace(/\*\*/g, '').trim();
+                let label = row[0].replace(/\*\*/g, '').trim();
                 let realVal = parseFloat(row[1].replace(/,/g, '').replace(/\s/g, '').replace(/\*/g, '')) || 0;
                 let objVal = parseFloat(row[2].replace(/,/g, '').replace(/\s/g, '').replace(/\*/g, '')) || 0;
                 
-                labels.push(seller);
+                labels.push(label);
                 realVals.push(realVal);
                 objVals.push(objVal);
             }
@@ -3062,54 +9151,60 @@ function renderTableHtml(rows) {
         
         window.reportChartsToRender.push({
             id: chartCanvasId,
-            type: 'rank',
+            type: 'dailySales',
             data: { labels, realVals, objVals }
         });
     }
     
     // Render the table
-    html += `<div class="report-table-wrapper"><table class="cyber-table report-table"><thead><tr>`;
-    headers.forEach(h => {
-        html += `<th>${h.replace(/\*\*/g, '').trim()}</th>`;
-    });
-    html += `</tr></thead><tbody>`;
-    
-    dataRows.forEach(row => {
-        let isCARow = row.length > 0 && row[0].replace(/\*\*/g, '').trim().toUpperCase().includes('C.A (HT)');
-        let rowStyle = isCARow ? ' style="font-weight: bold; background: rgba(0, 212, 255, 0.05); border-top: 1.5px solid var(--neon-blue);"' : '';
-        
-        html += `<tr${rowStyle}>`;
-        row.forEach((cell, idx) => {
-            let isBold = cell.startsWith('**') && cell.endsWith('**');
-            let clean = cell.replace(/\*\*/g, '').trim();
-            let style = '';
-            
-            // Highlight color markers (+ / -)
-            if (clean.startsWith('+') && clean.includes('%')) {
-                style = ' style="color: var(--neon-green); font-weight: bold;"';
-            } else if (clean.startsWith('-') && clean.includes('%')) {
-                style = ' style="color: var(--neon-pink); font-weight: bold;"';
-            }
-            
-            if (idx === 0 && (isBold || clean.toUpperCase().includes('TOTAL') || clean.toUpperCase().includes('MOYENNE') || isCARow)) {
-                html += `<td${style}><strong>${clean}</strong></td>`;
-            } else {
-                html += `<td${style}>${clean}</td>`;
-            }
+    if (!isDailySalesTable && !isRankTable) {
+        html += `<div class="report-table-wrapper"><table class="cyber-table report-table"><thead><tr>`;
+        headers.forEach(h => {
+            html += `<th>${h.replace(/\*\*/g, '').trim()}</th>`;
         });
-        html += `</tr>`;
-    });
-    html += `</tbody></table></div>`;
+        html += `</tr></thead><tbody>`;
+        
+        dataRows.forEach(row => {
+            let isCARow = row.length > 0 && (row[0].replace(/\*\*/g, '').trim().toUpperCase().includes('C.A (HT)') || row[0].replace(/\*\*/g, '').trim().toUpperCase().includes('C.A (TTC)'));
+            let rowStyle = isCARow ? ' style="font-weight: bold; background: rgba(0, 212, 255, 0.05); border-top: 1.5px solid var(--neon-blue);"' : '';
+            
+            html += `<tr${rowStyle}>`;
+            row.forEach((cell, idx) => {
+                let isBold = cell.startsWith('**') && cell.endsWith('**');
+                let clean = cell.replace(/\*\*/g, '').trim();
+                let style = '';
+                
+                // Highlight color markers (+ / -)
+                if (clean.startsWith('+') && clean.includes('%')) {
+                    style = ' style="color: var(--neon-green); font-weight: bold;"';
+                } else if (clean.startsWith('-') && clean.includes('%')) {
+                    style = ' style="color: var(--neon-pink); font-weight: bold;"';
+                }
+                
+                if (idx === 0 && (isBold || clean.toUpperCase().includes('TOTAL') || clean.toUpperCase().includes('MOYENNE') || isCARow)) {
+                    html += `<td${style}><strong>${clean}</strong></td>`;
+                } else {
+                    html += `<td${style}>${clean}</td>`;
+                }
+            });
+            html += `</tr>`;
+        });
+        html += `</tbody></table></div>`;
+    }
+    
     return html;
 }
 
 // Simple Markdown to HTML converter supporting tables
+// Simple Markdown to HTML converter supporting tables, multiline blockquotes and multiline alerts
 function parseMarkdown(md) {
     if (!md) return "";
     let lines = md.split('\n');
     let processedLines = [];
     let inTable = false;
     let tableRows = [];
+    let inBlockquote = false;
+    let blockquoteLines = [];
     
     function flushTable() {
         if (tableRows.length > 0) {
@@ -3117,6 +9212,36 @@ function parseMarkdown(md) {
             tableRows = [];
         }
         inTable = false;
+    }
+    
+    function flushBlockquote() {
+        if (blockquoteLines.length > 0) {
+            // Check if it's an alert block
+            let firstLine = blockquoteLines[0].trim();
+            let alertMatch = firstLine.match(/^\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION)\](.*)$/i);
+            if (alertMatch) {
+                let type = alertMatch[1].toUpperCase();
+                let lowerType = type.toLowerCase();
+                let firstLineRest = alertMatch[2].trim();
+                let contentLines = [];
+                if (firstLineRest) {
+                    contentLines.push(firstLineRest);
+                }
+                for (let i = 1; i < blockquoteLines.length; i++) {
+                    contentLines.push(blockquoteLines[i]);
+                }
+                let contentHtml = contentLines.join('<br>');
+                // Parse inline formatting inside alert content
+                contentHtml = contentHtml.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                processedLines.push(`<div class="report-alert alert-${lowerType}"><strong>${type}</strong><br>${contentHtml}</div>`);
+            } else {
+                let contentHtml = blockquoteLines.join('<br>');
+                contentHtml = contentHtml.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                processedLines.push(`<blockquote>${contentHtml}</blockquote>`);
+            }
+            blockquoteLines = [];
+        }
+        inBlockquote = false;
     }
     
     for (let i = 0; i < lines.length; i++) {
@@ -3130,6 +9255,7 @@ function parseMarkdown(md) {
             
         // Check if line is a table row (starts and ends with |)
         if (escapedLine.startsWith('|') && escapedLine.endsWith('|')) {
+            if (inBlockquote) flushBlockquote();
             inTable = true;
             let cells = escapedLine.split('|').map(c => c.trim());
             // Remove empty elements from ends
@@ -3140,33 +9266,27 @@ function parseMarkdown(md) {
             if (!isDivider) {
                 tableRows.push(cells);
             }
+        } else if (line.startsWith('>') || escapedLine.startsWith('&gt;')) {
+            if (inTable) flushTable();
+            inBlockquote = true;
+            let cleanLine = line.startsWith('>') ? line.substring(1) : line.substring(4);
+            blockquoteLines.push(cleanLine.trim());
         } else {
-            if (inTable) {
-                flushTable();
-            }
-            processedLines.push(line); // push original line for further markdown replacements
+            if (inTable) flushTable();
+            if (inBlockquote) flushBlockquote();
+            processedLines.push(line);
         }
     }
-    if (inTable) {
-        flushTable();
-    }
+    if (inTable) flushTable();
+    if (inBlockquote) flushBlockquote();
     
     let html = processedLines.join('\n');
     
-    // Match alerts: > [!NOTE] text, etc.
-    html = html.replace(/^&gt;\s*\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION)\](.*)$/gm, (match, type, content) => {
-        const lowerType = type.toLowerCase();
-        return `<div class="report-alert alert-${lowerType}"><strong>${type}</strong><br>${content}</div>`;
-    });
-    
-    // Match basic blockquotes
-    html = html.replace(/^&gt;\s*(.*)$/gm, '<blockquote>$1</blockquote>');
-
     // Headers
     html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
     html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
     html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-
+    
     // Bold text
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     
@@ -3192,22 +9312,39 @@ function parseMarkdown(md) {
     return html;
 }
 
-function renderReportCharts() {
+function renderReportCharts(forcePrintColors = false) {
     if (!window.reportChartsToRender || window.reportChartsToRender.length === 0) return;
     
     const styles = getComputedStyle(document.body);
-    const neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
-    const neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
-    const neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
-    const neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
     
-    const isLight = document.body.classList.contains('light-mode');
+    // Default to clean, professional high-contrast colors for print/PDF mode
+    let neonBlue = '#0284c7';
+    let neonAmber = '#f97316';
+    let neonGreen = '#16a34a';
+    let neonPink = '#db2777';
+    
+    const isLight = forcePrintColors || document.body.classList.contains('light-mode');
     const textColor = isLight ? '#1e293b' : '#e2e8f0';
-    const gridColor = isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+    const gridColor = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.05)';
+    
+    // If not forcing print colors, load dynamically from CSS variables
+    if (!forcePrintColors) {
+        neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
+        neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
+        neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
+        neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
+    }
     
     window.reportChartsToRender.forEach(chartConfig => {
         const canvas = document.getElementById(chartConfig.id);
         if (!canvas) return;
+        
+        // Destroy existing chart on this canvas to prevent canvas reuse error
+        const existingChart = Chart.getChart(canvas);
+        if (existingChart) {
+            existingChart.destroy();
+        }
+        
         const ctx = canvas.getContext('2d');
         
         if (chartConfig.type === 'quanti') {
@@ -3227,7 +9364,7 @@ function renderReportCharts() {
                         {
                             label: 'Objectif (DH)',
                             data: objVals,
-                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            backgroundColor: isLight ? 'rgba(249, 115, 22, 0.03)' : 'rgba(255, 255, 255, 0.05)',
                             borderColor: neonAmber,
                             borderWidth: 1.5,
                             borderDash: [3, 3]
@@ -3235,6 +9372,7 @@ function renderReportCharts() {
                     ]
                 },
                 options: {
+                    animation: { duration: 0 },
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
@@ -3285,6 +9423,7 @@ function renderReportCharts() {
                     ]
                 },
                 options: {
+                    animation: { duration: 0 },
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
@@ -3310,6 +9449,34 @@ function renderReportCharts() {
             });
         } else if (chartConfig.type === 'rank') {
             const { labels, realVals, objVals } = chartConfig.data;
+            
+            // Highlight currentReportVendeur if it matches the label
+            const activeVendeurNormalized = (currentReportVendeur || '').trim().toUpperCase();
+            
+            const backgroundColors = labels.map(label => {
+                const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
+                    return neonPink + 'a0';
+                }
+                return neonAmber + '60';
+            });
+            
+            const borderColors = labels.map(label => {
+                const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
+                    return neonPink;
+                }
+                return neonAmber;
+            });
+
+            const borderWidths = labels.map(label => {
+                const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
+                    return 2.5;
+                }
+                return 1.5;
+            });
+
             new Chart(ctx, {
                 type: 'bar',
                 data: {
@@ -3318,14 +9485,14 @@ function renderReportCharts() {
                         {
                             label: 'Réalisé (DH)',
                             data: realVals,
-                            backgroundColor: neonAmber + '60',
-                            borderColor: neonAmber,
-                            borderWidth: 1.5
+                            backgroundColor: backgroundColors,
+                            borderColor: borderColors,
+                            borderWidth: borderWidths
                         },
                         {
                             label: 'Objectif (DH)',
                             data: objVals,
-                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            backgroundColor: isLight ? 'rgba(2, 132, 199, 0.03)' : 'rgba(255, 255, 255, 0.05)',
                             borderColor: neonBlue,
                             borderWidth: 1.5,
                             borderDash: [3, 3]
@@ -3333,6 +9500,54 @@ function renderReportCharts() {
                     ]
                 },
                 options: {
+                    animation: { duration: 0 },
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            grid: { color: gridColor },
+                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                        },
+                        y: {
+                            grid: { color: gridColor },
+                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                        }
+                    }
+                }
+            });
+        } else if (chartConfig.type === 'dailySales') {
+            const { labels, realVals, objVals } = chartConfig.data;
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Vente Réelle (DH)',
+                            data: realVals,
+                            backgroundColor: neonPink + '80',
+                            borderColor: neonPink,
+                            borderWidth: 1.5,
+                            borderRadius: 4
+                        },
+                        {
+                            label: 'Objectif du Jour (DH)',
+                            data: objVals,
+                            backgroundColor: isLight ? 'rgba(71, 85, 105, 0.12)' : 'rgba(148, 163, 184, 0.12)',
+                            borderColor: isLight ? '#475569' : '#94a3b8',
+                            borderWidth: 1.5,
+                            borderRadius: 4
+                        }
+                    ]
+                },
+                options: {
+                    animation: { duration: 0 },
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
@@ -3356,6 +9571,44 @@ function renderReportCharts() {
     });
 }
 
+// Converts all Chart.js canvas elements inside `element` to static <img> tags
+// so that html2canvas can capture them correctly in the PDF.
+// Returns a cleanup function that restores the original canvases.
+function freezeChartsForPdf(element) {
+    // Force charts to render in high-contrast light-themed print colors
+    renderReportCharts(true);
+    
+    const canvases = Array.from(element.querySelectorAll('canvas'));
+    const swaps = [];
+    canvases.forEach(canvas => {
+        try {
+            // Snapshot the canvas at its current rendered state
+            const dataUrl = canvas.toDataURL('image/png');
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            // Use fluid sizing so the image scales to fit the PDF column width
+            // (A4 printable area is ~794px at 96dpi; fixed px would overflow)
+            img.style.width      = '100%';
+            img.style.height     = 'auto';
+            img.style.display    = 'block';
+            img.style.maxWidth   = '100%';
+            canvas.parentNode.insertBefore(img, canvas);
+            canvas.style.display = 'none';
+            swaps.push({ canvas, img });
+        } catch(e) {
+            // cross-origin canvas – skip
+        }
+    });
+    return function restoreCharts() {
+        swaps.forEach(({ canvas, img }) => {
+            canvas.style.display = '';
+            img.remove();
+        });
+        // Restore charts back to normal theme colors for screen view
+        renderReportCharts(false);
+    };
+}
+
 // System Alerts engine (KPI dashboard design guidelines)
 function updateSystemAlerts(quantiRecords, qualiRecords, focusVmm, focusSom, wDays) {
     const container = document.getElementById('alerts-container');
@@ -3365,7 +9618,7 @@ function updateSystemAlerts(quantiRecords, qualiRecords, focusVmm, focusSom, wDa
     const alerts = [];
 
     // 1. Identify underperforming sellers (0 CA)
-    const caRecords = quantiRecords.filter(r => r.famille === 'C.A (ht)');
+    const caRecords = quantiRecords.filter(r => r.famille === 'C.A (ht)' || r.famille === 'C.A (TTC)');
     const zeroSellers = [];
     caRecords.forEach(r => {
         if (r.real === 0 && r.obj > 0) {
@@ -3536,7 +9789,7 @@ function resetUploadForm() {
 }
 
 function fetchSuiviDates(callback) {
-    fetch('/api/suivi_dates')
+    fetch('/api/suivi_dates?_=' + Date.now())
         .then(response => response.json())
         .then(res => {
             if (res.status === 'success') {
@@ -3606,9 +9859,9 @@ function calculateRemainingWorkDays(dateStr) {
    DETAILS VIEW TREND CHART CONTROLLERS
    ---------------------------------------------------- */
 let detailsChartInstance = null;
+let detailsDailySalesChartInstance = null;
 let detailsQualiChartInstance = null;
 let perDayQualiCharts = [];
-let trendsData = null;
 let excludedDates = [];
 
 function initDetailsView() {
@@ -3618,42 +9871,30 @@ function initDetailsView() {
     const detailsContainer = document.getElementById('details-container');
     const backBtn = document.getElementById('back-to-dashboard-btn');
     const dateSelect = document.getElementById('date-select');
-    
+
     if (navDetails && navDashboard && mainDashboard && detailsContainer) {
         navDetails.addEventListener('click', (e) => {
             e.preventDefault();
-            navDashboard.classList.remove('active');
-            navDetails.classList.add('active');
-            mainDashboard.style.display = 'none';
-            detailsContainer.style.display = 'block';
-            if (dateSelect) dateSelect.style.display = 'none';
-
-            // Show "loading" state immediately so the user knows data is being fetched
-            const placeholder = document.getElementById('details-loading-placeholder');
-            const chartCard = document.querySelector('.chart-card .chart-wrapper');
-            if (placeholder) placeholder.style.display = 'flex';
-            if (chartCard) chartCard.style.opacity = '0.4';
-
-            // Wait one frame for layout to settle (canvas needs visible dimensions
-            // before Chart.js can size itself), then load.
-            requestAnimationFrame(() => {
-                loadTrendsData();
-            });
+            // Real navigation so the URL reflects the current page.
+            window.location.href = '/details';
         });
 
         const goBack = (e) => {
             e.preventDefault();
-            navDetails.classList.remove('active');
-            navDashboard.classList.add('active');
-            detailsContainer.style.display = 'none';
-            mainDashboard.style.display = 'block';
-            if (dateSelect) dateSelect.style.display = 'block';
+            // Navigate to the Tableau de bord (the default landing page).
+            window.location.href = '/';
         };
 
         navDashboard.addEventListener('click', goBack);
         if (backBtn) {
             backBtn.addEventListener('click', goBack);
         }
+    }
+
+    // Auto-load trends data when the page is opened directly at /details
+    if (window.location.pathname === '/details') {
+        const familySelect = document.getElementById('details-family-select');
+        loadTrendsData(familySelect ? familySelect.value : 'C.A (TTC)');
     }
     
     // Bind Details select filters
@@ -3707,7 +9948,7 @@ function initDetailsView() {
 }
 
 
-function loadTrendsData(family = 'C.A (ht)') {
+function loadTrendsData(family = 'C.A (TTC)') {
     const familySelect = document.getElementById('details-family-select');
 
     const vendeurSelect = document.getElementById('details-vendeur-select');
@@ -3722,23 +9963,26 @@ function loadTrendsData(family = 'C.A (ht)') {
         if (cw) cw.style.opacity = '1';
     };
 
-    fetch(`/api/trends?family=${encodeURIComponent(family)}&category=${encodeURIComponent(category)}`)
+    fetch(`/api/trends?family=${encodeURIComponent(family)}&category=${encodeURIComponent(category)}&_=${Date.now()}`)
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                trendsData = data;
+                rawTrendsData = data;
+                applyTrendsTaxMode();
 
                 // Populate Family Select dropdown if it has only one option
                 if (familySelect && familySelect.options.length <= 1 && data.families.length > 0) {
                     const currentVal = familySelect.value;
-                    familySelect.innerHTML = '';
+                    familySelect.innerHTML = '<option value="C.A (TTC)">C.A (TTC)</option>';
                     data.families.forEach(f => {
-                        const opt = document.createElement('option');
-                        opt.value = f;
-                        opt.innerText = f;
-                        familySelect.appendChild(opt);
+                        if (f.trim().toUpperCase() !== 'C.A (HT)' && f.trim().toUpperCase() !== 'C.A (TTC)') {
+                            const opt = document.createElement('option');
+                            opt.value = f;
+                            opt.innerText = f;
+                            familySelect.appendChild(opt);
+                        }
                     });
-                    familySelect.value = currentVal || 'C.A (ht)';
+                    familySelect.value = currentVal || 'C.A (TTC)';
                 }
 
                 // Populate Vendeur Select dropdown
@@ -4135,8 +10379,114 @@ function renderTrends() {
     // Populate raw data table
     populateTrendsTable(vendeursList);
     
+    // Render daily non-cumulative sales chart
+    renderDailySalesChart(dates, realPoints, objPoints, formattedLabels, isWhiteMode, neonPink, neonBlue);
+    
     // Render Qualitative trends chart and table
     renderQualiTrends(vendeursList);
+}
+
+function renderDailySalesChart(dates, realPoints, objPoints, formattedLabels, isWhiteMode, neonPink, neonBlue) {
+    const canvas = document.getElementById('details-daily-sales-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    if (detailsDailySalesChartInstance) {
+        detailsDailySalesChartInstance.destroy();
+    }
+    
+    const dailyRealPoints = [];
+    const dailyObjPoints = [];
+    
+    for (let i = 0; i < realPoints.length; i++) {
+        if (i === 0) {
+            const isFirstDayLegacy = (dates[0] === '2026-06-01' && realPoints.length > 1);
+            if (isFirstDayLegacy && realPoints[0] > realPoints[1] * 2) {
+                dailyRealPoints.push(0);
+            } else {
+                dailyRealPoints.push(realPoints[0]);
+            }
+            
+            if (isFirstDayLegacy && objPoints[0] > objPoints[1] * 2) {
+                dailyObjPoints.push(0);
+            } else {
+                dailyObjPoints.push(objPoints[0]);
+            }
+        } else {
+            const dReal = realPoints[i] - realPoints[i-1];
+            dailyRealPoints.push(dReal >= 0 ? dReal : realPoints[i]);
+            
+            const dObj = objPoints[i] - objPoints[i-1];
+            dailyObjPoints.push(dObj >= 0 ? dObj : objPoints[i]);
+        }
+    }
+    
+    detailsDailySalesChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: formattedLabels,
+            datasets: [
+                {
+                    label: 'Vente Réelle (DH)',
+                    data: dailyRealPoints,
+                    backgroundColor: neonPink + '80', // Pink bar with 50% opacity
+                    borderColor: neonPink,
+                    borderWidth: 1.5,
+                    borderRadius: 4,
+                    borderSkipped: 'bottom'
+                },
+                {
+                    label: 'Objectif du Jour (DH)',
+                    data: dailyObjPoints,
+                    backgroundColor: isWhiteMode ? 'rgba(71, 85, 105, 0.12)' : 'rgba(148, 163, 184, 0.12)',
+                    borderColor: isWhiteMode ? '#475569' : '#94a3b8',
+                    borderWidth: 1.5,
+                    borderRadius: 4,
+                    borderSkipped: 'bottom'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    grid: { color: isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: isWhiteMode ? '#475569' : '#64748b', font: { family: 'JetBrains Mono', size: 10 } }
+                },
+                y: {
+                    min: 0,
+                    grid: { color: isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)' },
+                    ticks: {
+                        color: isWhiteMode ? '#475569' : '#64748b',
+                        font: { family: 'JetBrains Mono', size: 10 },
+                        callback: function(value) {
+                            return formatNumber(value) + ' DH';
+                        }
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        color: isWhiteMode ? '#1e293b' : '#e2e8f0',
+                        font: { family: 'Inter', weight: 'bold', size: 11 },
+                        boxWidth: 15
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const datasetLabel = context.dataset.label || '';
+                            const val = context.parsed.y;
+                            return `${datasetLabel} : ${formatNumber(val)} DH`;
+                        }
+                    }
+                }
+            }
+        }
+    });
 }
 
 function renderQualiTrends(vendeursList) {
@@ -5001,8 +11351,8 @@ function populateTrendsTable(vendeursList) {
                 <tr>
                     <th>Date</th>
                     <th>Vendeur</th>
-                    <th>Réalisé (DH)</th>
-                    <th>Objectif (DH)</th>
+                    <th>Réalisé (${currentTaxMode})</th>
+                    <th>Objectif (${currentTaxMode})</th>
                     <th>Écart / Objectif (%)</th>
                 </tr>
             `;
@@ -5052,7 +11402,7 @@ function populateTrendsTable(vendeursList) {
         }
         
         const devPct = r.obj > 0 ? (r.pct - 100) : 0;
-        const pctClass = devPct >= 0 ? 'neon-text-green' : (devPct < -50 ? 'neon-text-pink' : 'neon-text-amber');
+        const pctClass = devPct >= 0 ? 'neon-text-green' : (devPct < -20 ? 'neon-text-pink' : 'neon-text-amber');
         const formattedPct = (devPct > 0 ? '+' : '') + devPct + '%';
         
         if (isJ1) {
@@ -5341,6 +11691,25 @@ async function executeBatchUploads() {
         const itemEl = document.getElementById(`multi-file-item-${item.index}`);
         const statusEl = document.getElementById(`multi-file-status-${item.index}`);
 
+        // Check if the date already exists in the database
+        if (availableDates.includes(item.date)) {
+            const dateParts = item.date.split('-');
+            const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : item.date;
+            const confirmOverwrite = confirm(`Les données pour la date ${formattedDate} (fichier ${item.file.name}) existent déjà. Voulez-vous les remplacer ?`);
+            if (!confirmOverwrite) {
+                if (statusEl) {
+                    statusEl.className = 'multi-file-status fail';
+                    statusEl.innerText = 'annulé';
+                }
+                if (itemEl) {
+                    itemEl.classList.remove('pending');
+                    itemEl.classList.add('error');
+                }
+                failCount++;
+                continue;
+            }
+        }
+
         if (statusEl) {
             statusEl.className = 'multi-file-status uploading';
             statusEl.innerText = 'importation...';
@@ -5352,10 +11721,6 @@ async function executeBatchUploads() {
         const formData = new FormData();
         formData.append('file', item.file);
         formData.append('date', item.date);
-
-        // Estimate remaining workdays based on date
-        const restDays = calculateRemainingWorkDays(item.date);
-        formData.append('rest_days', restDays);
 
         try {
             const response = await fetch('/api/upload', {
@@ -5425,7 +11790,7 @@ async function executeBatchUploads() {
             const detailsContainer = document.getElementById('details-container');
             if (detailsContainer && detailsContainer.style.display !== 'none') {
                 const familySelect = document.getElementById('details-family-select');
-                loadTrendsData(familySelect ? familySelect.value : 'C.A (ht)');
+                loadTrendsData(familySelect ? familySelect.value : 'C.A (TTC)');
             }
         }
     });
@@ -5437,7 +11802,7 @@ async function executeBatchUploads() {
 if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
     let initialMtime = null;
     setInterval(() => {
-        fetch('/api/reload-check')
+        fetch('/api/reload-check?_=' + Date.now())
             .then(res => res.json())
             .then(data => {
                 if (data.last_modified) {
@@ -5453,3 +11818,2831 @@ if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
     }, 1000);
 }
 
+
+/* ----------------------------------------------------
+   CLIENTS FULL TAB
+   ---------------------------------------------------- */
+
+// State held by the clients view. `cfFilters` mirrors the URL params sent
+// to /api/clients_full. `cfOptions` caches the distinct values used to
+// populate the advanced-filter dropdowns.
+const cfState = {
+    filters: {
+        search: '',
+        secteurs: [],
+        localites: [],
+        vendeurs_som: [],
+        vendeurs_vmm: [],
+        is_repeat: null,        // null | 0 | 1
+        sort_by: 'row_index',
+        sort_dir: 'ASC',
+    },
+    view: 'all',                // 'all' | 'unique'
+    unique_codes_count: 0,      // total unique codes (cached from /stats)
+    page: 1,
+    per_page: 25,
+    total: 0,
+    total_pages: 1,
+    options: {
+        secteurs: [],
+        localites: [],
+        vendeurs_som: [],
+        vendeurs_vmm: [],
+    },
+};
+
+function initClientsView() {
+    const navClients = document.getElementById('nav-clients');
+    const navDashboard = document.getElementById('nav-dashboard');
+    const navDetails = document.getElementById('nav-details');
+    const mainDashboard = document.getElementById('main-dashboard-container');
+    const detailsContainer = document.getElementById('details-container');
+    const clientsContainer = document.getElementById('clients-container');
+    const backBtn = document.getElementById('cf-back');
+    const dateSelect = document.getElementById('date-select');
+
+    if (!navClients || !clientsContainer) return;
+
+    const goToClients = (e) => {
+        if (e) e.preventDefault();
+        // Use real navigation so the URL reflects the current page
+        // and refresh / share-link / back-button all work correctly.
+        window.location.href = '/clients';
+    };
+
+    const goBackFromClients = (e) => {
+        if (e) e.preventDefault();
+        // Navigate to the Tableau de bord (the default landing page).
+        window.location.href = '/';
+    };
+
+    navClients.addEventListener('click', goToClients);
+    if (backBtn) backBtn.addEventListener('click', goBackFromClients);
+
+    const navClientsFacturation = document.getElementById('nav-clients-facturation');
+    if (navClientsFacturation) {
+        navClientsFacturation.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.location.href = '/clients?view=facturation';
+        });
+    }
+
+    // Search input (debounced)
+    const searchInput = document.getElementById('cf-search');
+    if (searchInput) {
+        let searchTimer = null;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                cfState.filters.search = searchInput.value.trim();
+                cfState.page = 1;
+                loadClientsData();
+            }, 300);
+        });
+    }
+
+    // Reset button
+    const resetBtn = document.getElementById('cf-reset');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            cfState.filters = {
+                search: '',
+                secteurs: [],
+                localites: [],
+                vendeurs_som: [],
+                vendeurs_vmm: [],
+                is_repeat: null,
+                sort_by: 'row_index',
+                sort_dir: 'ASC',
+            };
+            cfState.page = 1;
+            if (searchInput) searchInput.value = '';
+            // Reset all multi-selects
+            document.querySelectorAll('.cf-multi-select').forEach(sel => {
+                sel.dataset.selected = '[]';
+                const lbl = sel.querySelector('.cf-multi-label');
+                if (lbl) {
+                    lbl.textContent = lbl.dataset.placeholder || lbl.textContent;
+                }
+                sel.querySelectorAll('.cf-multi-option').forEach(opt => {
+                    const cb = opt.querySelector('input[type=checkbox]');
+                    if (cb) cb.checked = false;
+                    opt.classList.remove('is-checked');
+                });
+            });
+            renderActiveChips();
+            loadClientsData();
+        });
+    }
+
+    // Export button
+    const exportBtn = document.getElementById('cf-export');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', () => {
+            const params = buildClientsQueryString();
+            window.location.href = '/api/clients_full/export?' + params;
+        });
+    }
+
+    // Repeat select removed (DONT REPETE column no longer shown)
+
+    // Per-page select
+    const perPageSel = document.getElementById('cf-per-page');
+    if (perPageSel) {
+        perPageSel.addEventListener('change', () => {
+            cfState.per_page = Number(perPageSel.value) || 25;
+            cfState.page = 1;
+            loadClientsData();
+        });
+    }
+
+    // View toggle: TOUS / UNIQUES
+    document.querySelectorAll('.cf-view-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const newView = btn.dataset.view;
+            if (newView === cfState.view) return;
+            cfState.view = newView;
+            cfState.page = 1;
+            // Update toggle UI
+            document.querySelectorAll('.cf-view-btn').forEach(b => {
+                b.classList.toggle('is-active', b.dataset.view === newView);
+            });
+            loadClientsData();
+        });
+    });
+
+    // Advanced filter toggle
+    const advToggle = document.getElementById('cf-toggle-advanced');
+    const advPanel = document.getElementById('cf-advanced-panel');
+    const advChevron = document.getElementById('cf-advanced-chevron');
+    if (advToggle && advPanel) {
+        advToggle.addEventListener('click', () => {
+            const isOpen = advPanel.style.display !== 'none';
+            advPanel.style.display = isOpen ? 'none' : 'block';
+            if (advChevron) advChevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+        });
+    }
+
+    // Pagination buttons
+    const firstBtn = document.getElementById('cf-page-first');
+    const prevBtn = document.getElementById('cf-page-prev');
+    const nextBtn = document.getElementById('cf-page-next');
+    const lastBtn = document.getElementById('cf-page-last');
+    if (firstBtn) firstBtn.addEventListener('click', () => goToPage(1));
+    if (prevBtn) prevBtn.addEventListener('click', () => goToPage(Math.max(1, cfState.page - 1)));
+    if (nextBtn) nextBtn.addEventListener('click', () => goToPage(Math.min(cfState.total_pages, cfState.page + 1)));
+    if (lastBtn) lastBtn.addEventListener('click', () => goToPage(cfState.total_pages));
+
+    // Sortable headers
+    document.querySelectorAll('#cf-table th[data-sort]').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            if (cfState.filters.sort_by === col) {
+                cfState.filters.sort_dir = cfState.filters.sort_dir === 'ASC' ? 'DESC' : 'ASC';
+            } else {
+                cfState.filters.sort_by = col;
+                cfState.filters.sort_dir = 'ASC';
+            }
+            loadClientsData();
+        });
+    });
+
+    // Close multi-selects when clicking outside
+    document.addEventListener('click', (e) => {
+        document.querySelectorAll('.cf-multi-select.is-open').forEach(sel => {
+            if (!sel.contains(e.target)) {
+                sel.classList.remove('is-open');
+                const menu = sel.querySelector('.cf-multi-menu');
+                if (menu) menu.style.display = 'none';
+                const toggle = sel.querySelector('.cf-multi-toggle');
+                if (toggle) toggle.classList.remove('is-open');
+            }
+        });
+    });
+}
+
+function goToPage(p) {
+    if (p < 1 || p > cfState.total_pages) return;
+    cfState.page = p;
+    loadClientsData();
+}
+
+function buildClientsQueryString() {
+    const f = cfState.filters;
+    const params = new URLSearchParams();
+    if (f.search) params.set('search', f.search);
+    if (f.secteurs.length) params.set('secteurs', f.secteurs.join(','));
+    if (f.localites.length) params.set('localites', f.localites.join(','));
+    if (f.vendeurs_som.length) params.set('vendeurs_som', f.vendeurs_som.join(','));
+    if (f.vendeurs_vmm.length) params.set('vendeurs_vmm', f.vendeurs_vmm.join(','));
+    if (f.is_repeat !== null) params.set('is_repeat', String(f.is_repeat));
+    if (cfState.view === 'unique') params.set('unique', '1');
+    params.set('sort_by', f.sort_by);
+    params.set('sort_dir', f.sort_dir);
+    params.set('page', String(cfState.page));
+    params.set('per_page', String(cfState.per_page));
+    return params.toString();
+}
+
+async function loadClientsData() {
+    const loading = document.getElementById('cf-loading');
+    const empty = document.getElementById('cf-empty');
+    const tbody = document.getElementById('cf-tbody');
+    if (loading) loading.style.display = 'block';
+    if (empty) empty.style.display = 'none';
+
+    try {
+        const qs = buildClientsQueryString();
+        const [listRes, statsRes, filtRes] = await Promise.all([
+            fetch('/api/clients_full?' + qs + '&_=' + Date.now()).then(r => r.json()),
+            fetch('/api/clients_full/stats?_=' + Date.now()).then(r => r.json()),
+            fetch('/api/clients_full/filters?_=' + Date.now()).then(r => r.json()),
+        ]);
+
+        if (listRes.status !== 'success') {
+            throw new Error(listRes.message || 'Erreur inconnue');
+        }
+
+        // Cache filter options
+        if (filtRes.status === 'success') {
+            cfState.options = filtRes.filters;
+            populateAdvancedFilters();
+        }
+
+        // Render stats (KPI cards)
+        if (statsRes.status === 'success') {
+            const s = statsRes.stats;
+            const totalEl = document.getElementById('cf-total');
+            const uniqueEl = document.getElementById('cf-unique');
+            const repeatEl = document.getElementById('cf-repeats');
+            if (totalEl) totalEl.textContent = s.total.toLocaleString('fr-FR');
+            if (uniqueEl) uniqueEl.textContent = s.unique_codes.toLocaleString('fr-FR');
+            if (repeatEl) repeatEl.textContent = s.repeats.toLocaleString('fr-FR');
+            // Update view toggle badges
+            const allCount = document.getElementById('cf-view-count-all');
+            const uniqueCount = document.getElementById('cf-view-count-unique');
+            if (allCount) allCount.textContent = s.total.toLocaleString('fr-FR');
+            if (uniqueCount) uniqueCount.textContent = s.unique_codes.toLocaleString('fr-FR');
+            cfState.unique_codes_count = s.unique_codes;
+        }
+
+        cfState.total = listRes.total;
+        cfState.total_pages = listRes.total_pages;
+        cfState.page = listRes.page;
+        cfState.per_page = listRes.per_page;
+
+        // Filtered count
+        const filteredEl = document.getElementById('cf-filtered');
+        if (filteredEl) filteredEl.textContent = listRes.total.toLocaleString('fr-FR');
+
+        // Render table
+        renderClientsTable(listRes.rows);
+        renderPagination();
+
+        const badge = document.getElementById('cf-table-badge');
+        if (badge) badge.textContent = `${listRes.total.toLocaleString('fr-FR')} LIGNES`;
+
+        if (listRes.rows.length === 0 && listRes.total === 0) {
+            if (empty) empty.style.display = 'block';
+        }
+
+        // Refresh chips and multi-select UI
+        renderActiveChips();
+        document.querySelectorAll('.cf-multi-select').forEach(sel => {
+            const fk = sel.dataset.filter;
+            const cfg = {
+                filterKey: fk,
+                label: sel.querySelector('.cf-multi-label')?.dataset.placeholder || '',
+            };
+            refreshMultiSelectState(sel, cfg);
+        });
+    } catch (e) {
+        console.error('loadClientsData error:', e);
+        showToast('Erreur chargement clients: ' + e.message, 'error');
+    } finally {
+        if (loading) loading.style.display = 'none';
+    }
+}
+
+function renderClientsTable(rows) {
+    const tbody = document.getElementById('cf-tbody');
+    if (!tbody) return;
+    if (!rows || rows.length === 0) {
+        tbody.innerHTML = '';
+        return;
+    }
+    tbody.innerHTML = '';
+    rows.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.className = r.is_repeat ? 'cf-row-repeat' : '';
+        tr.innerHTML = `
+            <td class="cf-code-cell">${escapeHtml(r.code)}</td>
+            <td>${escapeHtml(r.name)}</td>
+            <td>${escapeHtml(r.secteur)}</td>
+            <td>${escapeHtml(r.localite)}</td>
+            <td>${r.vendeur_som ? `<span style="color:var(--neon-blue,#00c8ff);font-size:0.82rem;">${escapeHtml(r.vendeur_som)}</span>` : '<span style="color:var(--text-muted,#8892a4);font-size:0.78rem;">—</span>'}</td>
+            <td>${r.vendeur_vmm ? `<span style="color:#a78bfa;font-size:0.82rem;">${escapeHtml(r.vendeur_vmm)}</span>` : '<span style="color:var(--text-muted,#8892a4);font-size:0.78rem;">—</span>'}</td>
+        `;
+        tr.addEventListener('click', () => openCMModal(r));
+        tbody.appendChild(tr);
+    });
+
+    // Highlight sorted column
+    const sortCol = cfState.filters.sort_by;
+    const sortDir = cfState.filters.sort_dir;
+    document.querySelectorAll('#cf-table th[data-sort]').forEach(th => {
+        th.classList.toggle('is-sorted', th.dataset.sort === sortCol);
+        let arrow = th.querySelector('.sort-arrow');
+        if (!arrow) {
+            arrow = document.createElement('span');
+            arrow.className = 'sort-arrow';
+            th.appendChild(arrow);
+        }
+        if (th.dataset.sort === sortCol) {
+            arrow.innerHTML = sortDir === 'ASC' ? '▲' : '▼';
+        } else {
+            arrow.innerHTML = '↕';
+        }
+    });
+}
+
+function renderPagination() {
+    const info = document.getElementById('cf-pagination-info');
+    const indicator = document.getElementById('cf-page-indicator');
+    if (info) {
+        const start = cfState.total === 0 ? 0 : (cfState.page - 1) * cfState.per_page + 1;
+        const end = Math.min(cfState.page * cfState.per_page, cfState.total);
+        info.textContent = `Affichage ${start.toLocaleString('fr-FR')}\u2013${end.toLocaleString('fr-FR')} sur ${cfState.total.toLocaleString('fr-FR')}`;
+    }
+    if (indicator) {
+        indicator.textContent = `Page ${cfState.page} / ${cfState.total_pages}`;
+    }
+    const first = document.getElementById('cf-page-first');
+    const prev = document.getElementById('cf-page-prev');
+    const next = document.getElementById('cf-page-next');
+    const last = document.getElementById('cf-page-last');
+    if (first) first.disabled = cfState.page <= 1;
+    if (prev) prev.disabled = cfState.page <= 1;
+    if (next) next.disabled = cfState.page >= cfState.total_pages;
+    if (last) last.disabled = cfState.page >= cfState.total_pages;
+}
+
+function populateAdvancedFilters() {
+    const configs = [
+        { key: 'secteurs', label: 'Tous les secteurs', filterKey: 'secteurs' },
+        { key: 'localites', label: 'Toutes les localités', filterKey: 'localites' },
+        { key: 'vendeurs_som', label: 'Tous les vendeurs SOM', filterKey: 'vendeurs_som' },
+        { key: 'vendeurs_vmm', label: 'Tous les vendeurs VMM', filterKey: 'vendeurs_vmm' },
+    ];
+    configs.forEach(cfg => {
+        const sel = document.querySelector(`.cf-multi-select[data-filter="${cfg.filterKey}"]`);
+        if (!sel) return;
+        const toggle = sel.querySelector('.cf-multi-toggle');
+        const lbl = sel.querySelector('.cf-multi-label');
+        const menu = sel.querySelector('.cf-multi-menu');
+        if (!toggle || !menu) return;
+
+        lbl.dataset.placeholder = cfg.label;
+        const values = cfState.options[cfg.key] || [];
+
+        // Skip full rebuild if the menu is already populated for the right size
+        if (sel.dataset.optionsLen === String(values.length) && menu.dataset.built === '1') {
+            // Just refresh checked state and label
+            refreshMultiSelectState(sel, cfg);
+            return;
+        }
+
+        // Build menu
+        menu.innerHTML = `
+            <input type="text" class="cf-multi-search" placeholder="Rechercher...">
+            <div class="cf-multi-actions">
+                <button type="button" data-act="all">Tout</button>
+                <button type="button" data-act="none">Aucun</button>
+            </div>
+            <div class="cf-multi-options"></div>
+        `;
+        const optsContainer = menu.querySelector('.cf-multi-options');
+        optsContainer.innerHTML = values.map(v => `
+            <label class="cf-multi-option" data-value="${escapeAttr(v)}">
+                <input type="checkbox" value="${escapeAttr(v)}">
+                <span>${escapeHtml(v)}</span>
+            </label>
+        `).join('');
+        if (values.length === 0) {
+            optsContainer.innerHTML = '<div class="cf-multi-empty">Aucune valeur</div>';
+        }
+        menu.dataset.built = '1';
+        sel.dataset.optionsLen = String(values.length);
+
+        // Toggle menu on click
+        toggle.onclick = (e) => {
+            e.stopPropagation();
+            const isOpen = sel.classList.contains('is-open');
+            // Close all other menus
+            document.querySelectorAll('.cf-multi-select.is-open').forEach(s => {
+                if (s !== sel) {
+                    s.classList.remove('is-open');
+                    s.querySelector('.cf-multi-menu').style.display = 'none';
+                    s.querySelector('.cf-multi-toggle').classList.remove('is-open');
+                }
+            });
+            if (isOpen) {
+                sel.classList.remove('is-open');
+                menu.style.display = 'none';
+                toggle.classList.remove('is-open');
+            } else {
+                sel.classList.add('is-open');
+                menu.style.display = 'block';
+                toggle.classList.add('is-open');
+                const searchInput = menu.querySelector('.cf-multi-search');
+                if (searchInput) {
+                    setTimeout(() => searchInput.focus(), 30);
+                }
+            }
+        };
+
+        // Search filter inside menu
+        const searchInput = menu.querySelector('.cf-multi-search');
+        if (searchInput) {
+            searchInput.addEventListener('input', () => {
+                const q = searchInput.value.toLowerCase();
+                optsContainer.querySelectorAll('.cf-multi-option').forEach(opt => {
+                    const v = (opt.dataset.value || '').toLowerCase();
+                    opt.style.display = v.includes(q) ? '' : 'none';
+                });
+            });
+            searchInput.addEventListener('click', e => e.stopPropagation());
+        }
+
+        // Select all / none
+        menu.querySelector('[data-act="all"]').onclick = (e) => {
+            e.stopPropagation();
+            optsContainer.querySelectorAll('.cf-multi-option').forEach(opt => {
+                const cb = opt.querySelector('input[type=checkbox]');
+                if (cb && opt.style.display !== 'none') cb.checked = true;
+            });
+            commitMultiSelect(sel, cfg);
+        };
+        menu.querySelector('[data-act="none"]').onclick = (e) => {
+            e.stopPropagation();
+            optsContainer.querySelectorAll('.cf-multi-option input[type=checkbox]').forEach(cb => {
+                cb.checked = false;
+            });
+            commitMultiSelect(sel, cfg);
+        };
+
+        // Checkbox change
+        optsContainer.querySelectorAll('.cf-multi-option').forEach(opt => {
+            opt.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const cb = opt.querySelector('input[type=checkbox]');
+                if (e.target !== cb) cb.checked = !cb.checked;
+                commitMultiSelect(sel, cfg);
+            });
+            const cb = opt.querySelector('input[type=checkbox]');
+            if (cb) {
+                cb.addEventListener('click', e => e.stopPropagation());
+                cb.addEventListener('change', () => commitMultiSelect(sel, cfg));
+            }
+        });
+
+        refreshMultiSelectState(sel, cfg);
+    });
+}
+
+function refreshMultiSelectState(sel, cfg) {
+    const lbl = sel.querySelector('.cf-multi-label');
+    if (!lbl) return;
+    const selected = cfState.filters[cfg.filterKey] || [];
+
+    // Remove old count badge if any
+    const oldBadge = sel.querySelector('.cf-multi-count');
+    if (oldBadge) oldBadge.remove();
+
+    if (selected.length === 0) {
+        lbl.textContent = cfg.label;
+        lbl.classList.add('is-empty');
+        lbl.classList.remove('has-selection');
+    } else {
+        lbl.textContent = selected.length === 1
+            ? selected[0]
+            : `${selected.length} sélectionnés`;
+        lbl.classList.remove('is-empty');
+        lbl.classList.add('has-selection');
+        // Add count badge
+        const badge = document.createElement('span');
+        badge.className = 'cf-multi-count';
+        badge.textContent = String(selected.length);
+        lbl.parentElement.appendChild(badge);
+    }
+
+    sel.querySelectorAll('.cf-multi-option').forEach(opt => {
+        const cb = opt.querySelector('input[type=checkbox]');
+        if (!cb) return;
+        const checked = selected.includes(cb.value);
+        cb.checked = checked;
+        opt.classList.toggle('is-checked', checked);
+    });
+}
+
+function commitMultiSelect(sel, cfg) {
+    const checked = Array.from(sel.querySelectorAll('.cf-multi-option input[type=checkbox]:checked'))
+        .map(cb => cb.value);
+    cfState.filters[cfg.filterKey] = checked;
+    cfState.page = 1;
+    refreshMultiSelectState(sel, cfg);
+    loadClientsData();
+}
+
+function renderActiveChips() {
+    const wrap = document.getElementById('cf-active-chips');
+    if (!wrap) return;
+    const f = cfState.filters;
+    const chips = [];
+
+    if (f.search) {
+        chips.push({
+            label: `RECH: "${f.search}"`,
+            cls: '',
+            onRemove: () => {
+                f.search = '';
+                const inp = document.getElementById('cf-search');
+                if (inp) inp.value = '';
+                cfState.page = 1;
+                loadClientsData();
+            },
+        });
+    }
+    f.secteurs.forEach(v => chips.push({
+        label: `SECTEUR: ${v}`,
+        onRemove: () => removeFromMulti('secteurs', v),
+    }));
+    f.localites.forEach(v => chips.push({
+        label: `LOCALITÉ: ${v}`,
+        onRemove: () => removeFromMulti('localites', v),
+    }));
+    f.vendeurs_som.forEach(v => chips.push({
+        label: `SOM: ${v}`,
+        onRemove: () => removeFromMulti('vendeurs_som', v),
+    }));
+    f.vendeurs_vmm.forEach(v => chips.push({
+        label: `VMM: ${v}`,
+        onRemove: () => removeFromMulti('vendeurs_vmm', v),
+    }));
+
+    if (chips.length === 0) {
+        wrap.innerHTML = '';
+        return;
+    }
+    wrap.innerHTML = chips.map(c => `
+        <span class="cf-chip ${c.cls || ''}">
+            ${escapeHtml(c.label)}
+            <i class="fa-solid fa-xmark cf-chip-remove"></i>
+        </span>
+    `).join('');
+    wrap.querySelectorAll('.cf-chip').forEach((el, i) => {
+        el.querySelector('.cf-chip-remove').addEventListener('click', () => {
+            const c = chips[i];
+            if (c.onRemove) c.onRemove();
+        });
+    });
+}
+
+function removeFromMulti(filterKey, value) {
+    const arr = cfState.filters[filterKey] || [];
+    cfState.filters[filterKey] = arr.filter(v => v !== value);
+    cfState.page = 1;
+    // Refresh the corresponding dropdown UI
+    const sel = document.querySelector(`.cf-multi-select[data-filter="${filterKey}"]`);
+    const cfg = { filterKey };
+    if (sel) refreshMultiSelectState(sel, cfg);
+    loadClientsData();
+}
+
+
+// ====================================================
+// CLIENT ACTION MODAL (cm-*)
+// ====================================================
+
+let cmCurrentClient = null;   // The row data of the selected client
+let cmVendeurs = { som: [], vmm: [] };  // Cached from API
+let cmSecteurs = [];           // Cached secteurs list
+let cmVendeursLoaded = false;
+let cmSecteursLoaded = false;
+
+async function openCMModal(clientRow) {
+    cmCurrentClient = clientRow;
+
+    // Populate header
+    document.getElementById('cm-code').textContent = clientRow.code || '';
+    document.getElementById('cm-name').textContent = clientRow.name || '';
+    document.getElementById('cm-meta').textContent =
+        `${clientRow.secteur || ''}  ·  ${clientRow.localite || ''}`;
+
+    // Delete tab info
+    document.getElementById('cm-del-code').textContent = clientRow.code || '';
+    document.getElementById('cm-del-name').textContent = clientRow.name || '';
+
+    // Edit tab: pre-fill name
+    document.getElementById('cm-edit-name').value = clientRow.name || '';
+
+    // Reset all feedbacks
+    ['cm-assign-feedback', 'cm-edit-feedback', 'cm-delete-feedback'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.style.display = 'none'; el.className = 'cm-feedback'; el.textContent = ''; }
+    });
+
+    // Show first tab
+    switchCMTabById('cm-tab-vendeur');
+
+    // Show overlay
+    document.getElementById('client-modal-overlay').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+
+    // Highlight selected row
+    document.querySelectorAll('#cf-tbody tr').forEach(tr => tr.classList.remove('cm-selected'));
+    // find the clicked row (match by data)
+    document.querySelectorAll('#cf-tbody tr').forEach(tr => {
+        const codeCell = tr.querySelector('.cf-code-cell');
+        if (codeCell && codeCell.textContent === clientRow.code) {
+            // Double-check name too to handle duplicates
+            const cells = tr.querySelectorAll('td');
+            if (cells[1] && cells[1].textContent === clientRow.name) {
+                tr.classList.add('cm-selected');
+            }
+        }
+    });
+
+    // Load vendeurs and secteurs if not yet loaded
+    await Promise.all([loadCMVendeurs(), loadCMSecteurs()]);
+    populateCMEditSecteurs();
+}
+
+function closeCMModal(e) {
+    if (e && e.target !== document.getElementById('client-modal-overlay')) return;
+    document.getElementById('client-modal-overlay').style.display = 'none';
+    document.body.style.overflow = '';
+    document.querySelectorAll('#cf-tbody tr').forEach(tr => tr.classList.remove('cm-selected'));
+    cmCurrentClient = null;
+}
+
+function switchCMTab(btn) {
+    const tabId = btn.dataset.tab;
+    document.querySelectorAll('.cm-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.cm-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(tabId).classList.add('active');
+}
+
+function switchCMTabById(tabId) {
+    document.querySelectorAll('.cm-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tabId);
+    });
+    document.querySelectorAll('.cm-panel').forEach(p => {
+        p.classList.toggle('active', p.id === tabId);
+    });
+}
+
+async function loadCMVendeurs() {
+    if (cmVendeursLoaded) { populateCMVendeurSelects(); return; }
+    try {
+        const res = await fetch('/api/clients/vendeurs-select').then(r => r.json());
+        if (res.status === 'success') {
+            cmVendeurs.som = res.som || [];
+            cmVendeurs.vmm = res.vmm || [];
+            cmVendeursLoaded = true;
+            populateCMVendeurSelects();
+        }
+    } catch(e) { console.error('Failed to load vendeurs', e); }
+}
+
+function populateCMVendeurSelects() {
+    const selSom = document.getElementById('cm-sel-som');
+    const selVmm = document.getElementById('cm-sel-vmm');
+    if (!selSom || !selVmm) return;
+
+    const cur = cmCurrentClient || {};
+    const curSom = cur.vendeur_som || '';
+    const curVmm = cur.vendeur_vmm || '';
+
+    // Build a lookup: vendeur name → is dual-channel
+    const dualNames = new Set();
+    cmVendeurs.som.forEach(v => { if (v.dual) dualNames.add(v.vendeur); });
+    cmVendeurs.vmm.forEach(v => { if (v.dual) dualNames.add(v.vendeur); });
+
+    function buildOption(v) {
+        const opt = document.createElement('option');
+        opt.value = v.vendeur;
+        const isDual = v.dual || dualNames.has(v.vendeur);
+        const badge = isDual ? ' ⚡ SOM+VMM' : '';
+        opt.textContent = v.vendeur + badge + (v.secteur ? ` · ${v.secteur}` : '');
+        if (isDual) opt.dataset.dual = '1';
+        return opt;
+    }
+
+    selSom.innerHTML = '<option value="">— Aucun / Conserver —</option>';
+    cmVendeurs.som.forEach(v => {
+        const opt = buildOption(v);
+        if (v.vendeur === curSom) opt.selected = true;
+        selSom.appendChild(opt);
+    });
+
+    selVmm.innerHTML = '<option value="">— Aucun / Conserver —</option>';
+    cmVendeurs.vmm.forEach(v => {
+        const opt = buildOption(v);
+        if (v.vendeur === curVmm) opt.selected = true;
+        selVmm.appendChild(opt);
+    });
+
+    // Auto-sync: when a dual vendeur is chosen in SOM → also select in VMM (and vice versa)
+    selSom.onchange = () => {
+        const chosen = selSom.options[selSom.selectedIndex];
+        if (chosen && chosen.dataset.dual === '1') {
+            // Find same vendeur in VMM dropdown and select it
+            const name = chosen.value;
+            for (const opt of selVmm.options) {
+                if (opt.value === name) { selVmm.value = name; break; }
+            }
+            showDualBadge(name);
+        } else {
+            hideDualBadge();
+        }
+    };
+
+    selVmm.onchange = () => {
+        const chosen = selVmm.options[selVmm.selectedIndex];
+        if (chosen && chosen.dataset.dual === '1') {
+            const name = chosen.value;
+            for (const opt of selSom.options) {
+                if (opt.value === name) { selSom.value = name; break; }
+            }
+            showDualBadge(name);
+        } else {
+            hideDualBadge();
+        }
+    };
+}
+
+function showDualBadge(vendeurName) {
+    let badge = document.getElementById('cm-dual-badge');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'cm-dual-badge';
+        badge.style.cssText = `
+            margin-top:0.6rem; padding:0.45rem 0.8rem;
+            background:rgba(255,200,0,0.1); border:1px solid rgba(255,200,0,0.35);
+            border-radius:7px; font-size:0.78rem; color:#ffd700;
+            display:flex; align-items:center; gap:0.4rem;
+        `;
+        const panel = document.getElementById('cm-tab-vendeur');
+        const grid = panel ? panel.querySelector('.cm-form-grid') : null;
+        if (grid) grid.after(badge);
+    }
+    badge.innerHTML = '<i class="fa-solid fa-bolt"></i> <strong>' + escapeHtml(vendeurName) +
+        '</strong> assigne SOM <em>et</em> VMM — les deux champs ont été remplis automatiquement.';
+    badge.style.display = 'flex';
+}
+
+function hideDualBadge() {
+    const badge = document.getElementById('cm-dual-badge');
+    if (badge) badge.style.display = 'none';
+}
+
+async function loadCMSecteurs() {
+    if (cmSecteursLoaded) return;
+    try {
+        const res = await fetch('/api/secteurs').then(r => r.json());
+        if (res.status === 'success') {
+            cmSecteurs = res.secteurs || [];
+            cmSecteursLoaded = true;
+        }
+    } catch(e) { console.error('Failed to load secteurs', e); }
+}
+
+function populateCMEditSecteurs() {
+    const sel = document.getElementById('cm-edit-secteur');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Secteur —</option>';
+    cmSecteurs.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name;
+        if (cmCurrentClient && s.id === cmCurrentClient.secteur_id) opt.selected = true;
+        sel.appendChild(opt);
+    });
+    // Load localites for current secteur
+    if (cmCurrentClient && cmCurrentClient.secteur_id) {
+        loadCMLocalites(cmCurrentClient.secteur_id, cmCurrentClient.localite_id);
+    }
+}
+
+async function onEditSecteurChange() {
+    const secteurId = document.getElementById('cm-edit-secteur').value;
+    if (secteurId) await loadCMLocalites(secteurId, null);
+}
+
+async function loadCMLocalites(secteurId, selectLocaliteId) {
+    const sel = document.getElementById('cm-edit-localite');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Chargement...</option>';
+    try {
+        const res = await fetch(`/api/localites?secteur_id=${secteurId}`).then(r => r.json());
+        sel.innerHTML = '<option value="">— Localité —</option>';
+        if (res.status === 'success') {
+            (res.localites || []).forEach(l => {
+                const opt = document.createElement('option');
+                opt.value = l.id;
+                opt.textContent = l.name;
+                if (selectLocaliteId && l.id === selectLocaliteId) opt.selected = true;
+                sel.appendChild(opt);
+            });
+        }
+    } catch(e) {
+        sel.innerHTML = '<option value="">Erreur de chargement</option>';
+    }
+}
+
+function showCMFeedback(elementId, message, type) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    el.textContent = (type === 'success' ? '✓ ' : '✗ ') + message;
+    el.className = `cm-feedback ${type}`;
+    el.style.display = 'block';
+}
+
+async function doAssignVendeur() {
+    if (!cmCurrentClient) return;
+    const somVendeur = document.getElementById('cm-sel-som').value;
+    const vmmVendeur = document.getElementById('cm-sel-vmm').value;
+
+    if (!somVendeur && !vmmVendeur) {
+        showCMFeedback('cm-assign-feedback', 'Choisissez au moins un vendeur SOM ou VMM.', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('cm-assign-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Application...';
+
+    try {
+        const requests = [];
+        if (somVendeur) {
+            requests.push(fetch(`/api/clients/${cmCurrentClient.id}/assign-vendeur`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel: 'som', vendeur: somVendeur }),
+            }).then(r => r.json()));
+        }
+        if (vmmVendeur) {
+            requests.push(fetch(`/api/clients/${cmCurrentClient.id}/assign-vendeur`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel: 'vmm', vendeur: vmmVendeur }),
+            }).then(r => r.json()));
+        }
+
+        const results = await Promise.all(requests);
+        const errors = results.filter(r => r.status !== 'success');
+
+        if (errors.length > 0) {
+            showCMFeedback('cm-assign-feedback', errors[0].message || 'Erreur', 'error');
+        } else {
+            const totalAffected = results.reduce((sum, r) => sum + (r.affected || 0), 0);
+            const secteur = results[0].secteur;
+            showCMFeedback('cm-assign-feedback',
+                `${totalAffected} clients mis à jour dans le secteur « ${secteur} »`, 'success');
+            // Refresh table
+            setTimeout(() => { loadClientsData(); }, 1200);
+        }
+    } catch(e) {
+        showCMFeedback('cm-assign-feedback', 'Erreur réseau: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-check"></i> Appliquer au secteur';
+    }
+}
+
+async function doEditClient() {
+    if (!cmCurrentClient) return;
+    const name = document.getElementById('cm-edit-name').value.trim();
+    const secteurId = document.getElementById('cm-edit-secteur').value;
+    const localiteId = document.getElementById('cm-edit-localite').value;
+
+    if (!name) {
+        showCMFeedback('cm-edit-feedback', 'Le nom ne peut pas être vide.', 'error');
+        return;
+    }
+
+    const payload = { name };
+    if (secteurId) payload.secteur_id = parseInt(secteurId);
+    if (localiteId) payload.localite_id = parseInt(localiteId);
+
+    try {
+        const res = await fetch(`/api/clients/${cmCurrentClient.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        }).then(r => r.json());
+
+        if (res.status === 'success') {
+            showCMFeedback('cm-edit-feedback', 'Client modifié avec succès.', 'success');
+            cmCurrentClient = { ...cmCurrentClient, ...res.client };
+            // Update header
+            document.getElementById('cm-name').textContent = res.client.name;
+            document.getElementById('cm-meta').textContent =
+                `${res.client.secteur}  ·  ${res.client.localite}`;
+            setTimeout(() => loadClientsData(), 1000);
+        } else {
+            showCMFeedback('cm-edit-feedback', res.message || 'Erreur', 'error');
+        }
+    } catch(e) {
+        showCMFeedback('cm-edit-feedback', 'Erreur réseau: ' + e.message, 'error');
+    }
+}
+
+async function doDeleteClient() {
+    if (!cmCurrentClient) return;
+    try {
+        const res = await fetch(`/api/clients/${cmCurrentClient.id}`, {
+            method: 'DELETE',
+        }).then(r => r.json());
+
+        if (res.status === 'success') {
+            showCMFeedback('cm-delete-feedback', 'Client supprimé.', 'success');
+            setTimeout(() => {
+                closeCMModal();
+                loadClientsData();
+            }, 800);
+        } else {
+            showCMFeedback('cm-delete-feedback', res.message || 'Erreur', 'error');
+        }
+    } catch(e) {
+        showCMFeedback('cm-delete-feedback', 'Erreur réseau: ' + e.message, 'error');
+    }
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('client-modal-overlay')?.style.display !== 'none') {
+        document.getElementById('client-modal-overlay').style.display = 'none';
+        document.body.style.overflow = '';
+        document.querySelectorAll('#cf-tbody tr').forEach(tr => tr.classList.remove('cm-selected'));
+        cmCurrentClient = null;
+    }
+});
+
+// ====================================================
+// LAYOUT MANAGER (DRAG & DROP, COLLAPSE, HIDE/SHOW)
+// ====================================================
+
+function initLayoutManager() {
+    const layoutLeft = document.querySelector('.layout-left');
+    const layoutRight = document.querySelector('.layout-right');
+    if (!layoutLeft || !layoutRight) return;
+
+    // 1. Load layout states from localStorage
+    const savedLayout = localStorage.getItem('dashboard-layout-states');
+    if (savedLayout) {
+        try {
+            layoutStates = JSON.parse(savedLayout);
+            if (!layoutStates.visible) layoutStates.visible = {};
+            if (!layoutStates.collapsed) layoutStates.collapsed = {};
+            if (!layoutStates.order) layoutStates.order = { left: [], right: [] };
+        } catch (e) {
+            console.error("Error parsing layout states:", e);
+        }
+    }
+
+    // 2. Restore order of cards
+    if (layoutStates.order.left && layoutStates.order.left.length > 0) {
+        layoutStates.order.left.forEach(id => {
+            const card = document.getElementById(id);
+            if (card) layoutLeft.appendChild(card);
+        });
+    }
+    if (layoutStates.order.right && layoutStates.order.right.length > 0) {
+        layoutStates.order.right.forEach(id => {
+            const card = document.getElementById(id);
+            if (card) layoutRight.appendChild(card);
+        });
+    }
+
+    // 3. Set up each card (Draggable, collapse buttons, close buttons, restored states)
+    const cards = [
+        'quanti-chart-card',
+        'quali-chart-card',
+        'radar-chart-card',
+        'focus-card',
+        'chakib-families-progress-card',
+        'chakib-focus-progress-card',
+        'quanti-table-card',
+        'quali-table-card',
+        'alerts-section'
+    ];
+
+    cards.forEach(cardId => {
+        const card = document.getElementById(cardId);
+        if (!card) return;
+
+        // Ensure card has a default draggable state of false
+        card.setAttribute('draggable', 'false');
+
+        // Dynamically inject header action buttons
+        const header = card.querySelector('.card-header');
+        if (header) {
+            // Check if action container already exists to avoid double injection
+            let actions = header.querySelector('.card-actions');
+            if (!actions) {
+                actions = document.createElement('div');
+                actions.className = 'card-actions';
+                actions.style.cssText = 'margin-left: auto; display: flex; gap: 0.5rem; align-items: center; z-index: 10;';
+                
+                const isCollapsed = layoutStates.collapsed[cardId] === true;
+                const collapseIcon = isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
+                
+                const isTableOrChart = [
+                    'quanti-chart-card',
+                    'quali-chart-card',
+                    'radar-chart-card',
+                    'quanti-table-card',
+                    'quali-table-card',
+                    'chakib-families-progress-card',
+                    'chakib-focus-progress-card'
+                ].includes(cardId);
+
+                let copyBtnHtml = '';
+                if (isTableOrChart) {
+                    copyBtnHtml = `
+                        <button class="card-action-btn copy-btn" title="Copier comme image" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 0.8rem; transition: color 0.2s;">
+                            <i class="fa-solid fa-copy"></i>
+                        </button>
+                    `;
+                }
+
+                actions.innerHTML = `
+                    ${copyBtnHtml}
+                    <button class="card-action-btn collapse-btn" title="Minimiser/Maximiser" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 0.8rem; transition: color 0.2s;">
+                        <i class="fa-solid ${collapseIcon}"></i>
+                    </button>
+                    <button class="card-action-btn hide-btn" title="Masquer" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 0.8rem; transition: color 0.2s;">
+                        <i class="fa-solid fa-eye-slash"></i>
+                    </button>
+                `;
+                header.appendChild(actions);
+
+                // Setup button listeners
+                if (isTableOrChart) {
+                    const copyBtn = actions.querySelector('.copy-btn');
+                    copyBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        copyCardAsImage(cardId);
+                    });
+                }
+
+                const collapseBtn = actions.querySelector('.collapse-btn');
+                collapseBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    toggleCardCollapse(cardId);
+                });
+
+                const hideBtn = actions.querySelector('.hide-btn');
+                hideBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    setCardVisibility(cardId, false);
+                });
+            }
+
+            // Draggable mouse trigger helpers (only drag when active on header, excluding actions)
+            header.addEventListener('mousedown', (e) => {
+                if (e.target.closest('.card-actions') || e.target.closest('button')) {
+                    return;
+                }
+                card.setAttribute('draggable', 'true');
+            });
+            header.addEventListener('mouseup', () => {
+                card.setAttribute('draggable', 'false');
+            });
+            header.addEventListener('mouseleave', () => {
+                card.setAttribute('draggable', 'false');
+            });
+        }
+
+        // Setup HTML5 Drag and Drop events
+        card.addEventListener('dragstart', (e) => {
+            card.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', cardId);
+            e.dataTransfer.effectAllowed = 'move';
+        });
+
+        card.addEventListener('dragend', () => {
+            card.classList.remove('dragging');
+            card.setAttribute('draggable', 'false');
+            // Save the new layout order
+            saveLayoutOrder();
+        });
+
+        // Restore collapsed state
+        if (layoutStates.collapsed[cardId] === true) {
+            applyCardCollapse(cardId, true);
+        }
+
+        // Restore visibility state
+        applyCardVisibility(cardId);
+    });
+
+    // 4. Set up sidebar checkboxes
+    Object.keys(checkboxMap).forEach(cardId => {
+        const checkboxId = checkboxMap[cardId];
+        const checkbox = document.getElementById(checkboxId);
+        if (checkbox) {
+            // Remove any old event listeners by cloning
+            const newCheckbox = checkbox.cloneNode(true);
+            checkbox.parentNode.replaceChild(newCheckbox, checkbox);
+
+            newCheckbox.addEventListener('change', (e) => {
+                setCardVisibility(cardId, e.target.checked);
+            });
+        }
+    });
+
+    // Blocks Dropdown Toggle logic
+    const dropdownBtn = document.getElementById('blocks-dropdown-btn');
+    const dropdownContent = document.getElementById('blocks-dropdown-content');
+    if (dropdownBtn && dropdownContent) {
+        dropdownBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = dropdownContent.style.display === 'flex';
+            dropdownContent.style.display = isOpen ? 'none' : 'flex';
+            const icon = dropdownBtn.querySelector('i');
+            if (icon) {
+                icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+            }
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!dropdownContent.contains(e.target) && e.target !== dropdownBtn && !dropdownBtn.contains(e.target)) {
+                dropdownContent.style.display = 'none';
+                const icon = dropdownBtn.querySelector('i');
+                if (icon) {
+                    icon.style.transform = 'rotate(0deg)';
+                }
+            }
+        });
+    }
+
+    // Support secondary config checkbox for alerts-section
+    const configAlertsCheckbox = document.getElementById('toggle-alerts-section-config');
+    if (configAlertsCheckbox) {
+        const newConfigCb = configAlertsCheckbox.cloneNode(true);
+        configAlertsCheckbox.parentNode.replaceChild(newConfigCb, configAlertsCheckbox);
+        newConfigCb.addEventListener('change', (e) => {
+            setCardVisibility('alerts-section', e.target.checked);
+        });
+    }
+
+    // 5. Setup Dragover on containers
+    [layoutLeft, layoutRight].forEach(container => {
+        container.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const draggingCard = document.querySelector('.dragging');
+            if (!draggingCard) return;
+
+            const afterElement = getDragAfterElement(container, e.clientY);
+            if (afterElement == null) {
+                container.appendChild(draggingCard);
+            } else {
+                container.insertBefore(draggingCard, afterElement);
+            }
+        });
+    });
+}
+
+function toggleCardCollapse(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    
+    const isCurrentlyCollapsed = card.classList.contains('collapsed');
+    const targetCollapse = !isCurrentlyCollapsed;
+    
+    layoutStates.collapsed[cardId] = targetCollapse;
+    saveLayoutStates();
+    applyCardCollapse(cardId, targetCollapse);
+}
+
+function applyCardCollapse(cardId, isCollapsed) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    
+    if (isCollapsed) {
+        card.classList.add('collapsed');
+    } else {
+        card.classList.remove('collapsed');
+    }
+    
+    // Toggle card children visibility
+    Array.from(card.children).forEach(child => {
+        if (!child.classList.contains('card-header') && !child.classList.contains('card-edge')) {
+            child.style.display = isCollapsed ? 'none' : '';
+        }
+    });
+    
+    // Update chevron icon in actions
+    const collapseBtn = card.querySelector('.collapse-btn i');
+    if (collapseBtn) {
+        if (isCollapsed) {
+            collapseBtn.className = 'fa-solid fa-chevron-down';
+        } else {
+            collapseBtn.className = 'fa-solid fa-chevron-up';
+        }
+    }
+}
+
+function setCardVisibility(cardId, isVisible) {
+    layoutStates.visible[cardId] = isVisible;
+    saveLayoutStates();
+    applyCardVisibility(cardId);
+}
+
+function applyCardVisibility(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    
+    const isVisibleInManager = layoutStates.visible[cardId] !== false;
+    
+    let shouldBeVisible = isVisibleInManager;
+    if (cardId === 'chakib-families-progress-card' || cardId === 'chakib-focus-progress-card') {
+        const isChakib = currentSelection && currentSelection.type === 'vendeur' && currentSelection.name.trim().toUpperCase() === 'CHAKIB ELFIL';
+        shouldBeVisible = isVisibleInManager && isChakib;
+    }
+    
+    card.style.display = shouldBeVisible ? '' : 'none';
+    
+    // Update sidebar checkbox
+    const checkboxId = checkboxMap[cardId];
+    if (checkboxId) {
+        const checkbox = document.getElementById(checkboxId);
+        if (checkbox) {
+            checkbox.checked = isVisibleInManager;
+        }
+    }
+
+    // Also sync the secondary config checkbox for alerts-section if present
+    if (cardId === 'alerts-section') {
+        const configCheckbox = document.getElementById('toggle-alerts-section-config');
+        if (configCheckbox) {
+            configCheckbox.checked = isVisibleInManager;
+        }
+    }
+}
+
+function saveLayoutOrder() {
+    const layoutLeft = document.querySelector('.layout-left');
+    const layoutRight = document.querySelector('.layout-right');
+    if (!layoutLeft || !layoutRight) return;
+    
+    layoutStates.order.left = [...layoutLeft.querySelectorAll('.cyber-card')].map(c => c.id);
+    layoutStates.order.right = [...layoutRight.querySelectorAll('.cyber-card')].map(c => c.id);
+    
+    saveLayoutStates();
+}
+
+function saveLayoutStates() {
+    localStorage.setItem('dashboard-layout-states', JSON.stringify(layoutStates));
+}
+
+function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.cyber-card:not(.dragging)')];
+    
+    return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+// Initialise on DOMContentLoaded
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initClientsView);
+} else {
+    initClientsView();
+}
+
+// Auto-load on /clients route
+if (window.location.pathname === '/clients') {
+    setTimeout(loadClientsData, 100);
+}
+
+// HTML escape helpers (used by the clients table / chips)
+function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeAttr(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function renderChakibFocusProgress(historyData, settings, totalDays, focusNames) {
+    if (!historyData) return;
+    
+    const nameGlace = (focusNames && focusNames.GLACE) ? focusNames.GLACE : 'Glace (SOM)';
+    const nameTomate = (focusNames && focusNames.TOMATE_FRITO) ? focusNames.TOMATE_FRITO : 'Tomate Frito (VMM)';
+    
+    // Update table headers dynamically
+    const tableHeaderGlace = document.querySelector('#chakib-focus-progress-table th:nth-child(2)');
+    const tableHeaderTomate = document.querySelector('#chakib-focus-progress-table th:nth-child(3)');
+    if (tableHeaderGlace) tableHeaderGlace.innerText = `Écart ${nameGlace}`;
+    if (tableHeaderTomate) tableHeaderTomate.innerText = `Écart ${nameTomate}`;
+
+    const glaceCdz = (historyData.glace && historyData.glace.cdz) ? historyData.glace.cdz : [];
+    const tomateCdz = (historyData.tomate && historyData.tomate.cdz) ? historyData.tomate.cdz : [];
+    
+    // Filter for CHAKIB EL FIL
+    const chakibGlace = glaceCdz.filter(r => (r.cdz || '').replace(/\s+/g, '').toUpperCase() === 'CHAKIBELFIL');
+    const chakibTomate = tomateCdz.filter(r => (r.cdz || '').replace(/\s+/g, '').toUpperCase() === 'CHAKIBELFIL');
+    
+    // Get all unique sorted dates
+    const allDates = [...new Set([
+        ...chakibGlace.map(r => r.upload_date.substring(0, 10)),
+        ...chakibTomate.map(r => r.upload_date.substring(0, 10))
+    ])].sort();
+    
+    // Populate Date Table
+    const tbody = document.getElementById('chakib-focus-progress-tbody');
+    if (tbody) {
+        tbody.innerHTML = '';
+        allDates.forEach(date => {
+            const gRec = chakibGlace.find(r => r.upload_date.startsWith(date));
+            const tRec = chakibTomate.find(r => r.upload_date.startsWith(date));
+            
+            const gDev = gRec ? Math.round(gRec.deviation * 100) : null;
+            const tDev = tRec ? Math.round(tRec.deviation * 100) : null;
+            
+            const gText = gDev !== null ? (gDev > 0 ? '+' : '') + gDev + '%' : 'N/A';
+            const tText = tDev !== null ? (tDev > 0 ? '+' : '') + tDev + '%' : 'N/A';
+            
+            // Color codes
+            const gColorClass = gDev !== null ? (gDev >= 0 ? 'neon-text-green' : (gDev >= -20 ? 'neon-text-amber' : 'neon-text-pink')) : '';
+            const tColorClass = tDev !== null ? (tDev >= 0 ? 'neon-text-green' : (tDev >= -20 ? 'neon-text-amber' : 'neon-text-pink')) : '';
+            
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${date}</td>
+                <td class="${gColorClass}">${gText}</td>
+                <td class="${tColorClass}">${tText}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // Populate Vendeurs Focus Breakdown Table
+    const thVendeurGlace = document.getElementById('th-chakib-vendeur-glace');
+    const thVendeurTomate = document.getElementById('th-chakib-vendeur-tomate');
+    if (thVendeurGlace) thVendeurGlace.innerText = `Écart ${nameGlace}`;
+    if (thVendeurTomate) thVendeurTomate.innerText = `Écart ${nameTomate}`;
+
+    const glaceReps = (historyData.glace && historyData.glace.reps) ? historyData.glace.reps : [];
+    const tomateReps = (historyData.tomate && historyData.tomate.reps) ? historyData.tomate.reps : [];
+
+    const isChakibTeamRep = (r) => {
+        const cdzClean = (r.cdz || '').replace(/\s+/g, '').toUpperCase();
+        return cdzClean === 'CHAKIBELFIL' || cdzClean.includes('CHAKIB');
+    };
+
+    const chakibGlaceReps = glaceReps.filter(isChakibTeamRep);
+    const chakibTomateReps = tomateReps.filter(isChakibTeamRep);
+
+    // Get all unique vendeurs under Chakib Elfil
+    const vendeursSet = new Set([
+        ...chakibGlaceReps.map(r => r.representative),
+        ...chakibTomateReps.map(r => r.representative)
+    ]);
+    const sortedChakibVendeurs = Array.from(vendeursSet).filter(Boolean).sort();
+
+    const vendeursCountBadge = document.getElementById('chakib-vendeurs-count-badge');
+    if (vendeursCountBadge) {
+        vendeursCountBadge.innerText = `${sortedChakibVendeurs.length} Vendeurs`;
+    }
+
+    const elapsedDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.elapsed) ? dashboardData.workdays.elapsed : 20;
+    const tDays = totalDays || 24;
+    const prorataRatio = (tDays > 0) ? (elapsedDays / tDays) : 1;
+
+    const formatDualBadge = (devVal) => {
+        if (devVal === null || devVal === undefined) return '<span style="color: var(--text-muted); font-size: 0.7rem;">N/A</span>';
+        
+        const devGlob = Math.round(devVal * 100);
+        const globSign = devGlob >= 0 ? '+' : '';
+        const globClass = devGlob >= 0 ? '#15803d' : (devGlob >= -20 ? '#b45309' : '#dc2626');
+        const globBg = devGlob >= 0 ? 'rgba(34, 197, 94, 0.18)' : (devGlob >= -20 ? 'rgba(245, 158, 11, 0.18)' : 'rgba(239, 68, 68, 0.2)');
+
+        // Calculate partial deviation relative to prorata ratio
+        const realRatio = 1 + devVal;
+        const devPart = Math.round(((realRatio / prorataRatio) - 1) * 100);
+        const partSign = devPart >= 0 ? '+' : '';
+        const partClass = devPart >= 0 ? '#15803d' : (devPart >= -20 ? '#b45309' : '#dc2626');
+        const partBg = devPart >= 0 ? 'rgba(34, 197, 94, 0.18)' : (devPart >= -20 ? 'rgba(245, 158, 11, 0.18)' : 'rgba(239, 68, 68, 0.2)');
+
+        return `
+            <div style="display: flex; gap: 0.3rem; justify-content: flex-end; align-items: center;">
+                <span style="background: ${globBg}; color: ${globClass}; padding: 0.12rem 0.35rem; border-radius: 3px; font-size: 0.68rem; font-weight: 700;" title="Écart Global vs Mois Complet: ${globSign}${devGlob}%">
+                    ${globSign}${devGlob}%
+                </span>
+                <span style="background: ${partBg}; color: ${partClass}; padding: 0.12rem 0.35rem; border-radius: 3px; font-size: 0.68rem; font-weight: 700;" title="Écart Partiel vs Objectif à Date: ${partSign}${devPart}%">
+                    ${partSign}${devPart}%
+                </span>
+            </div>
+        `;
+    };
+
+    const vTbody = document.getElementById('chakib-vendeurs-focus-tbody');
+    if (vTbody) {
+        vTbody.innerHTML = '';
+        sortedChakibVendeurs.forEach(vName => {
+            const vGlaceRecs = chakibGlaceReps.filter(r => r.representative === vName).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+            const vTomateRecs = chakibTomateReps.filter(r => r.representative === vName).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+
+            const gRec = vGlaceRecs[0];
+            const tRec = vTomateRecs[0];
+
+            const secteur = (gRec && gRec.secteur) || (tRec && tRec.secteur) || '-';
+            const lastDateRaw = (gRec && gRec.upload_date) || (tRec && tRec.upload_date) || '';
+            const lastDate = lastDateRaw ? lastDateRaw.substring(0, 10) : '-';
+
+            const gCell = formatDualBadge(gRec ? gRec.deviation : null);
+            const tCell = formatDualBadge(tRec ? tRec.deviation : null);
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="padding: 0.4rem 0.5rem; font-weight: 600; color: var(--text-main);">${vName}</td>
+                <td style="padding: 0.4rem 0.5rem; font-family: var(--font-mono); color: var(--text-muted);">${secteur}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: right; font-family: var(--font-mono);">${gCell}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: right; font-family: var(--font-mono);">${tCell}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: center; font-family: var(--font-mono); color: var(--text-muted); font-size: 0.7rem;">${lastDate}</td>
+            `;
+            vTbody.appendChild(tr);
+        });
+    }
+    
+    // Handle Chart View Mode Toggles
+    let currentFocusMode = window.chakibFocusMode || 'all';
+    const btnAll = document.getElementById('btn-chakib-focus-mode-all');
+    const btnVendors = document.getElementById('btn-chakib-focus-mode-vendeurs');
+
+    if (btnAll && btnVendors) {
+        if (currentFocusMode === 'vendeurs') {
+            btnVendors.classList.add('active');
+            btnAll.classList.remove('active');
+        } else {
+            btnAll.classList.add('active');
+            btnVendors.classList.remove('active');
+        }
+
+        btnAll.onclick = () => {
+            window.chakibFocusMode = 'all';
+            renderChakibFocusProgress(historyData, settings, totalDays, focusNames);
+        };
+        btnVendors.onclick = () => {
+            window.chakibFocusMode = 'vendeurs';
+            renderChakibFocusProgress(historyData, settings, totalDays, focusNames);
+        };
+    }
+    
+    // Render Line Chart
+    const canvas = document.getElementById('chakib-focus-progress-chart');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (chakibFocusChartInstance) {
+        chakibFocusChartInstance.destroy();
+    }
+    
+    const isWhiteMode = document.body.classList.contains('light-mode');
+    const styles = getComputedStyle(document.body);
+    const neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
+    const neonGreen = (styles.getPropertyValue('--neon-green').trim() || '#4cbb17').substring(0, 7);
+    const neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
+    const neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
+    const gridColor = isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+    const textColor = isWhiteMode ? '#334155' : '#e2e8f0';
+    
+    // Date formatting helper
+    const formatShortDate = (dateStr) => {
+        const parts = dateStr.split('-');
+        if (parts.length !== 3) return dateStr;
+        const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+        const idx = parseInt(parts[1]) - 1;
+        return `${parts[2]} ${months[idx] || parts[1]}`;
+    };
+    
+    const labels = allDates.map(formatShortDate);
+    
+    const calculateElapsedWorkdays = (dateStr) => {
+        const parts = dateStr.split('-');
+        if (parts.length !== 3) return 0;
+        const year = parseInt(parts[0]);
+        const month = parseInt(parts[1]);
+        const day = parseInt(parts[2]);
+        
+        let elapsed = 0;
+        for (let d = 1; d <= day; d++) {
+            const dt = new Date(year, month - 1, d);
+            if (dt.getDay() !== 0) { // 0 is Sunday
+                elapsed++;
+            }
+        }
+        return elapsed;
+    };
+    
+    const prorataDeviations = allDates.map(date => {
+        const elapsed = calculateElapsedWorkdays(date);
+        const prorataVal = (elapsed / totalDays - 1.0) * 100;
+        return Math.round(prorataVal * 10) / 10;
+    });
+
+    let chartDatasets = [];
+
+    if (currentFocusMode === 'vendeurs') {
+        const VENDOR_PALETTE_FOCUS = ['#00d4ff', '#ffb703', '#ff0055', '#00ff87', '#a855f7', '#3b82f6', '#ec4899', '#10b981', '#f97316'];
+        sortedChakibVendeurs.forEach((vName, idx) => {
+            const vColor = VENDOR_PALETTE_FOCUS[idx % VENDOR_PALETTE_FOCUS.length];
+            const vGlaceData = allDates.map(date => {
+                const r = chakibGlaceReps.find(x => x.representative === vName && x.upload_date.startsWith(date));
+                return r && r.deviation !== null ? Math.round(r.deviation * 100) : null;
+            });
+
+            chartDatasets.push({
+                label: `${vName}`,
+                data: vGlaceData,
+                borderColor: vColor,
+                backgroundColor: vColor + '22',
+                borderWidth: 2,
+                pointBackgroundColor: vColor,
+                pointRadius: 3,
+                fill: false,
+                tension: 0.15
+            });
+        });
+    } else {
+        const glaceData = allDates.map(date => {
+            const r = chakibGlace.find(x => x.upload_date.startsWith(date));
+            return r ? Math.round(r.deviation * 100) : null;
+        });
+        
+        const tomateData = allDates.map(date => {
+            const r = chakibTomate.find(x => x.upload_date.startsWith(date));
+            return r ? Math.round(r.deviation * 100) : null;
+        });
+
+        chartDatasets.push({
+            label: nameGlace + ' (%)',
+            data: glaceData,
+            borderColor: neonBlue,
+            backgroundColor: neonBlue + '15',
+            borderWidth: 2.5,
+            pointBackgroundColor: neonBlue,
+            pointRadius: 4,
+            fill: false,
+            tension: 0.15
+        });
+
+        chartDatasets.push({
+            label: nameTomate + ' (%)',
+            data: tomateData,
+            borderColor: neonPink,
+            backgroundColor: neonPink + '15',
+            borderWidth: 2.5,
+            pointBackgroundColor: neonPink,
+            pointRadius: 4,
+            fill: false,
+            tension: 0.15
+        });
+    }
+
+    chartDatasets.push({
+        label: 'Cible Partielle (%)',
+        data: prorataDeviations,
+        borderColor: neonAmber,
+        borderWidth: 1.5,
+        borderDash: [5, 5],
+        pointRadius: 0,
+        fill: false,
+        tension: 0.1
+    });
+    
+    chakibFocusChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: chartDatasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        color: textColor,
+                        font: { family: 'JetBrains Mono', size: 9 }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            const val = context.raw;
+                            if (val === null) return ` N/A`;
+                            return ` ${context.dataset.label.split(' ')[0]}: ${(val > 0 ? '+' : '') + val}%`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: gridColor },
+                    ticks: {
+                        color: textColor,
+                        font: { family: 'JetBrains Mono', size: 9 }
+                    }
+                },
+                y: {
+                    grid: {
+                        color: function (context) {
+                            if (context.tick && context.tick.value === 0) {
+                                return isWhiteMode ? 'rgba(15, 23, 42, 0.6)' : '#00d4ff';
+                            }
+                            return gridColor;
+                        },
+                        lineWidth: function (context) {
+                            if (context.tick && context.tick.value === 0) return 2;
+                            return 1;
+                        }
+                    },
+                    ticks: {
+                        color: function (context) {
+                            if (context.tick && context.tick.value === 0) {
+                                return isWhiteMode ? '#0f172a' : '#00d4ff';
+                            }
+                            return textColor;
+                        },
+                        font: { family: 'JetBrains Mono', size: 9 },
+                        callback: function (value) {
+                            return (value > 0 ? '+' : '') + value + '%';
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function formatCurrency(val) {
+    if (val === undefined || val === null) return '0 DH';
+    return Number(val).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' DH';
+}
+
+function populateWaTemplate(sData, vendeur, rawDate) {
+    // 1. Header
+    const cardVendeur = document.getElementById('wa-card-vendeur');
+    const cardDate = document.getElementById('wa-card-date');
+    const cardDays = document.getElementById('wa-card-days');
+    
+    if (cardVendeur) cardVendeur.innerText = vendeur ? vendeur.toUpperCase() : 'AGENCE GLOBALE';
+    
+    let formattedDate = '';
+    if (rawDate && rawDate !== 'default' && rawDate !== '') {
+        if (rawDate.includes('-')) {
+            const parts = rawDate.split('-');
+            if (parts.length === 3) {
+                formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+            }
+        }
+    }
+    if (!formattedDate) {
+        const now = new Date();
+        const dd = String(now.getDate()).padStart(2, '0');
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const yyyy = now.getFullYear();
+        formattedDate = `${dd}/${mm}/${yyyy}`;
+    }
+    if (cardDate) cardDate.innerText = `Période: ${formattedDate}`;
+    
+    const restDays = sData.workdays ? sData.workdays.rest : 20;
+    const elapsedDays = sData.workdays ? sData.workdays.elapsed : 4;
+    const totalDays = sData.workdays ? sData.workdays.total : 24;
+    if (cardDays) cardDays.innerText = `Jours: ${elapsedDays}/${totalDays} (Restant: ${restDays} j)`;
+    
+    // 2. Quantitatif
+    const taxLabel = (window.currentTaxMode || 'TTC');
+    const caRealEl = document.getElementById('wa-ca-real');
+    const caObjEl = document.getElementById('wa-ca-obj');
+    const caObjGlobalEl = document.getElementById('wa-ca-obj-global');
+    const caRafEl = document.getElementById('wa-ca-raf');
+    const caRateEl = document.getElementById('wa-ca-rate');
+    
+    const realCa = sData.agency_totals ? (sData.agency_totals.total_real_ca_ttc || 0) : 0;
+    const objCa = sData.agency_totals ? (sData.agency_totals.total_obj_ca_ttc || 0) : 0;
+    const rateCa = sData.agency_totals ? (sData.agency_totals.variance_rate_ca || '0.0%') : '0.0%';
+
+    // Objectif Global: full_month_obj from backend or objCa * total / elapsed
+    let objGlobal = (sData.agency_totals && sData.agency_totals.full_month_obj > 0)
+        ? sData.agency_totals.full_month_obj
+        : (elapsedDays > 0 ? Math.round((objCa * totalDays) / elapsedDays) : objCa);
+
+    // RESTE / JOUR: (Objectif Global - CA Réalisé) / Jours Restants
+    const totalRemaining = objGlobal - realCa;
+    const caRafVal = restDays > 0 ? Math.max(0, Math.round(totalRemaining / restDays)) : 0;
+    
+    if (caRealEl) caRealEl.innerText = `${formatCurrency(realCa)}`;
+    if (caObjEl) caObjEl.innerText = `${formatCurrency(objCa)}`;
+    if (caObjGlobalEl) caObjGlobalEl.innerText = `${formatCurrency(objGlobal)}`;
+    if (caRafEl) {
+        caRafEl.innerText = `${formatCurrency(caRafVal)}`;
+        if (caRafVal <= 0) {
+            caRafEl.style.color = '#10b981'; // Completed/Exceeded target
+        } else {
+            caRafEl.style.color = '#f59e0b';
+        }
+    }
+    
+    if (caRateEl) {
+        caRateEl.innerText = rateCa;
+        const rateFloat = parseFloat(rateCa);
+        if (rateFloat >= 0) {
+            caRateEl.style.color = '#10b981';
+        } else if (rateFloat >= -15) {
+            caRateEl.style.color = 'var(--neon-blue)';
+        } else {
+            caRateEl.style.color = '#ef4444';
+        }
+    }
+
+    // 2b. Product Families Table
+    const tbody = document.getElementById('wa-families-tbody');
+    if (tbody) {
+        tbody.innerHTML = '';
+        if (sData.families_performance) {
+            const normalFamilies = sData.families_performance.filter(f => {
+                const name = f.famille.toUpperCase();
+                return name !== 'C.A (HT)' && name !== 'C.A (TTC)' && name !== 'TOTAL';
+            });
+            
+            normalFamilies.forEach(f => {
+                const tr = document.createElement('tr');
+                tr.style.borderBottom = '1px solid #e2e8f0';
+                
+                let pctColor = '#0f172a';
+                const pctFloat = parseFloat(f.pct);
+                if (pctFloat >= 100) pctColor = '#16a34a';
+                else if (pctFloat >= 80) pctColor = '#2563eb';
+                else if (pctFloat > 0) pctColor = '#d97706';
+                else pctColor = '#dc2626';
+
+                let famRaf = f.raf;
+                if ((famRaf === undefined || famRaf === null || famRaf === 0) && f.obj > 0 && restDays > 0) {
+                    let famObjGlobal = Math.round((f.obj * 24) / elapsedDays);
+                    famRaf = Math.max(0, Math.round((famObjGlobal - f.real) / restDays));
+                }
+
+                tr.innerHTML = `
+                    <td style="padding: 6px 0; color: #0f172a; font-weight: 500;">${f.famille}</td>
+                    <td style="padding: 6px 0; text-align: right; font-family: var(--font-mono); color: #0f172a;">${formatCurrency(f.real)}</td>
+                    <td style="padding: 6px 0; text-align: right; font-family: var(--font-mono); color: ${pctColor}; font-weight: bold;">${f.pct_str}</td>
+                    <td style="padding: 4px 0; text-align: right; font-family: var(--font-mono); color: #d97706;">${formatCurrency(famRaf !== undefined && famRaf !== null ? famRaf : f.raf)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    }
+    
+    // 3. Qualitatif
+    const qualiAcmEl = document.getElementById('wa-quali-acm');
+    const qualiTsmEl = document.getElementById('wa-quali-tsm');
+    const qualiLineEl = document.getElementById('wa-quali-line');
+    const qualiAcmRafEl = document.getElementById('wa-quali-acm-raf');
+    const qualiTsmRafEl = document.getElementById('wa-quali-tsm-raf');
+    const qualiProgEl = document.getElementById('wa-quali-prog');
+    const qualiFactEl = document.getElementById('wa-quali-fact');
+    
+    if (sData.vendeur_qualitative) {
+        if (qualiAcmEl) qualiAcmEl.innerText = sData.vendeur_qualitative.acm;
+        if (qualiTsmEl) qualiTsmEl.innerText = sData.vendeur_qualitative.tsm;
+        if (qualiLineEl) qualiLineEl.innerText = sData.vendeur_qualitative.line || '-';
+        if (qualiAcmRafEl) qualiAcmRafEl.innerText = Math.round(sData.vendeur_qualitative.raf_acm || 0);
+        if (qualiTsmRafEl) qualiTsmRafEl.innerText = Math.round(sData.vendeur_qualitative.raf_tsm || 0);
+        if (qualiProgEl) qualiProgEl.innerText = sData.vendeur_qualitative.clt_programme;
+        if (qualiFactEl) qualiFactEl.innerText = sData.vendeur_qualitative.clt_facture;
+    } else {
+        if (qualiAcmEl) qualiAcmEl.innerText = sData.qualitative_averages ? sData.qualitative_averages.average_acm_rate : '0.0%';
+        if (qualiTsmEl) qualiTsmEl.innerText = sData.qualitative_averages ? sData.qualitative_averages.average_tsm_rate : '0.0%';
+        
+        let totalProg = 0;
+        let totalFact = 0;
+        let totalRafAcm = 0;
+        let totalRafTsm = 0;
+        if (sData.sellers_qualitative) {
+            sData.sellers_qualitative.forEach(r => {
+                totalProg += (r.clt_programme || 0);
+                totalFact += (r.clt_facture || 0);
+                totalRafAcm += (r.raf_acm || 0);
+                totalRafTsm += (r.raf_tsm || 0);
+            });
+        }
+        if (qualiAcmRafEl) qualiAcmRafEl.innerText = Math.round(totalRafAcm);
+        if (qualiTsmRafEl) qualiTsmRafEl.innerText = Math.round(totalRafTsm);
+        if (qualiProgEl) qualiProgEl.innerText = totalProg;
+        if (qualiFactEl) qualiFactEl.innerText = totalFact;
+    }
+    
+    // 4. Focus SOM and VMM
+    const focusSomNameEl = document.getElementById('wa-focus-som-name');
+    const focusVmmNameEl = document.getElementById('wa-focus-vmm-name');
+    const focusSomPctEl = document.getElementById('wa-focus-som-pct');
+    const focusVmmPctEl = document.getElementById('wa-focus-vmm-pct');
+    const focusSomBar = document.getElementById('wa-focus-som-bar');
+    const focusVmmBar = document.getElementById('wa-focus-vmm-bar');
+    const focusSomRafEl = document.getElementById('wa-focus-som-raf');
+    const focusVmmRafEl = document.getElementById('wa-focus-vmm-raf');
+    
+    const somName = (window.focusNames && window.focusNames.GLACE) || 'GLACE';
+    const vmmName = (window.focusNames && window.focusNames.TOMATE_FRITO) || 'TOMATE FRITO';
+    if (focusSomNameEl) focusSomNameEl.innerText = somName;
+    if (focusVmmNameEl) focusVmmNameEl.innerText = vmmName;
+    
+    let somPctStr = '0.0%';
+    let vmmPctStr = '0.0%';
+    let somRest = 0;
+    let vmmRest = 0;
+    let somRestJour = 0;
+    let vmmRestJour = 0;
+    
+    if (vendeur) {
+        const vUpper = vendeur.toUpperCase();
+        const somItem = sData.focus_som_summary ? sData.focus_som_summary.find(f => f.vendeur && f.vendeur.toUpperCase() === vUpper) : null;
+        const vmmItem = sData.focus_vmm_summary ? sData.focus_vmm_summary.find(f => f.vendeur && f.vendeur.toUpperCase() === vUpper) : null;
+        
+        if (somItem) {
+            somPctStr = somItem.percent;
+            somRest = parseFloat(somItem.rest) || 0;
+            somRestJour = parseFloat(somItem.rest_jour) || 0;
+        }
+        if (vmmItem) {
+            vmmPctStr = vmmItem.percent;
+            vmmRest = parseFloat(vmmItem.rest) || 0;
+            vmmRestJour = parseFloat(vmmItem.rest_jour) || 0;
+        }
+    } else {
+        let somSum = 0;
+        let countSom = 0;
+        if (sData.focus_som_summary && sData.focus_som_summary.length > 0) {
+            sData.focus_som_summary.forEach(f => {
+                if (f.vendeur && f.vendeur.toUpperCase() !== 'AUTRE') {
+                    somSum += parseFloat(f.percent) || 0;
+                    somRest += parseFloat(f.rest) || 0;
+                    somRestJour += parseFloat(f.rest_jour) || 0;
+                    countSom++;
+                }
+            });
+            somPctStr = `${(somSum / (countSom || 1)).toFixed(1)}%`;
+        }
+        
+        let vmmSum = 0;
+        let countVmm = 0;
+        if (sData.focus_vmm_summary && sData.focus_vmm_summary.length > 0) {
+            sData.focus_vmm_summary.forEach(f => {
+                if (f.vendeur && f.vendeur.toUpperCase() !== 'AUTRE') {
+                    vmmSum += parseFloat(f.percent) || 0;
+                    vmmRest += parseFloat(f.rest) || 0;
+                    vmmRestJour += parseFloat(f.rest_jour) || 0;
+                    countVmm++;
+                }
+            });
+            vmmPctStr = `${(vmmSum / (countVmm || 1)).toFixed(1)}%`;
+        }
+    }
+    
+    // Display raw deviation percentage directly
+    if (focusSomPctEl) focusSomPctEl.innerText = somPctStr;
+    if (focusVmmPctEl) focusVmmPctEl.innerText = vmmPctStr;
+    
+    // Progress bar fills according to achievement rate
+    let somPctVal = parseFloat(somPctStr) || 0;
+    let somProgress = somPctVal < 0 ? 100 + somPctVal : somPctVal;
+    let vmmPctVal = parseFloat(vmmPctStr) || 0;
+    let vmmProgress = vmmPctVal < 0 ? 100 + vmmPctVal : vmmPctVal;
+    
+    if (focusSomBar) focusSomBar.style.width = `${Math.max(0, Math.min(100, somProgress)).toFixed(1)}%`;
+    if (focusVmmBar) focusVmmBar.style.width = `${Math.max(0, Math.min(100, vmmProgress)).toFixed(1)}%`;
+
+    const focusSomRafJourEl = document.getElementById('wa-focus-som-raf-jour');
+    const focusVmmRafJourEl = document.getElementById('wa-focus-vmm-raf-jour');
+
+
+    if (focusSomRafEl) {
+        focusSomRafEl.innerText = formatCurrency(somRest);
+        focusSomRafEl.style.color = somRest <= 0 ? '#10b981' : '#0f172a';
+    }
+    if (focusSomRafJourEl) {
+        if (restDays <= 0) {
+            focusSomRafJourEl.innerText = 'N/A';
+            focusSomRafJourEl.style.color = '#64748b';
+        } else {
+            focusSomRafJourEl.innerText = `${formatCurrency(somRestJour)}/j`;
+            focusSomRafJourEl.style.color = somRestJour <= 0 ? '#10b981' : '#0f172a';
+        }
+    }
+    if (focusVmmRafEl) {
+        focusVmmRafEl.innerText = formatNumber(vmmRest);
+        focusVmmRafEl.style.color = vmmRest <= 0 ? '#10b981' : '#0f172a';
+    }
+    if (focusVmmRafJourEl) {
+        if (restDays <= 0) {
+            focusVmmRafJourEl.innerText = 'N/A';
+            focusVmmRafJourEl.style.color = '#64748b';
+        } else {
+            focusVmmRafJourEl.innerText = `${formatNumber(vmmRestJour)}/j`;
+            focusVmmRafJourEl.style.color = vmmRestJour <= 0 ? '#10b981' : '#0f172a';
+        }
+    }
+}
+
+function initAnomalisView() {
+    const addAnomalyBtn = document.getElementById('add-anomaly-btn');
+    const anomalyModal = document.getElementById('anomaly-modal');
+    const closeAnomalyModalBtn = document.getElementById('close-anomaly-modal-btn');
+    const anomalyForm = document.getElementById('anomaly-form');
+    const anomalyVendeurSelect = document.getElementById('anomaly-vendeur-select');
+    const anomalyDateInput = document.getElementById('anomaly-date-input');
+
+    if (addAnomalyBtn && anomalyModal) {
+        addAnomalyBtn.addEventListener('click', () => {
+            if (anomalyDateInput) {
+                anomalyDateInput.value = new Date().toISOString().split('T')[0];
+            }
+            const categorySelect = document.getElementById('category-select');
+            const category = categorySelect ? categorySelect.value : 'All';
+            const url = category && category !== 'All' ? `/api/vendeurs?category=${encodeURIComponent(category)}` : '/api/vendeurs';
+            
+            fetch(url)
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success' && anomalyVendeurSelect) {
+                        anomalyVendeurSelect.innerHTML = '<option value="">Sélectionner un vendeur</option>';
+                        res.vendeurs.forEach(v => {
+                            const opt = document.createElement('option');
+                            opt.value = v;
+                            opt.innerText = v;
+                            anomalyVendeurSelect.appendChild(opt);
+                        });
+                    }
+                })
+                .catch(err => console.error("Error loading sellers:", err));
+
+            anomalyModal.classList.add('open');
+        });
+    }
+
+    if (closeAnomalyModalBtn && anomalyModal) {
+        closeAnomalyModalBtn.addEventListener('click', () => {
+            anomalyModal.classList.remove('open');
+        });
+        anomalyModal.addEventListener('click', (e) => {
+            if (e.target === anomalyModal) {
+                anomalyModal.classList.remove('open');
+            }
+        });
+    }
+
+    if (anomalyForm) {
+        anomalyForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const date = document.getElementById('anomaly-date-input').value;
+            const vendeur = document.getElementById('anomaly-vendeur-select').value;
+            const type_anomali = document.getElementById('anomaly-type-select').value;
+            const commentaire = document.getElementById('anomaly-commentaire-input').value || '';
+            const tag = document.getElementById('anomaly-tag-select').value || '';
+
+            if (!date || !vendeur || !type_anomali) {
+                showToast("Veuillez remplir tous les champs.", "error");
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/anomalies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date, vendeur, type_anomali, commentaire, tag })
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showToast("Anomalie ajoutée avec succès !", "success");
+                    anomalyModal.classList.remove('open');
+                    anomalyForm.reset();
+                    loadAnomalies();
+                } else {
+                    showToast("Erreur : " + data.message, "error");
+                }
+            } catch (err) {
+                console.error("Error adding anomaly:", err);
+                showToast("Erreur lors de l'ajout de l'anomalie.", "error");
+            }
+        });
+    }
+
+    const tagFilter = document.getElementById('anomalis-tag-filter');
+    if (tagFilter) tagFilter.addEventListener('change', loadAnomalies);
+    
+    const typeFilter = document.getElementById('anomalis-type-filter');
+    if (typeFilter) typeFilter.addEventListener('change', loadAnomalies);
+    
+    const vendeurFilter = document.getElementById('anomalis-vendeur-filter');
+    if (vendeurFilter) vendeurFilter.addEventListener('change', loadAnomalies);
+    
+    const searchInput = document.getElementById('anomalis-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', loadAnomalies);
+    }
+
+    if (window.location.pathname === '/anomalis') {
+        loadAnomalies();
+    }
+}
+
+async function loadAnomalies() {
+    const loadingEl = document.getElementById('anomalis-loading');
+    const emptyEl = document.getElementById('anomalis-empty');
+    const tableCardEl = document.getElementById('anomalis-table-card');
+    const tbodyEl = document.getElementById('anomalis-tbody');
+    const badgeEl = document.getElementById('anomalis-table-badge');
+
+    if (!tbodyEl) return;
+
+    if (loadingEl) loadingEl.style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (tableCardEl) tableCardEl.style.display = 'none';
+
+    try {
+        const categorySelect = document.getElementById('category-select');
+        const selectedCategory = categorySelect ? categorySelect.value : 'All';
+        
+        let sellersUrl = '/api/vendeurs';
+        if (selectedCategory && selectedCategory !== 'All') {
+            sellersUrl += '?category=' + encodeURIComponent(selectedCategory);
+        }
+        
+        const [anomRes, sellersRes] = await Promise.all([
+            fetch('/api/anomalies?_=' + Date.now()),
+            fetch(sellersUrl)
+        ]);
+        
+        const data = await anomRes.json();
+        const sellersData = await sellersRes.json();
+        
+        const allowedSellers = (sellersData.status === 'success' && sellersData.vendeurs) 
+            ? sellersData.vendeurs.map(v => v.toUpperCase().trim()) 
+            : [];
+        
+        if (loadingEl) loadingEl.style.display = 'none';
+
+        // 1. Populate Vendeur Filter options dynamically if needed
+        const vendeurFilter = document.getElementById('anomalis-vendeur-filter');
+        if (vendeurFilter && sellersData.status === 'success' && sellersData.vendeurs) {
+            const currentVal = vendeurFilter.value || 'All';
+            vendeurFilter.innerHTML = '<option value="All">TOUS</option>';
+            sellersData.vendeurs.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v;
+                opt.innerText = v;
+                vendeurFilter.appendChild(opt);
+            });
+            // Try to preserve previous selected value
+            const options = Array.from(vendeurFilter.options).map(o => o.value);
+            if (options.includes(currentVal)) {
+                vendeurFilter.value = currentVal;
+            } else {
+                vendeurFilter.value = 'All';
+            }
+        }
+
+        if (data.status === 'success' && data.anomalies && data.anomalies.length > 0) {
+            tbodyEl.innerHTML = '';
+            
+            const tagFilter = document.getElementById('anomalis-tag-filter') ? document.getElementById('anomalis-tag-filter').value : 'All';
+            const typeFilter = document.getElementById('anomalis-type-filter') ? document.getElementById('anomalis-type-filter').value : 'All';
+            const vendeurFilterVal = document.getElementById('anomalis-vendeur-filter') ? document.getElementById('anomalis-vendeur-filter').value : 'All';
+            const searchQuery = document.getElementById('anomalis-search-input') ? document.getElementById('anomalis-search-input').value.toLowerCase().trim() : '';
+            
+            const filteredAnomalies = data.anomalies.filter(anomaly => {
+                // Category Filter
+                if (selectedCategory !== 'All' && !allowedSellers.includes((anomaly.vendeur || '').toUpperCase().trim())) {
+                    return false;
+                }
+                // Vendeur Filter
+                if (vendeurFilterVal !== 'All' && (anomaly.vendeur || '').toUpperCase().trim() !== vendeurFilterVal.toUpperCase().trim()) {
+                    return false;
+                }
+                // Type Filter
+                if (typeFilter !== 'All' && anomaly.type_anomali !== typeFilter) {
+                    return false;
+                }
+                // Tag Filter
+                if (tagFilter !== 'All') {
+                    if (tagFilter === 'None') {
+                        if (anomaly.tag && anomaly.tag !== '') return false;
+                    } else {
+                        if (anomaly.tag !== tagFilter) return false;
+                    }
+                }
+                // Search Query Filter
+                if (searchQuery !== '') {
+                    const dateParts = anomaly.date.split('-');
+                    const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : anomaly.date;
+                    const matchesSearch = 
+                        (anomaly.vendeur || '').toLowerCase().includes(searchQuery) ||
+                        (anomaly.type_anomali || '').toLowerCase().includes(searchQuery) ||
+                        (anomaly.commentaire || '').toLowerCase().includes(searchQuery) ||
+                        (anomaly.tag || '').toLowerCase().includes(searchQuery) ||
+                        formattedDate.includes(searchQuery);
+                    if (!matchesSearch) return false;
+                }
+                return true;
+            });
+            
+            if (filteredAnomalies.length > 0) {
+                filteredAnomalies.forEach(anomaly => {
+                    const tr = document.createElement('tr');
+                    
+                    const dateParts = anomaly.date.split('-');
+                    const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : anomaly.date;
+                    
+                    let formattedRegDate = anomaly.created_at || '';
+                    if (formattedRegDate && formattedRegDate.includes(' ')) {
+                        const [dPart, tPart] = formattedRegDate.split(' ');
+                        const regParts = dPart.split('-');
+                        if (regParts.length === 3) {
+                            formattedRegDate = `${regParts[2]}/${regParts[1]}/${regParts[0]} ${tPart}`;
+                        }
+                    }
+                    
+                    let badgeClass = 'badge-blue';
+                    if (anomaly.type_anomali === 'Retard') badgeClass = 'badge-amber';
+                    else if (anomaly.type_anomali === 'Rapport') badgeClass = 'badge-blue';
+                    else if (anomaly.type_anomali === 'Discipline' || anomaly.type_anomali === 'Décipline') badgeClass = 'badge-pink';
+
+                    // Determine tag badge class and label
+                    let tagBadgeHtml = '<span style="color:var(--text-muted); font-style:italic;">-</span>';
+                    if (anomaly.tag) {
+                        let tagBadgeClass = 'badge-blue';
+                        if (anomaly.tag === 'Urgent' || anomaly.tag === 'Non justifié') tagBadgeClass = 'badge-pink';
+                        else if (anomaly.tag === 'A Suivre') tagBadgeClass = 'badge-amber';
+                        else if (anomaly.tag === 'Résolu') tagBadgeClass = 'badge-green';
+                        else if (anomaly.tag === 'Justifié') tagBadgeClass = 'badge-cyan';
+                        
+                        tagBadgeHtml = `<span class="${tagBadgeClass}">${anomaly.tag}</span>`;
+                    }
+
+                    tr.innerHTML = `
+                        <td class="font-mono">${formattedDate}</td>
+                        <td><strong>${anomaly.vendeur}</strong></td>
+                        <td><span class="${badgeClass}">${anomaly.type_anomali}</span></td>
+                        <td style="color: var(--text-main); font-size: 0.85rem;">${anomaly.commentaire || '<span style="color:var(--text-muted); font-style:italic;">-</span>'}</td>
+                        <td>${tagBadgeHtml}</td>
+                        <td class="font-mono" style="font-size: 0.78rem; color: var(--text-muted);">${formattedRegDate}</td>
+                        <td style="text-align: center;">
+                            <button type="button" class="cyber-btn-mini delete-anomaly-btn" data-id="${anomaly.id}" style="border-color: var(--neon-pink); color: var(--neon-pink); background: transparent;" title="Supprimer">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </td>
+                    `;
+                    
+                    tr.querySelector('.delete-anomaly-btn').addEventListener('click', async (e) => {
+                        const id = e.currentTarget.getAttribute('data-id');
+                        if (confirm("Voulez-vous vraiment supprimer cette anomalie ?")) {
+                            try {
+                                const delRes = await fetch(`/api/anomalies/${id}`, { method: 'DELETE' });
+                                const delData = await delRes.json();
+                                if (delData.status === 'success') {
+                                    showToast("Anomalie supprimée.", "success");
+                                    loadAnomalies();
+                                } else {
+                                    showToast("Erreur : " + delData.message, "error");
+                                }
+                            } catch (err) {
+                                console.error(err);
+                                showToast("Erreur lors de la suppression.", "error");
+                            }
+                        }
+                    });
+                    
+                    tbodyEl.appendChild(tr);
+                });
+                
+                if (badgeEl) badgeEl.innerText = `${filteredAnomalies.length} anomalie${filteredAnomalies.length > 1 ? 's' : ''}`;
+                if (tableCardEl) tableCardEl.style.display = '';
+            } else {
+                if (emptyEl) emptyEl.style.display = 'block';
+                if (badgeEl) badgeEl.innerText = '0 anomalies';
+            }
+        } else {
+            if (emptyEl) emptyEl.style.display = 'block';
+            if (badgeEl) badgeEl.innerText = '0 anomalies';
+        }
+    } catch (err) {
+        console.error("Error loading anomalies:", err);
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'block';
+        if (badgeEl) badgeEl.innerText = 'erreur';
+        showToast("Erreur lors du chargement des anomalies.", "error");
+    }
+}
+
+function initTasksView() {
+    const navTasks = document.getElementById('nav-tasks');
+    const taskModal = document.getElementById('task-modal');
+    const addTaskBtn = document.getElementById('add-task-btn');
+    const closeTaskModalBtn = document.getElementById('close-task-modal-btn');
+    const taskForm = document.getElementById('task-form');
+    
+    // Assignee type toggles
+    const assigneeTypeSelect = document.getElementById('task-assignee-type-select');
+    const assigneeValGroup = document.getElementById('task-assignee-val-group');
+    const assigneeSelect = document.getElementById('task-assignee-select');
+    
+    // Subtask builder elements
+    const subtaskInput = document.getElementById('task-subtask-input');
+    const addSubtaskBtn = document.getElementById('task-add-subtask-btn');
+    const subtasksPreviewList = document.getElementById('task-subtasks-preview-list');
+    
+    // Filters elements
+    const tasksSearchInput = document.getElementById('tasks-search-input');
+    const tasksAssigneeFilter = document.getElementById('tasks-assignee-filter');
+    const tasksPriorityFilter = document.getElementById('tasks-priority-filter');
+    const tasksStatusFilter = document.getElementById('tasks-status-filter');
+    
+    let tempSubtasks = [];
+
+    if (navTasks) {
+        navTasks.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.location.href = '/tasks';
+        });
+    }
+
+    const navEngagement = document.getElementById('nav-engagement');
+    if (navEngagement) {
+        navEngagement.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.location.href = '/engagement';
+        });
+    }
+
+    if (addTaskBtn && taskModal) {
+        addTaskBtn.addEventListener('click', () => {
+            // Reset state
+            tempSubtasks = [];
+            renderSubtasksPreview();
+            if (taskForm) taskForm.reset();
+            
+            // Set default date to today
+            const today = new Date().toISOString().split('T')[0];
+            const dateInput = document.getElementById('task-date-input');
+            if (dateInput) dateInput.value = today;
+            
+            if (assigneeValGroup) assigneeValGroup.style.display = 'none';
+            taskModal.classList.add('open');
+        });
+    }
+
+    if (closeTaskModalBtn && taskModal) {
+        closeTaskModalBtn.addEventListener('click', () => {
+            taskModal.classList.remove('open');
+        });
+        taskModal.addEventListener('click', (e) => {
+            if (e.target === taskModal) {
+                taskModal.classList.remove('open');
+            }
+        });
+    }
+
+    // Populate assignee select based on assignee type
+    if (assigneeTypeSelect && assigneeSelect && assigneeValGroup) {
+        assigneeTypeSelect.addEventListener('change', async () => {
+            const val = assigneeTypeSelect.value;
+            if (val === 'all') {
+                assigneeValGroup.style.display = 'none';
+                assigneeSelect.removeAttribute('required');
+            } else if (val === 'team') {
+                assigneeValGroup.style.display = 'block';
+                assigneeSelect.setAttribute('required', 'true');
+                
+                assigneeSelect.innerHTML = `
+                    <option value="">Sélectionner l'équipe</option>
+                    <option value="Chakib Equipe">Chakib Equipe</option>
+                    <option value="Boutmezguine Equipe">Boutmezguine Equipe</option>
+                `;
+            } else if (val === 'vendeur') {
+                assigneeValGroup.style.display = 'block';
+                assigneeSelect.setAttribute('required', 'true');
+                assigneeSelect.innerHTML = '<option value="">Chargement...</option>';
+                
+                try {
+                    const res = await fetch('/api/vendeurs');
+                    const data = await res.json();
+                    if (data.status === 'success' && data.vendeurs) {
+                        assigneeSelect.innerHTML = '<option value="">Sélectionner un vendeur</option>';
+                        data.vendeurs.forEach(v => {
+                            const opt = document.createElement('option');
+                            opt.value = v;
+                            opt.innerText = v;
+                            assigneeSelect.appendChild(opt);
+                        });
+                    } else {
+                        assigneeSelect.innerHTML = '<option value="">Erreur de chargement</option>';
+                    }
+                } catch (err) {
+                    console.error(err);
+                    assigneeSelect.innerHTML = '<option value="">Erreur de chargement</option>';
+                }
+            }
+        });
+    }
+
+    // Subtask builder click listeners
+    if (addSubtaskBtn && subtaskInput) {
+        addSubtaskBtn.addEventListener('click', () => {
+            const txt = subtaskInput.value.trim();
+            if (txt) {
+                tempSubtasks.push(txt);
+                subtaskInput.value = '';
+                renderSubtasksPreview();
+            }
+        });
+        subtaskInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addSubtaskBtn.click();
+            }
+        });
+    }
+
+    function renderSubtasksPreview() {
+        if (!subtasksPreviewList) return;
+        if (tempSubtasks.length === 0) {
+            subtasksPreviewList.innerHTML = `<span style="color: var(--text-muted); font-size: 0.72rem; font-style: italic; text-align: center; display: block; padding: 0.25rem 0;">Aucune sous-tâche ajoutée.</span>`;
+            return;
+        }
+        subtasksPreviewList.innerHTML = '';
+        tempSubtasks.forEach((sub, idx) => {
+            const div = document.createElement('div');
+            div.style = 'display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 0.25rem 0.5rem; border-radius: 2px; font-size: 0.75rem;';
+            div.innerHTML = `
+                <span style="color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%;">${sub}</span>
+                <button type="button" style="background:transparent; border:none; color: var(--neon-pink); cursor:pointer; font-size:0.8rem;" title="Supprimer">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            `;
+            div.querySelector('button').addEventListener('click', () => {
+                tempSubtasks.splice(idx, 1);
+                renderSubtasksPreview();
+            });
+            subtasksPreviewList.appendChild(div);
+        });
+    }
+
+    // Submit new task
+    if (taskForm) {
+        taskForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const title = document.getElementById('task-title-input').value.trim();
+            const date = document.getElementById('task-date-input').value;
+            const assignee_type = assigneeTypeSelect.value;
+            let assignee = '';
+            
+            if (assignee_type === 'all') {
+                assignee = "Toute l'agence";
+            } else {
+                assignee = assigneeSelect.value;
+            }
+            const priority = document.getElementById('task-priority-select').value;
+            
+            if (!title || !date || !assignee) {
+                showToast("Veuillez remplir les informations obligatoires.", "error");
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title,
+                        assignee_type,
+                        assignee,
+                        date,
+                        priority,
+                        subtasks: tempSubtasks
+                    })
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showToast("Tâche créée avec succès !", "success");
+                    taskModal.classList.remove('open');
+                    taskForm.reset();
+                    tempSubtasks = [];
+                    loadTasks();
+                } else {
+                    showToast("Erreur : " + data.message, "error");
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Erreur lors de la création de la tâche.", "error");
+            }
+        });
+    }
+
+    // Register filters change listeners
+    [tasksSearchInput, tasksAssigneeFilter, tasksPriorityFilter, tasksStatusFilter].forEach(el => {
+        if (el) {
+            const ev = el.tagName === 'INPUT' ? 'input' : 'change';
+            el.addEventListener(ev, loadTasks);
+        }
+    });
+
+    // View Mode Toggle Listeners
+    const gridBtn = document.getElementById('tasks-view-grid-btn');
+    const listBtn = document.getElementById('tasks-view-list-btn');
+    
+    if (gridBtn) {
+        gridBtn.addEventListener('click', () => {
+            localStorage.setItem('tasksViewMode', 'grid');
+            applyTasksViewMode('grid');
+        });
+    }
+    
+    if (listBtn) {
+        listBtn.addEventListener('click', () => {
+            localStorage.setItem('tasksViewMode', 'list');
+            applyTasksViewMode('list');
+        });
+    }
+
+    // Set initial view mode from localStorage
+    applyTasksViewMode(localStorage.getItem('tasksViewMode') || 'grid');
+
+    if (window.location.pathname === '/tasks') {
+        loadTasks();
+    }
+}
+
+function applyTasksViewMode(mode) {
+    const gridBtn = document.getElementById('tasks-view-grid-btn');
+    const listBtn = document.getElementById('tasks-view-list-btn');
+    const cardsGrid = document.getElementById('tasks-cards-grid');
+    if (!cardsGrid) return;
+    
+    if (mode === 'list') {
+        cardsGrid.style.display = 'flex';
+        cardsGrid.style.flexDirection = 'column';
+        cardsGrid.style.gridTemplateColumns = 'none';
+        
+        if (gridBtn) {
+            gridBtn.classList.remove('active');
+            gridBtn.style.borderColor = 'var(--border-color)';
+            gridBtn.style.color = 'var(--text-muted)';
+        }
+        if (listBtn) {
+            listBtn.classList.add('active');
+            listBtn.style.borderColor = 'var(--neon-blue)';
+            listBtn.style.color = 'var(--neon-blue)';
+        }
+    } else {
+        cardsGrid.style.display = 'grid';
+        cardsGrid.style.flexDirection = 'row';
+        cardsGrid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(320px, 1fr))';
+        
+        if (gridBtn) {
+            gridBtn.classList.add('active');
+            gridBtn.style.borderColor = 'var(--neon-blue)';
+            gridBtn.style.color = 'var(--neon-blue)';
+        }
+        if (listBtn) {
+            listBtn.classList.remove('active');
+            listBtn.style.borderColor = 'var(--border-color)';
+            listBtn.style.color = 'var(--text-muted)';
+        }
+    }
+}
+
+async function loadTasks() {
+    const loadingEl = document.getElementById('tasks-loading');
+    const emptyEl = document.getElementById('tasks-empty');
+    const tableCardEl = document.getElementById('tasks-table-card');
+    const cardsGrid = document.getElementById('tasks-cards-grid');
+    const badgeEl = document.getElementById('tasks-table-badge');
+    const assigneeFilter = document.getElementById('tasks-assignee-filter');
+
+    if (!cardsGrid) return;
+
+    if (loadingEl) loadingEl.style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (tableCardEl) tableCardEl.style.display = 'none';
+
+    try {
+        const [tasksRes, sellersRes] = await Promise.all([
+            fetch('/api/tasks?_=' + Date.now()),
+            fetch('/api/vendeurs')
+        ]);
+        const tasksData = await tasksRes.json();
+        const sellersData = await sellersRes.json();
+
+        if (loadingEl) loadingEl.style.display = 'none';
+
+        if (tasksData.status === 'success' && tasksData.tasks) {
+            // Populate assignee filter options if empty (except All and Toute l'agence)
+            if (assigneeFilter && assigneeFilter.options.length <= 2) {
+                // Pre-add teams
+                const team1Opt = document.createElement('option');
+                team1Opt.value = 'Chakib Equipe';
+                team1Opt.innerText = 'CHAKIB EQUIPE';
+                assigneeFilter.appendChild(team1Opt);
+
+                const team2Opt = document.createElement('option');
+                team2Opt.value = 'Boutmezguine Equipe';
+                team2Opt.innerText = 'BOUTMEZGUINE EQUIPE';
+                assigneeFilter.appendChild(team2Opt);
+
+                if (sellersData.status === 'success' && sellersData.vendeurs) {
+                    sellersData.vendeurs.forEach(v => {
+                        const opt = document.createElement('option');
+                        opt.value = v;
+                        opt.innerText = v.toUpperCase();
+                        assigneeFilter.appendChild(opt);
+                    });
+                }
+            }
+
+            // Extract filters state
+            const searchInput = document.getElementById('tasks-search-input');
+            const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+            const assigneeVal = assigneeFilter ? assigneeFilter.value : 'All';
+            const priorityVal = document.getElementById('tasks-priority-filter') ? document.getElementById('tasks-priority-filter').value : 'All';
+            const statusVal = document.getElementById('tasks-status-filter') ? document.getElementById('tasks-status-filter').value : 'All';
+
+            // Filter tasks array
+            const filtered = tasksData.tasks.filter(task => {
+                // Assignee filter
+                if (assigneeVal !== 'All') {
+                    if (task.assignee !== assigneeVal) return false;
+                }
+                // Priority filter
+                if (priorityVal !== 'All') {
+                    if (task.priority !== priorityVal) return false;
+                }
+                // Status filter
+                if (statusVal !== 'All') {
+                    if (task.status !== statusVal) return false;
+                }
+                // Search query
+                if (query) {
+                    const dateParts = task.date.split('-');
+                    const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : task.date;
+                    const matches = 
+                        task.title.toLowerCase().includes(query) ||
+                        task.assignee.toLowerCase().includes(query) ||
+                        task.priority.toLowerCase().includes(query) ||
+                        task.status.toLowerCase().includes(query) ||
+                        formattedDate.includes(query);
+                    if (!matches) return false;
+                }
+                return true;
+            });
+
+            if (filtered.length > 0) {
+                cardsGrid.innerHTML = '';
+                filtered.forEach(task => {
+                    // Compute progress percent
+                    let progressPct = 0;
+                    if (task.subtasks && task.subtasks.length > 0) {
+                        const completed = task.subtasks.filter(s => s.completed === 1).length;
+                        progressPct = Math.round((completed / task.subtasks.length) * 100);
+                    } else {
+                        if (task.status === 'Finish') progressPct = 100;
+                        else if (task.status === 'In progress') progressPct = 50;
+                        else progressPct = 0;
+                    }
+
+                    // Determine progress bar color based on percentage
+                    let progressFillClass = 'blue-fill';
+                    if (progressPct >= 100) {
+                        progressFillClass = 'green-fill';
+                    } else if (progressPct >= 50) {
+                        progressFillClass = 'amber-fill';
+                    }
+
+                    // Format dates to dd/MM/YYYY
+                    const dParts = task.date.split('-');
+                    const formattedDate = dParts.length === 3 ? `${dParts[2]}/${dParts[1]}/${dParts[0]}` : task.date;
+
+                    // Priority glow colors classes
+                    let priorityBadgeClass = 'badge-blue';
+                    let borderGlowStyle = 'border-color: var(--border-color);';
+                    if (task.priority === 'Urgent') {
+                        priorityBadgeClass = 'badge-pink';
+                        borderGlowStyle = 'border-color: var(--neon-pink); box-shadow: 0 0 10px rgba(255, 45, 85, 0.15);';
+                    } else if (task.priority === 'Important') {
+                        priorityBadgeClass = 'badge-blue';
+                        borderGlowStyle = 'border-color: var(--neon-blue); box-shadow: 0 0 10px rgba(0, 212, 255, 0.15);';
+                    } else if (task.priority === 'Urgent et Important') {
+                        priorityBadgeClass = 'badge-pink';
+                        borderGlowStyle = 'border-color: var(--neon-pink); box-shadow: 0 0 15px rgba(255, 45, 85, 0.25);';
+                    }
+
+                    if (task.status === 'Finish') {
+                        borderGlowStyle = 'border-color: var(--neon-green); box-shadow: 0 0 12px var(--neon-green-glow);';
+                    }
+
+                    // Status classes
+                    let statusLabel = 'À FAIRE';
+                    let statusBadgeClass = 'badge-blue';
+                    if (task.status === 'In progress') {
+                        statusLabel = 'EN COURS';
+                        statusBadgeClass = 'badge-amber';
+                    } else if (task.status === 'Finish') {
+                        statusLabel = 'TERMINÉ';
+                        statusBadgeClass = 'badge-green';
+                    }
+
+                    // Build Card DOM element
+                    const card = document.createElement('div');
+                    card.className = 'cyber-card';
+                    card.style = `margin: 0; padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 200px; ${borderGlowStyle}`;
+                    
+                    // Render subtasks checklist
+                    let subtasksHtml = '';
+                    if (task.subtasks && task.subtasks.length > 0) {
+                        subtasksHtml = `
+                            <div class="subtask-list" style="margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 0.75rem;">
+                                <span class="tech-label" style="font-size: 0.68rem; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">Checklist :</span>
+                                <div style="display:flex; flex-direction:column; gap:0.35rem;">
+                                    ${task.subtasks.map(sub => `
+                                        <label style="display:flex; align-items:center; gap:0.45rem; font-family:var(--font-mono); font-size:0.75rem; color:${sub.completed === 1 ? 'var(--text-muted)' : 'var(--text-main)'}; cursor:pointer; user-select:none; text-decoration:${sub.completed === 1 ? 'line-through' : 'none'};">
+                                            <input type="checkbox" class="subtask-checkbox" data-sub-id="${sub.id}" ${sub.completed === 1 ? 'checked' : ''} style="accent-color: var(--neon-blue);">
+                                            <span>${sub.title}</span>
+                                        </label>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    card.innerHTML = `
+                        <div class="card-edge"></div>
+                        <div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                <span class="${priorityBadgeClass}" style="font-size: 0.65rem;">${task.priority}</span>
+                                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                    <span class="tech-label" style="font-size: 0.68rem; margin:0;">Statut :</span>
+                                    <select class="cyber-select task-status-selector" data-task-id="${task.id}" style="font-size: 0.7rem; padding: 0.15rem 0.35rem; height: 24px; width: 100px; border-color: var(--neon-blue);">
+                                        <option value="Start" ${task.status === 'Start' ? 'selected' : ''}>À faire</option>
+                                        <option value="In progress" ${task.status === 'In progress' ? 'selected' : ''}>En cours</option>
+                                        <option value="Finish" ${task.status === 'Finish' ? 'selected' : ''}>Terminé</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <h4 style="color: var(--text-main); font-size: 0.95rem; line-height: 1.35; margin-bottom: 0.5rem; font-weight: 600;">${task.title}</h4>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 0.25rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
+                                <div><span style="color: var(--neon-blue);">Pour :</span> <strong>${task.assignee}</strong></div>
+                                <div><span style="color: var(--neon-blue);">Créateur :</span> ${task.creator}</div>
+                                <div><span style="color: var(--neon-blue);">Échéance :</span> ${formattedDate}</div>
+                            </div>
+
+                            ${subtasksHtml}
+                        </div>
+
+                        <div style="margin-top: 1rem;">
+                            <!-- Progress Bar -->
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; font-family: var(--font-mono); font-size: 0.72rem;">
+                                <span style="color: var(--text-muted);">Progression</span>
+                                <span style="color: var(--neon-blue); font-weight: bold;">${progressPct}%</span>
+                            </div>
+                            <div class="progress-bar-container" style="border: 1px solid var(--border-color); overflow: hidden; margin-top: 0.25rem;">
+                                <div class="progress-bar-fill ${progressFillClass}" style="width: ${progressPct}%; height: 100%; transition: width 0.3s ease;"></div>
+                            </div>
+
+                            <!-- Actions -->
+                            <div style="display: flex; justify-content: flex-end; margin-top: 0.75rem;">
+                                <button type="button" class="cyber-btn-mini delete-task-btn" data-task-id="${task.id}" style="border-color: var(--neon-pink); color: var(--neon-pink); background: transparent;" title="Supprimer cette tâche">
+                                    <i class="fa-solid fa-trash-can"></i> Supprimer
+                                </button>
+                            </div>
+                        </div>
+                    `;
+
+                    // Bind change listener on status select
+                    card.querySelector('.task-status-selector').addEventListener('change', async (e) => {
+                        const status = e.target.value;
+                        try {
+                            const patchRes = await fetch(`/api/tasks/${task.id}/status`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ status })
+                            });
+                            const patchData = await patchRes.json();
+                            if (patchData.status === 'success') {
+                                showToast("Statut mis à jour.", "success");
+                                loadTasks();
+                            } else {
+                                showToast("Erreur : " + patchData.message, "error");
+                            }
+                        } catch (err) {
+                            console.error(err);
+                            showToast("Erreur de mise à jour.", "error");
+                        }
+                    });
+
+                    // Bind change listeners on subtasks checkboxes
+                    card.querySelectorAll('.subtask-checkbox').forEach(chk => {
+                        chk.addEventListener('change', async (e) => {
+                            const subId = e.target.getAttribute('data-sub-id');
+                            const completed = e.target.checked;
+                            try {
+                                const subRes = await fetch(`/api/subtasks/${subId}/toggle`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ completed })
+                                });
+                                const subData = await subRes.json();
+                                if (subData.status === 'success') {
+                                    showToast("Sous-tâche mise à jour.", "success");
+                                    loadTasks();
+                                } else {
+                                    showToast("Erreur : " + subData.message, "error");
+                                    e.target.checked = !completed; // revert UI
+                                }
+                            } catch (err) {
+                                console.error(err);
+                                showToast("Erreur de mise à jour.", "error");
+                                e.target.checked = !completed; // revert UI
+                            }
+                        });
+                    });
+
+                    // Bind delete button click listener
+                    card.querySelector('.delete-task-btn').addEventListener('click', async () => {
+                        if (confirm("Voulez-vous vraiment supprimer cette tâche ?")) {
+                            try {
+                                const delRes = await fetch(`/api/tasks/${task.id}`, { method: 'DELETE' });
+                                const delData = await delRes.json();
+                                if (delData.status === 'success') {
+                                    showToast("Tâche supprimée.", "success");
+                                    loadTasks();
+                                } else {
+                                    showToast("Erreur : " + delData.message, "error");
+                                }
+                            } catch (err) {
+                                console.error(err);
+                                showToast("Erreur lors de la suppression.", "error");
+                            }
+                        }
+                    });
+
+                    cardsGrid.appendChild(card);
+                });
+
+                if (badgeEl) badgeEl.innerText = `${filtered.length} tâche${filtered.length > 1 ? 's' : ''}`;
+                if (tableCardEl) tableCardEl.style.display = '';
+                
+                // Re-apply saved Grid/List view mode
+                applyTasksViewMode(localStorage.getItem('tasksViewMode') || 'grid');
+            } else {
+                if (emptyEl) emptyEl.style.display = 'block';
+                if (badgeEl) badgeEl.innerText = '0 tâches';
+            }
+        } else {
+            if (emptyEl) emptyEl.style.display = 'block';
+            if (badgeEl) badgeEl.innerText = '0 tâches';
+        }
+    } catch (err) {
+        console.error("Error loading tasks:", err);
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'block';
+        if (badgeEl) badgeEl.innerText = 'erreur';
+        showToast("Erreur lors du chargement des tâches.", "error");
+    }
+}
