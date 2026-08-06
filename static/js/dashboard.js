@@ -5122,7 +5122,7 @@ function renderFamillesGrid(records) {
         const cardGlow = isCa ? 'glow-blue' : (pctPartiel >= 100 ? 'glow-green' : (pctPartiel >= 80 ? 'glow-amber' : 'glow-pink'));
         const displayFamName = (fam === 'SAUCES') ? 'SAUCES TACOS' : fam;
 
-        // Get individual vendor rows for this family (like image1)
+        // Get individual vendor rows for this family (matching Excel image2)
         const vendorRecords = records.filter(r => r && r.famille === fam && r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE' && r.vendeur.toUpperCase() !== 'CHAKIB ELFIL' && r.vendeur.toUpperCase() !== 'BOUTMEZGUINE EL MOSTAFA');
         
         // Sort vendors by obj descending, then real descending
@@ -5134,33 +5134,34 @@ function renderFamillesGrid(records) {
             vendorRecords.forEach(r => {
                 const vReal = r.real || 0;
                 const vObjGlobal = r.obj || 0;
-                const vObjPartiel = Math.round(vObjGlobal * prorataRatio);
                 
-                let vPct = 0;
                 let vPctText = '0%';
-                let vBadgeBg = 'rgba(236, 72, 153, 0.18)';
+                let vBadgeBg = 'rgba(239, 68, 68, 0.18)';
                 let vBadgeColor = '#be185d';
 
-                if (vObjPartiel > 0) {
-                    vPct = Math.round((vReal / vObjPartiel) * 100);
-                    const dev = vPct - 100;
-                    const devSign = dev >= 0 ? '+' : '';
-                    vPctText = `${devSign}${dev}%`;
-                } else if (vReal > 0) {
-                    vPct = 100;
-                    vPctText = '+100%';
-                } else if (vObjGlobal > 0) {
-                    vPctText = '-100%';
-                } else {
-                    vPctText = '#DIV/0!';
-                }
+                if (vObjGlobal > 0) {
+                    const devPct = Math.round(((vReal - vObjGlobal) / vObjGlobal) * 100);
+                    const devSign = devPct >= 0 ? '+' : '';
+                    vPctText = `${devSign}${devPct}%`;
 
-                if (vPct >= 100) {
+                    if (devPct >= 0) {
+                        vBadgeBg = 'rgba(34, 197, 94, 0.18)';
+                        vBadgeColor = '#15803d';
+                    } else if (devPct >= -20) {
+                        vBadgeBg = 'rgba(245, 158, 11, 0.18)';
+                        vBadgeColor = '#b45309';
+                    } else {
+                        vBadgeBg = 'rgba(239, 68, 68, 0.2)';
+                        vBadgeColor = '#dc2626';
+                    }
+                } else if (vReal > 0) {
+                    vPctText = '#DIV/0!';
                     vBadgeBg = 'rgba(34, 197, 94, 0.18)';
                     vBadgeColor = '#15803d';
-                } else if (vPct >= 80) {
-                    vBadgeBg = 'rgba(245, 158, 11, 0.18)';
-                    vBadgeColor = '#b45309';
+                } else {
+                    vPctText = '#DIV/0!';
+                    vBadgeBg = 'rgba(100, 116, 139, 0.18)';
+                    vBadgeColor = '#64748b';
                 }
 
                 const vRaf = vObjGlobal - vReal;
@@ -5174,7 +5175,7 @@ function renderFamillesGrid(records) {
                             ${formatNumber(vReal)}
                         </td>
                         <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: var(--text-main);">
-                            ${formatNumber(vObjPartiel)}
+                            ${formatNumber(vObjGlobal)}
                         </td>
                         <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
                             <span style="background: ${vBadgeBg}; color: ${vBadgeColor}; padding: 0.15rem 0.35rem; border-radius: 3px; font-size: 0.68rem; display: inline-block;">
@@ -5195,7 +5196,7 @@ function renderFamillesGrid(records) {
                             <tr style="background: rgba(0, 212, 255, 0.08); position: sticky; top: 0; z-index: 2;">
                                 <th style="padding: 0.4rem 0.45rem; text-align: left;">Représentant</th>
                                 <th style="padding: 0.4rem 0.4rem; text-align: right;">REAL</th>
-                                <th style="padding: 0.4rem 0.4rem; text-align: right;">OBJ Part.</th>
+                                <th style="padding: 0.4rem 0.4rem; text-align: right;">OBJ</th>
                                 <th style="padding: 0.4rem 0.4rem; text-align: right;">%</th>
                                 <th style="padding: 0.4rem 0.4rem; text-align: right;">RAF</th>
                             </tr>
