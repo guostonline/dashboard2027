@@ -5336,40 +5336,46 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
         });
     }
 
-    // 4. Calculate Scores out of 100 for each vendor
+    // 4. Calculate Scores based on % deviation conversion directly to points (+20% = +20 pts, -20% = -20 pts)
     const vendorScores = [];
 
     Object.values(vendorsMap).forEach(v => {
-        // A. CA Score (Max 40 pts)
+        // A. CA Score (% deviation vs target: e.g. +20% = +20 pts, -20% = -20 pts)
         let scoreCa = 0;
         if (v.caObj > 0) {
-            const ratio = v.caReal / v.caObj;
-            scoreCa = Math.min(40, Math.max(0, Math.round(ratio * 40)));
-        } else if (v.caReal > 0) {
-            scoreCa = 40;
+            scoreCa = Math.round(((v.caReal - v.caObj) / v.caObj) * 100);
         }
 
-        // B. Focus Score (Max 30 pts: 15 pts Glace + 15 pts Tomate)
-        let scoreGlace = 15;
+        // B. Focus Score (% deviation of focus products: e.g. -15% = -15 pts)
+        let scoreFocus = 0;
+        let focusCount = 0;
         if (v.glaceDev !== null) {
-            scoreGlace = Math.min(15, Math.max(0, Math.round((1 + v.glaceDev) * 15)));
+            scoreFocus += Math.round(v.glaceDev * 100);
+            focusCount++;
         }
-        let scoreTomate = 15;
         if (v.tomateDev !== null) {
-            scoreTomate = Math.min(15, Math.max(0, Math.round((1 + v.tomateDev) * 15)));
+            scoreFocus += Math.round(v.tomateDev * 100);
+            focusCount++;
         }
-        const scoreFocus = scoreGlace + scoreTomate;
+        if (focusCount > 1) {
+            scoreFocus = Math.round(scoreFocus / focusCount);
+        }
 
-        // C. Qualitative Score (Max 30 pts: 10 pts TSM + 10 pts ACM + 10 pts LINE)
-        const scoreTsm = Math.min(10, Math.max(0, Math.round((v.tsm / 100) * 10)));
-        const scoreAcm = Math.min(10, Math.max(0, Math.round((v.acm / 100) * 10)));
-        const scoreLine = Math.min(10, Math.max(0, Math.round((v.line / 100) * 10)));
-        const scoreQuali = scoreTsm + scoreAcm + scoreLine;
+        // C. Qualitatif Score (% deviation from 100% target: e.g. 95% = -5 pts, 105% = +5 pts)
+        let qualiAvg = 0;
+        let qualiCount = 0;
+        if (v.tsm > 0) { qualiAvg += v.tsm; qualiCount++; }
+        if (v.acm > 0) { qualiAvg += v.acm; qualiCount++; }
+        if (v.line > 0) { qualiAvg += v.line; qualiCount++; }
+        let scoreQuali = 0;
+        if (qualiCount > 0) {
+            scoreQuali = Math.round((qualiAvg / qualiCount) - 100);
+        }
 
-        // D. Total Score (/100)
-        const scoreTotal = Math.min(100, Math.max(0, scoreCa + scoreFocus + scoreQuali));
+        // D. Score Total (Base 100 + scoreCa + scoreFocus + scoreQuali)
+        const scoreTotal = Math.max(0, Math.round(100 + scoreCa + scoreFocus + scoreQuali));
 
-        // Get activity role (SOM, VMM, SOM VMM)
+        // Activity role
         const activite = (vendeurActivites && (vendeurActivites[v.vendeur] || vendeurActivites[v.vendeur.toUpperCase()])) ? (vendeurActivites[v.vendeur] || vendeurActivites[v.vendeur.toUpperCase()]) : 'SOM VMM';
 
         vendorScores.push({
@@ -5382,7 +5388,7 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
         });
     });
 
-    // 5. Sort vendors by Score Total descending
+    // 5. Sort vendors by Score Total descending (highest score to lowest)
     vendorScores.sort((a, b) => b.scoreTotal - a.scoreTotal);
 
     if (badgeEl) badgeEl.innerText = `${vendorScores.length} Vendeurs`;
@@ -5412,21 +5418,32 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
         let statusBg = 'rgba(239, 68, 68, 0.18)';
         let statusColor = '#dc2626';
 
-        if (v.scoreTotal >= 85) {
+        if (v.scoreTotal >= 100) {
             statusBadge = '🌟 EXCELLENT';
             statusBg = 'rgba(34, 197, 94, 0.2)';
             statusColor = '#15803d';
-        } else if (v.scoreTotal >= 70) {
+        } else if (v.scoreTotal >= 80) {
             statusBadge = '🟢 BON';
             statusBg = 'rgba(0, 212, 255, 0.18)';
             statusColor = '#00d4ff';
-        } else if (v.scoreTotal >= 50) {
+        } else if (v.scoreTotal >= 60) {
             statusBadge = '🟠 MOYEN';
             statusBg = 'rgba(245, 158, 11, 0.18)';
             statusColor = '#b45309';
         }
 
-        const scoreBarColor = v.scoreTotal >= 85 ? '#22c55e' : (v.scoreTotal >= 70 ? '#00d4ff' : (v.scoreTotal >= 50 ? '#f59e0b' : '#ef4444'));
+        const scoreBarColor = v.scoreTotal >= 100 ? '#22c55e' : (v.scoreTotal >= 80 ? '#00d4ff' : (v.scoreTotal >= 60 ? '#f59e0b' : '#ef4444'));
+
+        const formatPtsBadge = (pts) => {
+            const sign = pts >= 0 ? '+' : '';
+            const bg = pts >= 0 ? 'rgba(34, 197, 94, 0.18)' : 'rgba(239, 68, 68, 0.2)';
+            const fg = pts >= 0 ? '#15803d' : '#dc2626';
+            return `<span style="background: ${bg}; color: ${fg}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700;">${sign}${pts} pts</span>`;
+        };
+
+        const caBadge = formatPtsBadge(v.scoreCa);
+        const focusBadge = formatPtsBadge(v.scoreFocus);
+        const qualiBadge = formatPtsBadge(v.scoreQuali);
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -5439,14 +5456,14 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
             <td style="padding: 0.5rem; text-align: center;">
                 <span class="badge-blue" style="font-size: 0.65rem;">${v.activite}</span>
             </td>
-            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--neon-blue); font-weight: 700;">${v.scoreCa} / 40</td>
-            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--neon-pink); font-weight: 700;">${v.scoreFocus} / 30</td>
-            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--neon-green); font-weight: 700;">${v.scoreQuali} / 30</td>
-            <td style="padding: 0.5rem; text-align: center; min-width: 130px;">
+            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono);">${caBadge}</td>
+            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono);">${focusBadge}</td>
+            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono);">${qualiBadge}</td>
+            <td style="padding: 0.5rem; text-align: center; min-width: 135px;">
                 <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
-                    <span style="font-size: 0.9rem; font-weight: 800; font-family: var(--font-mono); color: ${scoreBarColor}; width: 52px; text-align: right;">${v.scoreTotal}/100</span>
+                    <span style="font-size: 0.9rem; font-weight: 800; font-family: var(--font-mono); color: ${scoreBarColor}; width: 58px; text-align: right;">${v.scoreTotal}/100</span>
                     <div style="width: 55px; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
-                        <div style="width: ${v.scoreTotal}%; height: 100%; background: ${scoreBarColor}; border-radius: 3px;"></div>
+                        <div style="width: ${Math.min(v.scoreTotal, 100)}%; height: 100%; background: ${scoreBarColor}; border-radius: 3px;"></div>
                     </div>
                 </div>
             </td>
