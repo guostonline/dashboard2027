@@ -13040,6 +13040,37 @@ function renderChakibFocusProgress(historyData, settings, totalDays, focusNames)
         vendeursCountBadge.innerText = `${sortedChakibVendeurs.length} Vendeurs`;
     }
 
+    const elapsedDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.elapsed) ? dashboardData.workdays.elapsed : 20;
+    const tDays = totalDays || 24;
+    const prorataRatio = (tDays > 0) ? (elapsedDays / tDays) : 1;
+
+    const formatDualBadge = (devVal) => {
+        if (devVal === null || devVal === undefined) return '<span style="color: var(--text-muted); font-size: 0.7rem;">N/A</span>';
+        
+        const devGlob = Math.round(devVal * 100);
+        const globSign = devGlob >= 0 ? '+' : '';
+        const globClass = devGlob >= 0 ? '#15803d' : (devGlob >= -20 ? '#b45309' : '#dc2626');
+        const globBg = devGlob >= 0 ? 'rgba(34, 197, 94, 0.18)' : (devGlob >= -20 ? 'rgba(245, 158, 11, 0.18)' : 'rgba(239, 68, 68, 0.2)');
+
+        // Calculate partial deviation relative to prorata ratio
+        const realRatio = 1 + devVal;
+        const devPart = Math.round(((realRatio / prorataRatio) - 1) * 100);
+        const partSign = devPart >= 0 ? '+' : '';
+        const partClass = devPart >= 0 ? '#15803d' : (devPart >= -20 ? '#b45309' : '#dc2626');
+        const partBg = devPart >= 0 ? 'rgba(34, 197, 94, 0.18)' : (devPart >= -20 ? 'rgba(245, 158, 11, 0.18)' : 'rgba(239, 68, 68, 0.2)');
+
+        return `
+            <div style="display: flex; gap: 0.3rem; justify-content: flex-end; align-items: center;">
+                <span style="background: ${globBg}; color: ${globClass}; padding: 0.12rem 0.35rem; border-radius: 3px; font-size: 0.68rem; font-weight: 700;" title="Écart Global vs Mois Complet">
+                    ${globSign}${devGlob}% Glob
+                </span>
+                <span style="background: ${partBg}; color: ${partClass}; padding: 0.12rem 0.35rem; border-radius: 3px; font-size: 0.68rem; font-weight: 700;" title="Écart Partiel vs Objectif à Date">
+                    ${partSign}${devPart}% Part
+                </span>
+            </div>
+        `;
+    };
+
     const vTbody = document.getElementById('chakib-vendeurs-focus-tbody');
     if (vTbody) {
         vTbody.innerHTML = '';
@@ -13054,21 +13085,15 @@ function renderChakibFocusProgress(historyData, settings, totalDays, focusNames)
             const lastDateRaw = (gRec && gRec.upload_date) || (tRec && tRec.upload_date) || '';
             const lastDate = lastDateRaw ? lastDateRaw.substring(0, 10) : '-';
 
-            const gDev = gRec && gRec.deviation !== null ? Math.round(gRec.deviation * 100) : null;
-            const tDev = tRec && tRec.deviation !== null ? Math.round(tRec.deviation * 100) : null;
-
-            const gText = gDev !== null ? (gDev > 0 ? '+' : '') + gDev + '%' : 'N/A';
-            const tText = tDev !== null ? (tDev > 0 ? '+' : '') + tDev + '%' : 'N/A';
-
-            const gColorClass = gDev !== null ? (gDev >= 0 ? 'neon-text-green' : (gDev >= -20 ? 'neon-text-amber' : 'neon-text-pink')) : '';
-            const tColorClass = tDev !== null ? (tDev >= 0 ? 'neon-text-green' : (tDev >= -20 ? 'neon-text-amber' : 'neon-text-pink')) : '';
+            const gCell = formatDualBadge(gRec ? gRec.deviation : null);
+            const tCell = formatDualBadge(tRec ? tRec.deviation : null);
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td style="padding: 0.4rem 0.5rem; font-weight: 600; color: var(--text-main);">${vName}</td>
                 <td style="padding: 0.4rem 0.5rem; font-family: var(--font-mono); color: var(--text-muted);">${secteur}</td>
-                <td style="padding: 0.4rem 0.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700;" class="${gColorClass}">${gText}</td>
-                <td style="padding: 0.4rem 0.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700;" class="${tColorClass}">${tText}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: right; font-family: var(--font-mono);">${gCell}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: right; font-family: var(--font-mono);">${tCell}</td>
                 <td style="padding: 0.4rem 0.5rem; text-align: center; font-family: var(--font-mono); color: var(--text-muted); font-size: 0.7rem;">${lastDate}</td>
             `;
             vTbody.appendChild(tr);
