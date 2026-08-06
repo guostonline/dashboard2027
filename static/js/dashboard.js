@@ -12986,7 +12986,7 @@ function renderChakibFocusProgress(historyData, settings, totalDays, focusNames)
         ...chakibTomate.map(r => r.upload_date.substring(0, 10))
     ])].sort();
     
-    // Populate Table
+    // Populate Date Table
     const tbody = document.getElementById('chakib-focus-progress-tbody');
     if (tbody) {
         tbody.innerHTML = '';
@@ -13012,6 +13012,94 @@ function renderChakibFocusProgress(historyData, settings, totalDays, focusNames)
             `;
             tbody.appendChild(tr);
         });
+    }
+
+    // Populate Vendeurs Focus Breakdown Table
+    const thVendeurGlace = document.getElementById('th-chakib-vendeur-glace');
+    const thVendeurTomate = document.getElementById('th-chakib-vendeur-tomate');
+    if (thVendeurGlace) thVendeurGlace.innerText = `Écart ${nameGlace}`;
+    if (thVendeurTomate) thVendeurTomate.innerText = `Écart ${nameTomate}`;
+
+    const glaceReps = (historyData.glace && historyData.glace.reps) ? historyData.glace.reps : [];
+    const tomateReps = (historyData.tomate && historyData.tomate.reps) ? historyData.tomate.reps : [];
+
+    const isChakibTeamRep = (r) => {
+        const cdzClean = (r.cdz || '').replace(/\s+/g, '').toUpperCase();
+        return cdzClean === 'CHAKIBELFIL' || cdzClean.includes('CHAKIB');
+    };
+
+    const chakibGlaceReps = glaceReps.filter(isChakibTeamRep);
+    const chakibTomateReps = tomateReps.filter(isChakibTeamRep);
+
+    // Get all unique vendeurs under Chakib Elfil
+    const vendeursSet = new Set([
+        ...chakibGlaceReps.map(r => r.representative),
+        ...chakibTomateReps.map(r => r.representative)
+    ]);
+    const sortedChakibVendeurs = Array.from(vendeursSet).filter(Boolean).sort();
+
+    const vendeursCountBadge = document.getElementById('chakib-vendeurs-count-badge');
+    if (vendeursCountBadge) {
+        vendeursCountBadge.innerText = `${sortedChakibVendeurs.length} Vendeurs`;
+    }
+
+    const vTbody = document.getElementById('chakib-vendeurs-focus-tbody');
+    if (vTbody) {
+        vTbody.innerHTML = '';
+        sortedChakibVendeurs.forEach(vName => {
+            const vGlaceRecs = chakibGlaceReps.filter(r => r.representative === vName).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+            const vTomateRecs = chakibTomateReps.filter(r => r.representative === vName).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+
+            const gRec = vGlaceRecs[0];
+            const tRec = vTomateRecs[0];
+
+            const secteur = (gRec && gRec.secteur) || (tRec && tRec.secteur) || '-';
+            const lastDateRaw = (gRec && gRec.upload_date) || (tRec && tRec.upload_date) || '';
+            const lastDate = lastDateRaw ? lastDateRaw.substring(0, 10) : '-';
+
+            const gDev = gRec && gRec.deviation !== null ? Math.round(gRec.deviation * 100) : null;
+            const tDev = tRec && tRec.deviation !== null ? Math.round(tRec.deviation * 100) : null;
+
+            const gText = gDev !== null ? (gDev > 0 ? '+' : '') + gDev + '%' : 'N/A';
+            const tText = tDev !== null ? (tDev > 0 ? '+' : '') + tDev + '%' : 'N/A';
+
+            const gColorClass = gDev !== null ? (gDev >= 0 ? 'neon-text-green' : (gDev >= -20 ? 'neon-text-amber' : 'neon-text-pink')) : '';
+            const tColorClass = tDev !== null ? (tDev >= 0 ? 'neon-text-green' : (tDev >= -20 ? 'neon-text-amber' : 'neon-text-pink')) : '';
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="padding: 0.4rem 0.5rem; font-weight: 600; color: var(--text-main);">${vName}</td>
+                <td style="padding: 0.4rem 0.5rem; font-family: var(--font-mono); color: var(--text-muted);">${secteur}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700;" class="${gColorClass}">${gText}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700;" class="${tColorClass}">${tText}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: center; font-family: var(--font-mono); color: var(--text-muted); font-size: 0.7rem;">${lastDate}</td>
+            `;
+            vTbody.appendChild(tr);
+        });
+    }
+    
+    // Handle Chart View Mode Toggles
+    let currentFocusMode = window.chakibFocusMode || 'all';
+    const btnAll = document.getElementById('btn-chakib-focus-mode-all');
+    const btnVendors = document.getElementById('btn-chakib-focus-mode-vendeurs');
+
+    if (btnAll && btnVendors) {
+        if (currentFocusMode === 'vendeurs') {
+            btnVendors.classList.add('active');
+            btnAll.classList.remove('active');
+        } else {
+            btnAll.classList.add('active');
+            btnVendors.classList.remove('active');
+        }
+
+        btnAll.onclick = () => {
+            window.chakibFocusMode = 'all';
+            renderChakibFocusProgress(historyData, settings, totalDays, focusNames);
+        };
+        btnVendors.onclick = () => {
+            window.chakibFocusMode = 'vendeurs';
+            renderChakibFocusProgress(historyData, settings, totalDays, focusNames);
+        };
     }
     
     // Render Line Chart
@@ -13043,16 +13131,6 @@ function renderChakibFocusProgress(historyData, settings, totalDays, focusNames)
     
     const labels = allDates.map(formatShortDate);
     
-    const glaceData = allDates.map(date => {
-        const r = chakibGlace.find(x => x.upload_date.startsWith(date));
-        return r ? Math.round(r.deviation * 100) : null;
-    });
-    
-    const tomateData = allDates.map(date => {
-        const r = chakibTomate.find(x => x.upload_date.startsWith(date));
-        return r ? Math.round(r.deviation * 100) : null;
-    });
-    
     const calculateElapsedWorkdays = (dateStr) => {
         const parts = dateStr.split('-');
         if (parts.length !== 3) return 0;
@@ -13075,45 +13153,82 @@ function renderChakibFocusProgress(historyData, settings, totalDays, focusNames)
         const prorataVal = (elapsed / totalDays - 1.0) * 100;
         return Math.round(prorataVal * 10) / 10;
     });
+
+    let chartDatasets = [];
+
+    if (currentFocusMode === 'vendeurs') {
+        const VENDOR_PALETTE_FOCUS = ['#00d4ff', '#ffb703', '#ff0055', '#00ff87', '#a855f7', '#3b82f6', '#ec4899', '#10b981', '#f97316'];
+        sortedChakibVendeurs.forEach((vName, idx) => {
+            const vColor = VENDOR_PALETTE_FOCUS[idx % VENDOR_PALETTE_FOCUS.length];
+            const vGlaceData = allDates.map(date => {
+                const r = chakibGlaceReps.find(x => x.representative === vName && x.upload_date.startsWith(date));
+                return r && r.deviation !== null ? Math.round(r.deviation * 100) : null;
+            });
+
+            chartDatasets.push({
+                label: `${vName}`,
+                data: vGlaceData,
+                borderColor: vColor,
+                backgroundColor: vColor + '22',
+                borderWidth: 2,
+                pointBackgroundColor: vColor,
+                pointRadius: 3,
+                fill: false,
+                tension: 0.15
+            });
+        });
+    } else {
+        const glaceData = allDates.map(date => {
+            const r = chakibGlace.find(x => x.upload_date.startsWith(date));
+            return r ? Math.round(r.deviation * 100) : null;
+        });
+        
+        const tomateData = allDates.map(date => {
+            const r = chakibTomate.find(x => x.upload_date.startsWith(date));
+            return r ? Math.round(r.deviation * 100) : null;
+        });
+
+        chartDatasets.push({
+            label: nameGlace + ' (%)',
+            data: glaceData,
+            borderColor: neonBlue,
+            backgroundColor: neonBlue + '15',
+            borderWidth: 2.5,
+            pointBackgroundColor: neonBlue,
+            pointRadius: 4,
+            fill: false,
+            tension: 0.15
+        });
+
+        chartDatasets.push({
+            label: nameTomate + ' (%)',
+            data: tomateData,
+            borderColor: neonPink,
+            backgroundColor: neonPink + '15',
+            borderWidth: 2.5,
+            pointBackgroundColor: neonPink,
+            pointRadius: 4,
+            fill: false,
+            tension: 0.15
+        });
+    }
+
+    chartDatasets.push({
+        label: 'Cible Partielle (%)',
+        data: prorataDeviations,
+        borderColor: neonAmber,
+        borderWidth: 1.5,
+        borderDash: [5, 5],
+        pointRadius: 0,
+        fill: false,
+        tension: 0.1
+    });
     
     chakibFocusChartInstance = new Chart(ctx, {
         type: 'line',
         data: {
             labels: labels,
-            datasets: [
-                {
-                    label: nameGlace + ' (%)',
-                    data: glaceData,
-                    borderColor: neonBlue,
-                    backgroundColor: neonBlue + '15',
-                    borderWidth: 2.5,
-                    pointBackgroundColor: neonBlue,
-                    pointRadius: 4,
-                    fill: false,
-                    tension: 0.15
-                },
-                {
-                    label: nameTomate + ' (%)',
-                    data: tomateData,
-                    borderColor: neonPink,
-                    backgroundColor: neonPink + '15',
-                    borderWidth: 2.5,
-                    pointBackgroundColor: neonPink,
-                    pointRadius: 4,
-                    fill: false,
-                    tension: 0.15
-                },
-                {
-                    label: 'Cible Partielle (%)',
-                    data: prorataDeviations,
-                    borderColor: neonAmber,
-                    borderWidth: 1.5,
-                    borderDash: [5, 5],
-                    pointRadius: 0,
-                    fill: false,
-                    tension: 0.1
-                }
-            ]
+            datasets: chartDatasets
         },
         options: {
             responsive: true,

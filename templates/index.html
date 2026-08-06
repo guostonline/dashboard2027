@@ -445,14 +445,22 @@
                 <!-- CHAKIB ELFIL SPECIFIC FOCUS TREND -->
                 <div class="cyber-card focus-card" id="chakib-focus-progress-card" style="display: none; margin-bottom: 1.5rem;">
                     <div class="card-edge"></div>
-                    <div class="card-header">
-                        <span class="tech-label"><i class="fa-solid fa-chart-line"></i> PROGRESSION FOCUS DE CHAKIB ELFIL (DÉVIATION DATE PAR DATE)</span>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <span class="tech-label"><i class="fa-solid fa-chart-line"></i> PROGRESSION FOCUS DE CHAKIB ELFIL (ÉQUIPE & VENDEURS)</span>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button id="btn-chakib-focus-mode-all" class="cyber-btn active" type="button" style="height: 30px; font-size: 0.72rem; padding: 0 0.6rem;">
+                                <i class="fa-solid fa-chart-area"></i> Équipe CDZ
+                            </button>
+                            <button id="btn-chakib-focus-mode-vendeurs" class="cyber-btn" type="button" style="height: 30px; font-size: 0.72rem; padding: 0 0.6rem;">
+                                <i class="fa-solid fa-users"></i> Par Vendeur
+                            </button>
+                        </div>
                     </div>
                     <div class="focus-trend-grid">
                         <div class="chart-wrapper" style="height: 380px; position: relative;">
                             <canvas id="chakib-focus-progress-chart"></canvas>
                         </div>
-                        <div class="table-container" style="max-height: 280px; overflow-y: auto;">
+                        <div class="table-container" style="max-height: 380px; overflow-y: auto;">
                             <table class="cyber-table" id="chakib-focus-progress-table">
                                 <thead>
                                     <tr>
@@ -463,6 +471,32 @@
                                 </thead>
                                 <tbody id="chakib-focus-progress-tbody">
                                     <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- VENDEURS FOCUS BREAKDOWN TABLE -->
+                    <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.08);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <span class="tech-label" style="font-size: 0.78rem; color: var(--neon-blue);">
+                                <i class="fa-solid fa-user-group neon-text-blue"></i> DÉTAIL DE LA PERFORMANCE FOCUS PAR VENDEUR (ÉQUIPE CHAKIB ELFIL)
+                            </span>
+                            <span class="badge-blue" id="chakib-vendeurs-count-badge">0 Vendeurs</span>
+                        </div>
+                        <div class="table-container" style="max-height: 320px; overflow-y: auto; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                            <table class="cyber-table" id="chakib-vendeurs-focus-table" style="width: 100%; font-size: 0.75rem;">
+                                <thead>
+                                    <tr style="background: rgba(0, 212, 255, 0.08); position: sticky; top: 0; z-index: 2;">
+                                        <th style="padding: 0.45rem 0.5rem; text-align: left;">Représentant</th>
+                                        <th style="padding: 0.45rem 0.5rem; text-align: left;">Secteur</th>
+                                        <th style="padding: 0.45rem 0.5rem; text-align: right;" id="th-chakib-vendeur-glace">Écart Glace (SOM)</th>
+                                        <th style="padding: 0.45rem 0.5rem; text-align: right;" id="th-chakib-vendeur-tomate">Écart Tomate (VMM)</th>
+                                        <th style="padding: 0.45rem 0.5rem; text-align: center;">Dernière Maj</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="chakib-vendeurs-focus-tbody">
+                                    <!-- Dynamic vendor rows -->
                                 </tbody>
                             </table>
                         </div>
