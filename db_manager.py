@@ -2468,6 +2468,68 @@ def get_vendeur_phone_from_fdv(vendeur_name):
     return None
 
 
+def get_vendeur_activite_from_fdv(vendeur_name):
+    """Lookup the Activité (SOM, VMM, or SOM VMM from the `role` column) for a given vendeur name from the FDV database table."""
+    if not vendeur_name:
+        return ""
+    v_str = str(vendeur_name).strip()
+    if not v_str:
+        return ""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. Exact match on vendeur
+        cursor.execute("SELECT role FROM fdv WHERE UPPER(vendeur) = ?", (v_str.upper(),))
+        row = cursor.fetchone()
+        
+        # 2. Partial match if exact match not found
+        if not row or not row["role"]:
+            cursor.execute(
+                "SELECT role FROM fdv WHERE "
+                "UPPER(vendeur) LIKE ? OR ? LIKE '%' || UPPER(vendeur) || '%'",
+                (f"%{v_str.upper()}%", v_str.upper())
+            )
+            row = cursor.fetchone()
+            
+        # 3. Match by Vendeur Code prefix (e.g., E14, K60, D48)
+        if not row or not row["role"]:
+            import re
+            m = re.match(r'^([A-Za-z0-9]{2,4})\b', v_str.strip())
+            if m:
+                v_code = m.group(1).upper()
+                cursor.execute(
+                    "SELECT role FROM fdv WHERE "
+                    "UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ?",
+                    (f"{v_code} %", f"{v_code}-%")
+                )
+                row = cursor.fetchone()
+        
+        if row and row["role"]:
+            return str(row["role"]).strip().upper()
+    except Exception as e:
+        print(f"Error querying FDV table for vendeur activite: {e}")
+    return ""
+
+
+def get_all_vendeur_activites_from_fdv():
+    """Returns a dictionary mapping every vendeur in the FDV table to their role/activite (SOM, VMM, SOM VMM)."""
+    mapping = {}
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT vendeur, role FROM fdv")
+        for row in cursor.fetchall():
+            v = row["vendeur"]
+            r = row["role"]
+            if v and r:
+                mapping[v.strip()] = r.strip().upper()
+    except Exception as e:
+        print(f"Error getting all vendeur activites from FDV: {e}")
+    return mapping
+
+
+
 # ------------------------------------------------------------------
 # Focus Rankings and Objectives functions
 # ------------------------------------------------------------------

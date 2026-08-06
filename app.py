@@ -4055,7 +4055,7 @@ def api_fdv_whatsapp_link():
 # Google Sheet Daily Terrain Data Integration
 # ------------------------------------------------------------------
 
-GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/17Q3DoTjLdGwAmztk3LWaC2Z69_ZrGYlAsLHXTusrHIk/export?format=csv"
+GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1-w2F47ig_DJ9xwW1mJDQISdwC1bNeUXIi-eR4Qtok4A/export?format=csv"
 
 def format_google_sheet_url(url):
     if not url:
@@ -4089,7 +4089,11 @@ def get_suivi_terrain_data():
             mtime = os.path.getmtime(cache_path)
             if now - mtime < 300: # 5 minutes cache
                 with open(cache_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    content = json.load(f)
+                    if isinstance(content, dict) and "data" in content:
+                        return content.get("data", []), content.get("headers", [])
+                    elif isinstance(content, list):
+                        return content, []
         except Exception as e:
             print("Error reading terrain cache:", e)
             
@@ -4106,21 +4110,25 @@ def get_suivi_terrain_data():
             csv_data = response.read().decode('utf-8')
             
         reader = csv.DictReader(io.StringIO(csv_data))
+        raw_headers = [k.strip() for k in (reader.fieldnames or []) if k and k.strip()]
+        
         records = []
         for row in reader:
             cleaned_row = {}
+            raw_row = {}
             for k, v in row.items():
                 if not k:
                     continue
                 k_clean = k.strip()
                 v_clean = v.strip() if v else ""
+                raw_row[k_clean] = v_clean
                 
                 # Normalize key names
                 if "timestamp" in k_clean.lower():
                     key = "timestamp"
                 elif "tomate" in k_clean.lower() or "pescada" in k_clean.lower():
                     key = "tomate_frito"
-                elif "glass" in k_clean.lower() or "glace" in k_clean.lower() or "bechamel" in k_clean.lower():
+                elif "glass" in k_clean.lower() or "glace" in k_clean.lower() or "bechamel" in k_clean.lower() or "chantilly" in k_clean.lower():
                     key = "glass_ca"
                 elif "activit" in k_clean.lower() or "activ" in k_clean.lower():
                     key = "activite"
@@ -4128,7 +4136,7 @@ def get_suivi_terrain_data():
                     key = "vendeur"
                 elif "date" in k_clean.lower():
                     key = "date"
-                elif "realisation" in k_clean.lower() or ("ca" in k_clean.lower() and "glass" not in k_clean.lower()):
+                elif "realisation" in k_clean.lower() or ("ca" in k_clean.lower() and "glass" not in k_clean.lower() and "chantilly" not in k_clean.lower()):
                     key = "realisation_ca"
                 elif k_clean.lower() == "bl":
                     key = "bl"
@@ -4149,24 +4157,34 @@ def get_suivi_terrain_data():
                 else:
                     cleaned_row[key] = v_clean
             
+            cleaned_row["raw_row"] = raw_row
+
             # Only append if we got a valid record (must have Date and Vendeur)
             if cleaned_row.get("date") and cleaned_row.get("vendeur"):
                 records.append(cleaned_row)
             
+        cache_obj = {
+            "headers": raw_headers,
+            "data": records
+        }
         # Write to cache
         with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump(records, f, ensure_ascii=False, indent=4)
+            json.dump(cache_obj, f, ensure_ascii=False, indent=4)
             
-        return records
+        return records, raw_headers
     except Exception as e:
         print("Error fetching Google Sheet:", e)
         if os.path.exists(cache_path):
             try:
                 with open(cache_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    content = json.load(f)
+                    if isinstance(content, dict) and "data" in content:
+                        return content.get("data", []), content.get("headers", [])
+                    elif isinstance(content, list):
+                        return content, []
             except:
                 pass
-        return []
+        return [], []
 
 @app.route("/terrain")
 def terrain_page():
@@ -4177,31 +4195,52 @@ def terrain_page():
 
 @app.route("/api/terrain")
 def api_terrain_data():
-    records = get_suivi_terrain_data()
+    res = get_suivi_terrain_data()
+    if isinstance(res, tuple):
+        records, headers = res
+    else:
+        records, headers = res, []
+        
     focus_names = db_manager.get_focus_names()
     config = load_config()
     google_sheet_url = config.get("google_sheet_url", "")
     all_vendeurs = get_all_vendeurs_from_db()
     
     vendeur_phones = {}
+    vendeur_activites = db_manager.get_all_vendeur_activites_from_fdv()
+
     for v in all_vendeurs:
         ph = db_manager.get_vendeur_phone_from_fdv(v) or ""
         if ph:
             vendeur_phones[v] = ph
+        if v not in vendeur_activites:
+            act = db_manager.get_vendeur_activite_from_fdv(v)
+            if act:
+                vendeur_activites[v] = act
+
     for r in records:
         v = r.get("vendeur")
-        if v and v not in vendeur_phones:
-            ph = db_manager.get_vendeur_phone_from_fdv(v) or ""
-            if ph:
-                vendeur_phones[v] = ph
+        if v:
+            if v not in vendeur_phones:
+                ph = db_manager.get_vendeur_phone_from_fdv(v) or ""
+                if ph:
+                    vendeur_phones[v] = ph
+            act = vendeur_activites.get(v) or db_manager.get_vendeur_activite_from_fdv(v)
+            if act:
+                r["activite"] = act
+                if r.get("raw_row"):
+                    r["raw_row"]["Activité"] = act
+                vendeur_activites[v] = act
 
     return jsonify({
         "status": "success", 
         "data": records, 
+        "headers": headers,
         "focus_names": focus_names,
         "google_sheet_url": google_sheet_url,
         "all_vendeurs": all_vendeurs,
-        "vendeur_phones": vendeur_phones
+        "vendeur_phones": vendeur_phones,
+        "vendeur_activites": vendeur_activites
     })
 
 @app.route("/api/terrain/update_sheet", methods=["POST"])
@@ -4219,26 +4258,46 @@ def api_terrain_update_sheet():
         except Exception as e:
             print("Failed to remove cache on sheet update:", e)
             
-    records = get_suivi_terrain_data()
+    res = get_suivi_terrain_data()
+    if isinstance(res, tuple):
+        records, headers = res
+    else:
+        records, headers = res, []
+
     all_vendeurs = get_all_vendeurs_from_db()
     vendeur_phones = {}
+    vendeur_activites = db_manager.get_all_vendeur_activites_from_fdv()
     for v in all_vendeurs:
         ph = db_manager.get_vendeur_phone_from_fdv(v) or ""
         if ph:
             vendeur_phones[v] = ph
+        if v not in vendeur_activites:
+            act = db_manager.get_vendeur_activite_from_fdv(v)
+            if act:
+                vendeur_activites[v] = act
+
     for r in records:
         v = r.get("vendeur")
-        if v and v not in vendeur_phones:
-            ph = db_manager.get_vendeur_phone_from_fdv(v) or ""
-            if ph:
-                vendeur_phones[v] = ph
+        if v:
+            if v not in vendeur_phones:
+                ph = db_manager.get_vendeur_phone_from_fdv(v) or ""
+                if ph:
+                    vendeur_phones[v] = ph
+            act = vendeur_activites.get(v) or db_manager.get_vendeur_activite_from_fdv(v)
+            if act:
+                r["activite"] = act
+                if r.get("raw_row"):
+                    r["raw_row"]["Activité"] = act
+                vendeur_activites[v] = act
 
     return jsonify({
         "status": "success", 
         "data": records, 
+        "headers": headers,
         "google_sheet_url": url,
         "all_vendeurs": all_vendeurs,
         "vendeur_phones": vendeur_phones,
+        "vendeur_activites": vendeur_activites,
         "message": "Lien Google Sheet enregistré dans le fichier de configuration (config.json) et synchronisé avec succès."
     })
 
@@ -4250,8 +4309,23 @@ def api_terrain_refresh():
             os.remove(cache_path)
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to clear cache: {e}"}), 500
-    records = get_suivi_terrain_data()
-    return jsonify({"status": "success", "data": records})
+    res = get_suivi_terrain_data()
+    if isinstance(res, tuple):
+        records, headers = res
+    else:
+        records, headers = res, []
+    
+    vendeur_activites = db_manager.get_all_vendeur_activites_from_fdv()
+    for r in records:
+        v = r.get("vendeur")
+        if v:
+            act = vendeur_activites.get(v) or db_manager.get_vendeur_activite_from_fdv(v)
+            if act:
+                r["activite"] = act
+                if r.get("raw_row"):
+                    r["raw_row"]["Activité"] = act
+
+    return jsonify({"status": "success", "data": records, "headers": headers, "vendeur_activites": vendeur_activites})
 
 
 # Agent monitor (standalone HTML)

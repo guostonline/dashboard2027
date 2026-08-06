@@ -2472,6 +2472,7 @@ const checkboxMap = {
     'focus-card': 'toggle-focus-card',
     'chakib-families-progress-card': 'toggle-chakib-families',
     'chakib-focus-progress-card': 'toggle-chakib-focus',
+    'familles-grid-card': 'toggle-familles-grid',
     'quanti-table-card': 'toggle-quanti-table',
     'quali-table-card': 'toggle-quali-table',
     'alerts-section': 'toggle-alerts-section'
@@ -4743,7 +4744,8 @@ function updateDashboard() {
     if (isCdzSelected) {
         tableQuanti = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === targetNameUpper);
     }
-    renderQuantiTable(tableQuanti);
+    renderQuantiTable(quantiRecords);
+    renderFamillesGrid(quantiRecords);
     renderQualiTable(qualiRecords);
 
     // 5. Render Focus
@@ -5007,6 +5009,256 @@ function updateDashboard() {
     renderQuantiChart(quantiRecords);
     renderQualiChart(qualiRecords, quantiRecords);
     renderRadarChart();
+}
+
+// Populate 3-column product family synthesis cards (Real, Obj Partiel, %, RAF)
+function renderFamillesGrid(records) {
+    const container = document.getElementById('familles-3col-container');
+    const badgeEl = document.getElementById('familles-count-badge');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!records || records.length === 0) {
+        container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono); font-size: 0.85rem;">Aucune donnée de famille disponible</div>';
+        if (badgeEl) badgeEl.innerText = '0 Familles';
+        return;
+    }
+
+    // Group records by Famille
+    const families = {};
+    records.forEach(r => {
+        if (!r || !r.famille) return;
+        if (!families[r.famille]) {
+            families[r.famille] = { real: 0, obj: 0, vendeurs: new Set() };
+        }
+        families[r.famille].real += (r.real || 0);
+        families[r.famille].obj += (r.obj || 0);
+        if (r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE') {
+            families[r.famille].vendeurs.add(r.vendeur.trim());
+        }
+    });
+
+    const customOrder = [
+        "C.A (TTC)",
+        "C.A (HT)",
+        "LEVURE",
+        "MGM",
+        "MOUSSES",
+        "BOUILLON",
+        "CONDIMENTS",
+        "SAUCES TACOS",
+        "SAUCES",
+        "CONFITURE",
+        "CONSERVES",
+        "MISWAK"
+    ];
+
+    const sortedFamNames = Object.keys(families).sort((a, b) => {
+        const indexA = customOrder.indexOf(a.toUpperCase());
+        const indexB = customOrder.indexOf(b.toUpperCase());
+        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+        if (indexA !== -1) return -1;
+        if (indexB !== -1) return 1;
+        return a.localeCompare(b);
+    });
+
+    if (badgeEl) badgeEl.innerText = `${sortedFamNames.length} Familles`;
+
+    const elapsedDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.elapsed) ? dashboardData.workdays.elapsed : 20;
+    const totalDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.total) ? dashboardData.workdays.total : 24;
+    const restDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.rest > 0) ? dashboardData.workdays.rest : 4;
+    const prorataRatio = (totalDays > 0) ? (elapsedDays / totalDays) : 1;
+
+    sortedFamNames.forEach(fam => {
+        const data = families[fam];
+        const real = data.real;
+        const objGlobal = data.obj;
+        const objPartiel = Math.round(objGlobal * prorataRatio);
+
+        // Percent vs Obj Partiel
+        let pctPartiel = 0;
+        if (objPartiel > 0) {
+            pctPartiel = Math.round((real / objPartiel) * 100);
+        } else if (real > 0) {
+            pctPartiel = 100;
+        }
+
+        // Percent vs Obj Global
+        let pctGlobal = 0;
+        if (objGlobal > 0) {
+            pctGlobal = Math.round((real / objGlobal) * 100);
+        } else if (real > 0) {
+            pctGlobal = 100;
+        }
+
+        // RAF Total & RAF Jour
+        const rafTotal = objGlobal - real;
+        let rafJour = 0;
+        if (restDays > 0) {
+            rafJour = Math.round(rafTotal / restDays);
+        } else {
+            rafJour = rafTotal;
+        }
+
+        // Visual Colors & Classes
+        let pctClass = 'neon-text-pink';
+        let fillClass = 'pink-fill';
+        let badgeBg = 'rgba(236, 72, 153, 0.15)';
+        let badgeColor = 'var(--neon-pink)';
+
+        if (pctPartiel >= 100) {
+            pctClass = 'neon-text-green';
+            fillClass = 'green-fill';
+            badgeBg = 'rgba(34, 197, 94, 0.15)';
+            badgeColor = 'var(--neon-green)';
+        } else if (pctPartiel >= 80) {
+            pctClass = 'neon-text-amber';
+            fillClass = 'amber-fill';
+            badgeBg = 'rgba(245, 158, 11, 0.15)';
+            badgeColor = 'var(--neon-amber)';
+        }
+
+        const isCa = fam.toUpperCase().includes('C.A');
+        const cardGlow = isCa ? 'glow-blue' : (pctPartiel >= 100 ? 'glow-green' : (pctPartiel >= 80 ? 'glow-amber' : 'glow-pink'));
+        const displayFamName = (fam === 'SAUCES') ? 'SAUCES TACOS' : fam;
+
+        // Get individual vendor rows for this family (like image1)
+        const vendorRecords = records.filter(r => r && r.famille === fam && r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE' && r.vendeur.toUpperCase() !== 'CHAKIB ELFIL' && r.vendeur.toUpperCase() !== 'BOUTMEZGUINE EL MOSTAFA');
+        
+        // Sort vendors by obj descending, then real descending
+        vendorRecords.sort((a, b) => (b.obj || 0) - (a.obj || 0) || (b.real || 0) - (a.real || 0));
+
+        let vendorTableHtml = '';
+        if (vendorRecords.length > 0) {
+            let rowsHtml = '';
+            vendorRecords.forEach(r => {
+                const vReal = r.real || 0;
+                const vObjGlobal = r.obj || 0;
+                const vObjPartiel = Math.round(vObjGlobal * prorataRatio);
+                
+                let vPct = 0;
+                let vPctText = '0%';
+                let vBadgeBg = 'rgba(236, 72, 153, 0.18)';
+                let vBadgeColor = '#be185d';
+
+                if (vObjPartiel > 0) {
+                    vPct = Math.round((vReal / vObjPartiel) * 100);
+                    const dev = vPct - 100;
+                    const devSign = dev >= 0 ? '+' : '';
+                    vPctText = `${devSign}${dev}%`;
+                } else if (vReal > 0) {
+                    vPct = 100;
+                    vPctText = '+100%';
+                } else if (vObjGlobal > 0) {
+                    vPctText = '-100%';
+                } else {
+                    vPctText = '#DIV/0!';
+                }
+
+                if (vPct >= 100) {
+                    vBadgeBg = 'rgba(34, 197, 94, 0.18)';
+                    vBadgeColor = '#15803d';
+                } else if (vPct >= 80) {
+                    vBadgeBg = 'rgba(245, 158, 11, 0.18)';
+                    vBadgeColor = '#b45309';
+                }
+
+                const vRaf = vObjGlobal - vReal;
+
+                rowsHtml += `
+                    <tr>
+                        <td style="padding: 0.35rem 0.45rem; font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 125px; font-weight: 500;" title="${r.vendeur}">
+                            ${r.vendeur}
+                        </td>
+                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: var(--neon-blue); font-weight: 600;">
+                            ${formatNumber(vReal)}
+                        </td>
+                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: var(--text-main);">
+                            ${formatNumber(vObjPartiel)}
+                        </td>
+                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
+                            <span style="background: ${vBadgeBg}; color: ${vBadgeColor}; padding: 0.15rem 0.35rem; border-radius: 3px; font-size: 0.68rem; display: inline-block;">
+                                ${vPctText}
+                            </span>
+                        </td>
+                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: ${vRaf > 0 ? 'var(--neon-amber)' : 'var(--neon-green)'};">
+                            ${formatNumber(vRaf)}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            vendorTableHtml = `
+                <div class="famille-table-wrapper" style="max-height: 280px; overflow-y: auto; margin-top: 0.5rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                    <table class="cyber-table mini-famille-table" style="width: 100%; font-size: 0.72rem; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: rgba(0, 212, 255, 0.08); position: sticky; top: 0; z-index: 2;">
+                                <th style="padding: 0.4rem 0.45rem; text-align: left;">Représentant</th>
+                                <th style="padding: 0.4rem 0.4rem; text-align: right;">REAL</th>
+                                <th style="padding: 0.4rem 0.4rem; text-align: right;">OBJ Part.</th>
+                                <th style="padding: 0.4rem 0.4rem; text-align: right;">%</th>
+                                <th style="padding: 0.4rem 0.4rem; text-align: right;">RAF</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rowsHtml}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        const card = document.createElement('div');
+        card.className = `cyber-card famille-card-3col ${cardGlow}`;
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.55rem;">
+                <span style="font-weight: 700; font-size: 0.88rem; font-family: var(--font-mono); color: var(--text-main); display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <i class="fa-solid fa-tag neon-text-blue" style="font-size: 0.8rem;"></i> ${displayFamName}
+                </span>
+                <span style="background: ${badgeBg}; color: ${badgeColor}; font-size: 0.7rem; font-weight: 800; padding: 0.2rem 0.55rem; border-radius: 4px; font-family: var(--font-mono); white-space: nowrap;">
+                    ${pctPartiel}%
+                </span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
+                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Réalisé</div>
+                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: var(--neon-blue); margin-top: 2px;">${formatNumber(real)} DH</div>
+                </div>
+
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
+                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Obj. Partiel</div>
+                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-main); margin-top: 2px;">${formatNumber(objPartiel)} DH</div>
+                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">Glob: ${formatNumber(objGlobal)} DH</div>
+                </div>
+
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
+                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Taux / Obj Partiel</div>
+                    <div class="${pctClass}" style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); margin-top: 2px;">${pctPartiel}%</div>
+                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">vs Glob: ${pctGlobal}%</div>
+                </div>
+
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
+                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Reste À Faire (RAF)</div>
+                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: ${rafTotal > 0 ? 'var(--neon-amber)' : 'var(--neon-green)'}; margin-top: 2px;">${formatNumber(rafTotal)} DH</div>
+                    <div style="font-size: 0.58rem; color: var(--neon-amber); margin-top: 1px; white-space: nowrap;">RAF/j: ${formatNumber(rafJour)} DH/j</div>
+                </div>
+            </div>
+
+            <div style="margin-top: 0.15rem;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: var(--text-muted); margin-bottom: 0.2rem;">
+                    <span>Progression Partielle</span>
+                    <span class="${pctClass}" style="font-weight: 700;">${pctPartiel}%</span>
+                </div>
+                <div class="progress-bar-container" style="height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                    <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(pctPartiel, 100)}%; height: 100%;"></div>
+                </div>
+            </div>
+
+            ${vendorTableHtml}
+        `;
+        container.appendChild(card);
+    });
 }
 
 // Populate product family table

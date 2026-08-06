@@ -116,6 +116,10 @@
                                 <span>Progression Focus</span>
                             </label>
                             <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="toggle-familles-grid" checked style="accent-color: var(--neon-blue);">
+                                <span>Synthèse 3-Col Familles</span>
+                            </label>
+                            <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
                                 <input type="checkbox" id="toggle-quanti-table" checked style="accent-color: var(--neon-blue);">
                                 <span>Tableau Quanti</span>
                             </label>
@@ -462,6 +466,18 @@
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+
+                <!-- SYNTHÈSE PAR FAMILLE (3 PAR LIGNE: RÉAL, OBJ PARTIEL, %, RAF) -->
+                <div class="cyber-card table-card" id="familles-grid-card" style="margin-bottom: 1.5rem;">
+                    <div class="card-edge"></div>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="tech-label"><i class="fa-solid fa-boxes-stacked neon-text-blue"></i> SYNTHÈSE PAR FAMILLE (3 PAR LIGNE)</span>
+                        <span class="badge-blue" id="familles-count-badge">0 Familles</span>
+                    </div>
+                    <div class="familles-3col-grid" id="familles-3col-container">
+                        <!-- Famille cards inserted dynamically -->
                     </div>
                 </div>
 
@@ -1877,10 +1893,57 @@
         <!-- GRAPH PANEL -->
         <div class="cyber-card chart-card" id="terrain-chart-card" style="margin-bottom: 1.5rem;">
             <div class="card-edge"></div>
-            <div class="card-header">
-                <span class="tech-label"><i class="fa-solid fa-chart-line neon-text-blue"></i> ÉVOLUTION DES RÉALISATIONS CA & GLACE</span>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <span class="tech-label"><i class="fa-solid fa-chart-bar neon-text-blue"></i> ÉVOLUTION TERRAIN (BARRES & FILTRES PERSONNALISÉS)</span>
+                
+                <!-- Controls for Chart Mode & Activity -->
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <!-- Activity Filter: SOM / VMM / BOTH -->
+                    <select id="terrain-chart-activite" class="cyber-select" style="height: 34px; font-size: 0.75rem; padding: 0 0.5rem; border-color: var(--neon-purple); width: auto; min-width: 160px;" title="Filtrer par Activité">
+                        <option value="ALL" selected>⚡ SOM & VMM (Toutes)</option>
+                        <option value="SOM">🍦 SOM Seul</option>
+                        <option value="VMM">🥫 VMM Seul</option>
+                    </select>
+
+                    <!-- Select Chart View Type -->
+                    <select id="terrain-chart-mode" class="cyber-select" style="height: 34px; font-size: 0.75rem; padding: 0 0.5rem; border-color: var(--neon-green); width: auto; min-width: 180px;" title="Mode de graphique">
+                        <option value="bars_by_vendor" selected>📊 Barres par Vendeur</option>
+                        <option value="bars_by_date">📊 Barres par Date</option>
+                        <option value="stacked_bars">📊 Barres Empilées (Stacked)</option>
+                        <option value="lines_by_vendor">📈 Lignes par Vendeur</option>
+                    </select>
+                    
+                    <button id="terrain-chart-select-all-vendors" class="cyber-btn" type="button" style="height: 34px; font-size: 0.72rem; border-color: var(--neon-blue); padding: 0 0.6rem;">
+                        <i class="fa-solid fa-check-double"></i> Tous Vendeurs
+                    </button>
+                    <button id="terrain-chart-select-all-metrics" class="cyber-btn" type="button" style="height: 34px; font-size: 0.72rem; border-color: var(--neon-amber); padding: 0 0.6rem;">
+                        <i class="fa-solid fa-layer-group"></i> Toutes Valeurs
+                    </button>
+                </div>
             </div>
-            <div class="chart-wrapper" style="height: 380px;">
+
+            <!-- Filter selectors section -->
+            <div style="padding: 0.75rem 1rem 0.5rem 1rem; display: flex; flex-direction: column; gap: 0.6rem; background: rgba(0,0,0,0.15); border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <!-- Choose Values/Metrics -->
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <span class="tech-label" style="font-size: 0.72rem; min-width: 110px; color: var(--neon-blue); margin: 0;"><i class="fa-solid fa-list-check"></i> VALEURS :</span>
+                    <div id="terrain-chart-metrics-chips" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+                </div>
+
+                <!-- Choose Activity -->
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <span class="tech-label" style="font-size: 0.72rem; min-width: 110px; color: var(--neon-purple); margin: 0;"><i class="fa-solid fa-sliders"></i> ACTIVITÉ :</span>
+                    <div id="terrain-chart-activite-chips" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+                </div>
+
+                <!-- Choose Vendors -->
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <span class="tech-label" style="font-size: 0.72rem; min-width: 110px; color: var(--neon-amber); margin: 0;"><i class="fa-solid fa-users"></i> VENDEURS :</span>
+                    <div id="terrain-chart-vendor-chips" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+                </div>
+            </div>
+
+            <div class="chart-wrapper" style="height: 420px; padding: 1rem 0.5rem 0.5rem 0.5rem;">
                 <canvas id="terrain-chart"></canvas>
             </div>
         </div>
