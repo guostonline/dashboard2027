@@ -5346,15 +5346,24 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
             scoreCa = Math.round(((v.caReal - v.caObj) / v.caObj) * 100);
         }
 
-        // B. Focus Score (% deviation of focus products: e.g. -15% = -15 pts)
+        // Get prorata ratio for partial focus deviation calculation
+        const elapsedDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.elapsed) ? dashboardData.workdays.elapsed : 20;
+        const totalDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.total) ? dashboardData.workdays.total : 24;
+        const prorataRatio = (totalDays > 0) ? (elapsedDays / totalDays) : 1;
+
+        // B. Focus Score (% PARTIEL deviation of focus products)
         let scoreFocus = 0;
         let focusCount = 0;
         if (v.glaceDev !== null) {
-            scoreFocus += Math.round(v.glaceDev * 100);
+            const realRatioGlace = 1 + v.glaceDev;
+            const devPartGlace = Math.round(((realRatioGlace / prorataRatio) - 1) * 100);
+            scoreFocus += devPartGlace;
             focusCount++;
         }
         if (v.tomateDev !== null) {
-            scoreFocus += Math.round(v.tomateDev * 100);
+            const realRatioTomate = 1 + v.tomateDev;
+            const devPartTomate = Math.round(((realRatioTomate / prorataRatio) - 1) * 100);
+            scoreFocus += devPartTomate;
             focusCount++;
         }
         if (focusCount > 1) {
