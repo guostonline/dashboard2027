@@ -5039,18 +5039,18 @@ function renderFamillesGrid(records) {
     });
 
     const customOrder = [
-        "C.A (HT)",
-        "C.A (TTC)",
         "LEVURE",
         "MGM",
+        "MOUSSES",
         "BOUILLON",
         "CONDIMENTS",
         "SAUCES TACOS",
         "SAUCES",
-        "CONSERVES",
-        "MOUSSES",
         "CONFITURE",
-        "MISWAK"
+        "CONSERVES",
+        "MISWAK",
+        "C.A (HT)",
+        "C.A (TTC)"
     ];
 
     const sortedFamNames = Object.keys(families).sort((a, b) => {
