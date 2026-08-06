@@ -4746,6 +4746,7 @@ function updateDashboard() {
     }
     renderQuantiTable(quantiRecords);
     renderFamillesGrid(quantiRecords);
+    renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryData, (dashboardData && dashboardData.vendeur_activites) ? dashboardData.vendeur_activites : {});
     renderQualiTable(qualiRecords);
 
     // 5. Render Focus
@@ -5259,6 +5260,203 @@ function renderFamillesGrid(records) {
             ${vendorTableHtml}
         `;
         container.appendChild(card);
+    });
+}
+
+// Populate Vendor Performance Scorecard Table (Max 100 Points)
+function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryData, vendeurActivites) {
+    const tbody = document.getElementById('vendeurs-scorecard-tbody');
+    const badgeEl = document.getElementById('vendeurs-score-count-badge');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (!quantiRecords || quantiRecords.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée disponible</td></tr>';
+        if (badgeEl) badgeEl.innerText = '0 Vendeurs';
+        return;
+    }
+
+    // 1. Group quantitative data by Vendeur
+    const vendorsMap = {};
+
+    quantiRecords.forEach(r => {
+        if (!r || !r.vendeur) return;
+        const vName = r.vendeur.trim();
+        const vUpper = vName.toUpperCase();
+        if (vUpper === 'AUTRE' || vUpper === 'CHAKIB ELFIL' || vUpper === 'BOUTMEZGUINE EL MOSTAFA') return;
+
+        if (!vendorsMap[vName]) {
+            vendorsMap[vName] = {
+                vendeur: vName,
+                caReal: 0,
+                caObj: 0,
+                tsm: 0,
+                acm: 0,
+                line: 0,
+                glaceDev: null,
+                tomateDev: null
+            };
+        }
+
+        const isCa = r.famille && (r.famille.toUpperCase().includes('C.A') || r.famille.toUpperCase().includes('CA'));
+        if (isCa) {
+            vendorsMap[vName].caReal += (r.real || 0);
+            vendorsMap[vName].caObj += (r.obj || 0);
+        }
+    });
+
+    // 2. Attach Qualitative data
+    if (qualiRecords && qualiRecords.length > 0) {
+        qualiRecords.forEach(r => {
+            if (!r || !r.vendeur) return;
+            const vName = r.vendeur.trim();
+            if (vendorsMap[vName]) {
+                vendorsMap[vName].tsm = r.tsm || 0;
+                vendorsMap[vName].acm = r.acm || 0;
+                vendorsMap[vName].line = r.line || 0;
+            }
+        });
+    }
+
+    // 3. Attach Focus Deviations if available
+    if (focusHistoryData) {
+        const glaceReps = (focusHistoryData.glace && focusHistoryData.glace.reps) ? focusHistoryData.glace.reps : [];
+        const tomateReps = (focusHistoryData.tomate && focusHistoryData.tomate.reps) ? focusHistoryData.tomate.reps : [];
+
+        Object.keys(vendorsMap).forEach(vName => {
+            const gRecs = glaceReps.filter(r => r.representative && r.representative.trim().toUpperCase() === vName.toUpperCase()).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+            const tRecs = tomateReps.filter(r => r.representative && r.representative.trim().toUpperCase() === vName.toUpperCase()).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+
+            if (gRecs.length > 0 && gRecs[0].deviation !== null) {
+                vendorsMap[vName].glaceDev = gRecs[0].deviation;
+            }
+            if (tRecs.length > 0 && tRecs[0].deviation !== null) {
+                vendorsMap[vName].tomateDev = tRecs[0].deviation;
+            }
+        });
+    }
+
+    // 4. Calculate Scores out of 100 for each vendor
+    const vendorScores = [];
+
+    Object.values(vendorsMap).forEach(v => {
+        // A. CA Score (Max 40 pts)
+        let scoreCa = 0;
+        if (v.caObj > 0) {
+            const ratio = v.caReal / v.caObj;
+            scoreCa = Math.min(40, Math.max(0, Math.round(ratio * 40)));
+        } else if (v.caReal > 0) {
+            scoreCa = 40;
+        }
+
+        // B. Focus Score (Max 30 pts: 15 pts Glace + 15 pts Tomate)
+        let scoreGlace = 15;
+        if (v.glaceDev !== null) {
+            scoreGlace = Math.min(15, Math.max(0, Math.round((1 + v.glaceDev) * 15)));
+        }
+        let scoreTomate = 15;
+        if (v.tomateDev !== null) {
+            scoreTomate = Math.min(15, Math.max(0, Math.round((1 + v.tomateDev) * 15)));
+        }
+        const scoreFocus = scoreGlace + scoreTomate;
+
+        // C. Qualitative Score (Max 30 pts: 10 pts TSM + 10 pts ACM + 10 pts LINE)
+        const scoreTsm = Math.min(10, Math.max(0, Math.round((v.tsm / 100) * 10)));
+        const scoreAcm = Math.min(10, Math.max(0, Math.round((v.acm / 100) * 10)));
+        const scoreLine = Math.min(10, Math.max(0, Math.round((v.line / 100) * 10)));
+        const scoreQuali = scoreTsm + scoreAcm + scoreLine;
+
+        // D. Total Score (/100)
+        const scoreTotal = Math.min(100, Math.max(0, scoreCa + scoreFocus + scoreQuali));
+
+        // Get activity role (SOM, VMM, SOM VMM)
+        const activite = (vendeurActivites && (vendeurActivites[v.vendeur] || vendeurActivites[v.vendeur.toUpperCase()])) ? (vendeurActivites[v.vendeur] || vendeurActivites[v.vendeur.toUpperCase()]) : 'SOM VMM';
+
+        vendorScores.push({
+            vendeur: v.vendeur,
+            activite: activite,
+            scoreCa: scoreCa,
+            scoreFocus: scoreFocus,
+            scoreQuali: scoreQuali,
+            scoreTotal: scoreTotal
+        });
+    });
+
+    // 5. Sort vendors by Score Total descending
+    vendorScores.sort((a, b) => b.scoreTotal - a.scoreTotal);
+
+    if (badgeEl) badgeEl.innerText = `${vendorScores.length} Vendeurs`;
+
+    // 6. Build HTML rows
+    vendorScores.forEach((v, index) => {
+        const rank = index + 1;
+        let rankBadge = `${rank}`;
+        let rankBg = 'rgba(255,255,255,0.05)';
+        let rankColor = 'var(--text-main)';
+
+        if (rank === 1) {
+            rankBadge = '🥇 1er';
+            rankBg = 'rgba(245, 158, 11, 0.25)';
+            rankColor = '#fbbf24';
+        } else if (rank === 2) {
+            rankBadge = '🥈 2ème';
+            rankBg = 'rgba(148, 163, 184, 0.25)';
+            rankColor = '#cbd5e1';
+        } else if (rank === 3) {
+            rankBadge = '🥉 3ème';
+            rankBg = 'rgba(217, 119, 6, 0.25)';
+            rankColor = '#f59e0b';
+        }
+
+        let statusBadge = '🔴 RETARD';
+        let statusBg = 'rgba(239, 68, 68, 0.18)';
+        let statusColor = '#dc2626';
+
+        if (v.scoreTotal >= 85) {
+            statusBadge = '🌟 EXCELLENT';
+            statusBg = 'rgba(34, 197, 94, 0.2)';
+            statusColor = '#15803d';
+        } else if (v.scoreTotal >= 70) {
+            statusBadge = '🟢 BON';
+            statusBg = 'rgba(0, 212, 255, 0.18)';
+            statusColor = '#00d4ff';
+        } else if (v.scoreTotal >= 50) {
+            statusBadge = '🟠 MOYEN';
+            statusBg = 'rgba(245, 158, 11, 0.18)';
+            statusColor = '#b45309';
+        }
+
+        const scoreBarColor = v.scoreTotal >= 85 ? '#22c55e' : (v.scoreTotal >= 70 ? '#00d4ff' : (v.scoreTotal >= 50 ? '#f59e0b' : '#ef4444'));
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="padding: 0.5rem; text-align: center; font-weight: 700; font-family: var(--font-mono);">
+                <span style="background: ${rankBg}; color: ${rankColor}; padding: 0.2rem 0.45rem; border-radius: 4px; font-size: 0.72rem; display: inline-block;">
+                    ${rankBadge}
+                </span>
+            </td>
+            <td style="padding: 0.5rem; font-weight: 600; color: var(--text-main); font-size: 0.78rem;">${v.vendeur}</td>
+            <td style="padding: 0.5rem; text-align: center;">
+                <span class="badge-blue" style="font-size: 0.65rem;">${v.activite}</span>
+            </td>
+            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--neon-blue); font-weight: 700;">${v.scoreCa} / 40</td>
+            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--neon-pink); font-weight: 700;">${v.scoreFocus} / 30</td>
+            <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--neon-green); font-weight: 700;">${v.scoreQuali} / 30</td>
+            <td style="padding: 0.5rem; text-align: center; min-width: 130px;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                    <span style="font-size: 0.9rem; font-weight: 800; font-family: var(--font-mono); color: ${scoreBarColor}; width: 52px; text-align: right;">${v.scoreTotal}/100</span>
+                    <div style="width: 55px; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                        <div style="width: ${v.scoreTotal}%; height: 100%; background: ${scoreBarColor}; border-radius: 3px;"></div>
+                    </div>
+                </div>
+            </td>
+            <td style="padding: 0.5rem; text-align: center;">
+                <span style="background: ${statusBg}; color: ${statusColor}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.68rem; font-weight: 800; display: inline-block;">
+                    ${statusBadge}
+                </span>
+            </td>
+        `;
+        tbody.appendChild(tr);
     });
 }
 

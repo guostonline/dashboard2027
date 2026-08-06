@@ -515,6 +515,37 @@
                     </div>
                 </div>
 
+                <!-- VENDOR PERFORMANCE SCORECARD TABLE (MAX 100 PTS) -->
+                <div class="cyber-card table-card" id="vendeurs-scorecard-card" style="margin-bottom: 1.5rem;">
+                    <div class="card-edge"></div>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <span class="tech-label">
+                            <i class="fa-solid fa-trophy neon-text-amber"></i>
+                            SCORE PERFORMANCE GLOBAL DES VENDEURS (MAX 100 PTS)
+                        </span>
+                        <span class="badge-blue" id="vendeurs-score-count-badge">0 Vendeurs</span>
+                    </div>
+                    <div class="table-container" style="max-height: 420px; overflow-y: auto;">
+                        <table class="cyber-table" id="vendeurs-scorecard-table">
+                            <thead>
+                                <tr style="background: rgba(0, 212, 255, 0.08); position: sticky; top: 0; z-index: 2;">
+                                    <th style="padding: 0.55rem; text-align: center; width: 65px;">Rang</th>
+                                    <th style="padding: 0.55rem; text-align: left;">Représentant</th>
+                                    <th style="padding: 0.55rem; text-align: center;">Activité</th>
+                                    <th style="padding: 0.55rem; text-align: right;" title="Performance C.A vs Objectif (Max 40 pts)">Score CA (40 pts)</th>
+                                    <th style="padding: 0.55rem; text-align: right;" title="Performance Produits Focus SOM & VMM (Max 30 pts)">Score Focus (30 pts)</th>
+                                    <th style="padding: 0.55rem; text-align: right;" title="Performance Qualitative TSM, ACM, LINE (Max 30 pts)">Qualitatif (30 pts)</th>
+                                    <th style="padding: 0.55rem; text-align: center;" title="Note globale sur 100">Score Total / 100</th>
+                                    <th style="padding: 0.55rem; text-align: center;">Statut</th>
+                                </tr>
+                            </thead>
+                            <tbody id="vendeurs-scorecard-tbody">
+                                <!-- Dynamic vendor score rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <!-- DETAILED DATA TABLES -->
                 <div class="cyber-card table-card" id="quanti-table-card">
                     <div class="card-edge"></div>
