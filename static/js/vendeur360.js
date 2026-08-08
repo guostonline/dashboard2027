@@ -173,6 +173,7 @@ async function fetchVendeurQuantiQuali(vendeurName) {
         renderV360QuantiChart(quanti);
         renderV360QualiChart(quali);
         renderV360FocusDailyChart(vendeurName);
+        renderV360FocusTable(vendeurName, apiData ? apiData.data : null);
 
     } catch (err) {
         console.error("Error fetching quanti/quali for vendor:", err);
@@ -1024,6 +1025,136 @@ async function renderV360FocusDailyChart(vendeurName) {
             }
         }
     });
+}
+
+/**
+ * Render Performance Focus Table for Vendeur 360
+ */
+function renderV360FocusTable(vendeurName, apiData) {
+    const tbody = document.querySelector('#v360-focus-table tbody');
+    const badge = document.getElementById('v360-focus-badge');
+    const vendorLabel = document.getElementById('v360-focus-table-vendeur-label');
+
+    if (vendorLabel && vendeurName) {
+        vendorLabel.textContent = `VENDEUR: ${vendeurName.toUpperCase()}`;
+    }
+
+    if (!tbody || !vendeurName) return;
+
+    const isSameV360Vendeur = (name1, name2) => {
+        if (!name1 || !name2) return false;
+        const n1 = name1.trim().toUpperCase();
+        const n2 = name2.trim().toUpperCase();
+        if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
+        const c1 = n1.split(' ')[0];
+        const c2 = n2.split(' ')[0];
+        return (c1 && c2 && c1.length >= 2 && c1 === c2);
+    };
+
+    let vmmList = [];
+    let somList = [];
+
+    const dData = apiData || window.rawDashboardData || window.dashboardData || {};
+    if (dData.focus_vmm) {
+        vmmList = dData.focus_vmm.filter(r => isSameV360Vendeur(r.vendeur, vendeurName));
+    }
+    if (dData.focus_som) {
+        somList = dData.focus_som.filter(r => isSameV360Vendeur(r.vendeur, vendeurName));
+    }
+
+    // Fallback if empty in date data: check focusHistoryData
+    if (vmmList.length === 0 && somList.length === 0 && window.focusHistoryData) {
+        const fh = window.focusHistoryData;
+        if (fh.glace && fh.glace.reps) {
+            somList = fh.glace.reps.filter(r => isSameV360Vendeur(r.representative || r.vendeur, vendeurName));
+        }
+        if (fh.tomate && fh.tomate.reps) {
+            vmmList = fh.tomate.reps.filter(r => isSameV360Vendeur(r.representative || r.vendeur, vendeurName));
+        }
+    }
+
+    const rows = [];
+
+    // 1. Process VMM (Tomate Frito)
+    vmmList.forEach(item => {
+        const obj = item.obj_juin || item.obj_acm || item.objectif || 0;
+        const real = item.realise || item.real || 0;
+        const rest = item.rest !== undefined ? item.rest : Math.max(0, obj - real);
+        const pct = obj > 0 ? Math.round((real / obj) * 100) : (item.percent ? Math.round(item.percent * 100) : 0);
+        const restJour = item.rest_jour !== undefined ? item.rest_jour : 0;
+        const clients = item.nb_clients || item.dn_fin_mai || 0;
+
+        rows.push({
+            gamme: 'TOMATE FRITO (VMM)',
+            secteur: item.secteur || 'AGADIR',
+            dn: clients > 0 ? `${clients} clts` : '—',
+            obj: obj > 0 ? `${Math.round(obj).toLocaleString('fr-FR')} DH` : '—',
+            real: `${Math.round(real).toLocaleString('fr-FR')} DH`,
+            rest: `${Math.round(rest).toLocaleString('fr-FR')} DH`,
+            pct: pct,
+            restJour: restJour > 0 ? `${Math.round(restJour).toLocaleString('fr-FR')} DH/j` : '0 DH/j',
+            type: 'vmm'
+        });
+    });
+
+    // 2. Process SOM (Glace)
+    somList.forEach(item => {
+        const obj = item.glace_ht || item.ttc || item.objectif || 0;
+        const real = item.realise || item.real || 0;
+        const rest = item.rest !== undefined ? item.rest : Math.max(0, obj - real);
+        const pct = obj > 0 ? Math.round((real / obj) * 100) : (item.percent ? Math.round(item.percent * 100) : 0);
+        const restJour = item.rest_jour !== undefined ? item.rest_jour : 0;
+
+        rows.push({
+            gamme: 'GLACE (SOM)',
+            secteur: item.secteur || 'AGADIR',
+            dn: '—',
+            obj: obj > 0 ? `${Math.round(obj).toLocaleString('fr-FR')} DH` : '—',
+            real: `${Math.round(real).toLocaleString('fr-FR')} DH`,
+            rest: `${Math.round(rest).toLocaleString('fr-FR')} DH`,
+            pct: pct,
+            restJour: restJour > 0 ? `${Math.round(restJour).toLocaleString('fr-FR')} DH/j` : '0 DH/j',
+            type: 'som'
+        });
+    });
+
+    if (badge) {
+        badge.textContent = `${rows.length} Focus actif(s)`;
+    }
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée Focus disponible pour ce vendeur (${vendeurName}).</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+        let pctBadgeClass = 'badge-pink';
+        if (r.pct >= 100) pctBadgeClass = 'badge-green';
+        else if (r.pct >= 75) pctBadgeClass = 'badge-blue';
+        else if (r.pct >= 50) pctBadgeClass = 'badge-amber';
+
+        const icon = r.type === 'vmm' ? '<i class="fa-solid fa-apple-whole neon-text-pink"></i>' : '<i class="fa-solid fa-cube neon-text-blue"></i>';
+
+        return `
+            <tr>
+                <td style="font-weight: 700; color: var(--text-main);">${icon} ${r.gamme}</td>
+                <td><span class="badge-blue" style="font-size: 0.72rem;">${r.secteur}</span></td>
+                <td><span style="font-family: var(--font-mono);">${r.dn}</span></td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-blue);">${r.obj}</strong></td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-green);">${r.real}</strong></td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${r.rest}</strong></td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span class="${pctBadgeClass}" style="font-weight: bold; font-family: var(--font-mono);">${r.pct}%</span>
+                        <div class="progress-bar-container" style="width: 60px; height: 6px;">
+                            <div class="progress-bar-fill ${r.pct >= 100 ? 'green-fill' : (r.pct >= 50 ? 'amber-fill' : 'pink-fill')}" style="width: ${Math.min(100, r.pct)}%"></div>
+                        </div>
+                    </div>
+                </td>
+                <td style="text-align: center; font-family: var(--font-mono); font-weight: bold; color: var(--text-main);">${r.restJour}</td>
+            </tr>
+        `;
+    }).join('');
 }
 
 // Bind V360 Radar Mode Switchers

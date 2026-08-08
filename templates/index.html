@@ -1208,6 +1208,38 @@
                 </div>
             </div>
 
+            <!-- DÉTAILS FOCUS TABLE CARD FOR VENDEUR 360 -->
+            <div class="cyber-card table-card" id="v360-focus-table-card" style="margin-top: 1.5rem;">
+                <div class="card-edge"></div>
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.6rem;">
+                        <span class="tech-label" style="color: var(--neon-amber); font-weight: 800;"><i class="fa-solid fa-bullseye neon-text-amber"></i> DÉTAILS PERFORMANCE FOCUS (SOM &amp; VMM)</span>
+                        <span class="rp-badge" id="v360-focus-badge" style="background: rgba(240, 160, 48, 0.15); border: 1px solid var(--neon-amber); color: var(--neon-amber); font-family: var(--font-mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; font-weight: 700;">0 Focus actif</span>
+                    </div>
+                    <span id="v360-focus-table-vendeur-label" style="font-size: 0.78rem; color: var(--text-sub); font-family: var(--font-mono); font-weight: bold;"></span>
+                </div>
+                
+                <div class="table-container">
+                    <table class="cyber-table" id="v360-focus-table">
+                        <thead>
+                            <tr>
+                                <th>GAMME / PRODUIT FOCUS</th>
+                                <th>SECTEUR</th>
+                                <th>DN / CLIENTS</th>
+                                <th>OBJECTIF</th>
+                                <th>RÉALISÉ (DH)</th>
+                                <th>RESTE À FAIRE (RAF)</th>
+                                <th>PERFORMANCE %</th>
+                                <th style="text-align: center;">RAF / JOUR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Inserted dynamically via v360 JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- ANOMALIES & TASKS ROW -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
                 <!-- ANOMALIES TABLE -->
