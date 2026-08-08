@@ -1236,6 +1236,8 @@ async function initClientsAFacturerView() {
             filtered = filtered.filter(r => r.synthesis === 'Jamais Facturé');
         } else if (activeFilter === 'inactifs') {
             filtered = filtered.filter(r => r.is_inactif === 1);
+        } else if (activeFilter === 'anomalies') {
+            filtered = filtered.filter(r => r.is_inactif === 1 || r.synthesis === 'Perte de facturation' || r.synthesis === 'Jamais Facturé' || !r.has_facture);
         }
         
         if (filtered.length === 0) {
@@ -1328,7 +1330,8 @@ async function initClientsAFacturerView() {
         'af-btn-loss': 'loss',
         'af-btn-gain': 'gain',
         'af-btn-never': 'never',
-        'af-btn-inactifs': 'inactifs'
+        'af-btn-inactifs': 'inactifs',
+        'af-btn-anomalies': 'anomalies'
     };
     
     Object.entries(filterBtnMap).forEach(([id, filter]) => {
@@ -1644,6 +1647,159 @@ async function initAFacturerV2() {
         }
 
         // Filter tab / card filter
+        if (activeFilterTab === 'anomalies') {
+            if (tableHeaders) {
+                tableHeaders.innerHTML = `
+                    <tr>
+                        <th style="font-size:0.75rem;">CLIENT</th>
+                        <th style="font-size:0.75rem;">NOM</th>
+                        <th style="font-size:0.75rem;">DATE VISITE</th>
+                        <th style="font-size:0.75rem;text-align:center;">HEURE DÉBUT</th>
+                        <th style="font-size:0.75rem;text-align:center;">HEURE FIN</th>
+                        <th style="font-size:0.75rem;text-align:center;">DURÉE</th>
+                        <th style="font-size:0.75rem;text-align:center;">DISTANCE</th>
+                        <th style="font-size:0.75rem;">MOTIF</th>
+                        <th style="font-size:0.75rem;">ANOMALIES DÉTECTÉES</th>
+                    </tr>
+                `;
+            }
+
+            const vendorName = selectEntity ? selectEntity.value : '';
+            const renderAnomVisits = (visits) => {
+                if (visits && visits.length > 0) {
+                    visits.sort((a, b) => (b.has_anomaly ? 1 : 0) - (a.has_anomaly ? 1 : 0));
+                }
+                if (searchQuery) {
+                    visits = visits.filter(v => 
+                        (v.client_code && v.client_code.toLowerCase().includes(searchQuery)) ||
+                        (v.client_nom && v.client_nom.toLowerCase().includes(searchQuery)) ||
+                        (v.motif && v.motif.toLowerCase().includes(searchQuery))
+                    );
+                }
+
+                if (!visits || visits.length === 0) {
+                    // Fallback to ACM clients with unbilled anomalies
+                    let anomRows = rows.filter(r => !r.has_facture || r.facture_status !== 'AVEC FACTURE' || r.is_inactif === 1 || (r.motifs && r.motifs.some(m => String(m).toUpperCase() !== 'OK')));
+                    if (anomRows.length === 0) {
+                        tbodyDetails.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;">Aucune anomalie détectée pour cette tournée.</td></tr>';
+                        return;
+                    }
+                    tbodyDetails.innerHTML = '';
+                    anomRows.forEach(r => {
+                        const motif = (r.motifs && r.motifs.length > 0) ? r.motifs[0] : (r.motif || 'Non visité');
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="font-mono" style="font-size:0.78rem;"><code>${r.code || ''}</code></td>
+                            <td style="font-size:0.82rem;">${r.name || ''}</td>
+                            <td class="font-mono" style="font-size:0.75rem;color:var(--text-muted);">-</td>
+                            <td style="text-align:center;color:var(--text-muted);">-</td>
+                            <td style="text-align:center;color:var(--text-muted);">-</td>
+                            <td style="text-align:center;color:var(--text-muted);">-</td>
+                            <td style="text-align:center;color:var(--text-muted);">-</td>
+                            <td style="font-size:0.78rem;color:var(--neon-amber);">${motif}</td>
+                            <td><span class="badge-pink" style="font-size:0.68rem;"><i class="fa-solid fa-triangle-exclamation"></i> Non Facturé</span></td>
+                        `;
+                        tbodyDetails.appendChild(tr);
+                    });
+                    return;
+                }
+
+                tbodyDetails.innerHTML = '';
+                visits.forEach(v => {
+                    let clientNomHtml = `<span style="font-weight: 600; color: var(--text-main); font-size: 0.82rem;">${v.client_nom}</span>`;
+                    let clientCodeHtml = `<code style="font-family: var(--font-mono); font-weight: 600; font-size: 0.8rem; color: var(--neon-blue);">${v.client_code}</code>`;
+                    if (v.is_closed_not_revisited) {
+                        clientNomHtml = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255, 170, 0, 0.15); color: #ffaa00; border: 1px solid rgba(255, 170, 0, 0.35); border-left: 3px solid #ffaa00; padding: 3px 8px; border-radius: 5px; font-weight: 600; font-size: 0.82rem;"><i class="fa-solid fa-door-closed" style="font-size:0.7rem;"></i> ${v.client_nom}</span>`;
+                        clientCodeHtml = `<code style="font-family: var(--font-mono); font-weight: 700; font-size: 0.8rem; color: #ffaa00;">${v.client_code}</code>`;
+                    } else if (v.is_multiple) {
+                        clientNomHtml = `<span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(0, 212, 255, 0.12); color: #00d4ff; border: 1px solid rgba(0, 212, 255, 0.3); padding: 3px 8px; border-radius: 5px; font-weight: 600; font-size: 0.82rem;"><i class="fa-solid fa-users" style="font-size:0.7rem;"></i> ${v.client_nom}</span>`;
+                    }
+
+                    let hStartHtml = `<span style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-sub);">${v.heure_debut || '-'}</span>`;
+                    if (v.is_first_late) {
+                        hStartHtml = `<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(139, 0, 0, 0.45); color: #ff8080; border: 1px solid rgba(255, 128, 128, 0.35); border-radius: 20px; padding: 2px 8px; font-weight: 700; font-size: 0.78rem; font-family: var(--font-mono);" title="1ère visite débutée après 08:40"><i class="fa-solid fa-triangle-exclamation"></i> ${v.heure_debut}</span>`;
+                    }
+
+                    let hEndHtml = `<span style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-sub);">${v.heure_fin || '-'}</span>`;
+                    if (v.is_last_early) {
+                        hEndHtml = `<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(139, 0, 0, 0.45); color: #ff8080; border: 1px solid rgba(255, 128, 128, 0.35); border-radius: 20px; padding: 2px 8px; font-weight: 700; font-size: 0.78rem; font-family: var(--font-mono);" title="Dernière visite terminée avant 14:45"><i class="fa-solid fa-triangle-exclamation"></i> ${v.heure_fin}</span>`;
+                    }
+
+                    let dureeHtml = `<span style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-main);">${v.duree_formatted}</span>`;
+                    if (v.is_less_3min) {
+                        dureeHtml = `<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255, 77, 77, 0.18); color: #ff4d4d; border: 1px solid rgba(255, 77, 77, 0.4); border-radius: 20px; padding: 2px 9px; font-weight: 700; font-size: 0.78rem; font-family: var(--font-mono); box-shadow: 0 0 10px rgba(255, 77, 77, 0.12);" title="Durée inférieure à 3 minutes"><i class="fa-solid fa-stopwatch"></i> ${v.duree_formatted}</span>`;
+                    }
+
+                    let motifStr = v.motif || '-';
+                    let motifHtml = `<span style="font-size: 0.8rem; color: var(--text-sub);">${motifStr}</span>`;
+                    if (motifStr.toUpperCase() === 'OK') {
+                        motifHtml = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: rgba(0, 230, 118, 0.12); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.3); border-radius: 12px; font-size: 0.75rem; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> OK</span>`;
+                    } else if (motifStr !== '-') {
+                        motifHtml = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: rgba(255, 170, 0, 0.1); color: #ffaa00; border: 1px solid rgba(255, 170, 0, 0.25); border-radius: 12px; font-size: 0.75rem; font-weight: 500;">${motifStr}</span>`;
+                    }
+
+                    let badgesHtml = '<span style="color: var(--text-muted); font-size: 0.75rem; opacity: 0.6;">—</span>';
+                    if (v.anomalies && v.anomalies.length > 0) {
+                        badgesHtml = v.anomalies.map(a => {
+                            if (a.toLowerCase().includes('3min')) {
+                                return `<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255,77,77,0.18); color: #ff4d4d; border: 1px solid rgba(255,77,77,0.35); padding: 2px 7px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; margin-right: 3px;"><i class="fa-solid fa-stopwatch"></i> ${a}</span>`;
+                            } else if (a.toLowerCase().includes('1 visite') || a.toLowerCase().includes('fermé')) {
+                                return `<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255,170,0,0.18); color: #ffaa00; border: 1px solid rgba(255,170,0,0.35); padding: 2px 7px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; margin-right: 3px;"><i class="fa-solid fa-door-closed"></i> 1 Visite</span>`;
+                            } else if (a.toLowerCase().includes('multiple')) {
+                                return `<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(0,212,255,0.15); color: #00d4ff; border: 1px solid rgba(0,212,255,0.35); padding: 2px 7px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; margin-right: 3px;"><i class="fa-solid fa-users"></i> Visite Multiple</span>`;
+                            } else {
+                                return `<span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(139,0,0,0.4); color: #ff8080; border: 1px solid rgba(255,128,128,0.35); padding: 2px 7px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; margin-right: 3px;"><i class="fa-solid fa-clock"></i> ${a}</span>`;
+                            }
+                        }).join('');
+                    }
+
+                    const tr = document.createElement('tr');
+                    tr.style.transition = 'background 0.15s ease';
+                    tr.innerHTML = `
+                        <td style="vertical-align: middle;">${clientCodeHtml}</td>
+                        <td style="vertical-align: middle;">${clientNomHtml}</td>
+                        <td class="font-mono" style="font-size: 0.78rem; text-align: center; vertical-align: middle; color: var(--text-sub);">${formatDate(v.date_visite)}</td>
+                        <td style="text-align: center; vertical-align: middle;">${hStartHtml}</td>
+                        <td style="text-align: center; vertical-align: middle;">${hEndHtml}</td>
+                        <td style="text-align: center; vertical-align: middle;">${dureeHtml}</td>
+                        <td style="text-align: center; font-family: var(--font-mono); font-size: 0.78rem; vertical-align: middle; color: var(--text-sub);">${v.distance || 0}</td>
+                        <td style="vertical-align: middle;">${motifHtml}</td>
+                        <td style="vertical-align: middle;">${badgesHtml}</td>
+                    `;
+                    tbodyDetails.appendChild(tr);
+                });
+            };
+
+            if (vendorName) {
+                fetch(`/api/anomalies/analysis?vendeur=${encodeURIComponent(vendorName)}&_=${Date.now()}`)
+                    .then(res => res.json())
+                    .then(anomData => {
+                        renderAnomVisits((anomData.status === 'success' && anomData.visites) ? anomData.visites : []);
+                    })
+                    .catch(() => {
+                        renderAnomVisits([]);
+                    });
+            } else {
+                renderAnomVisits([]);
+            }
+
+            return; // STOP execution so standard table renderer does not run!
+        }
+
+        // Standard comparison table rendering when not on ANOMALIES tab
+        if (tableHeaders) {
+            tableHeaders.innerHTML = `
+                <tr>
+                    <th style="font-size:0.75rem;">CODE</th>
+                    <th style="font-size:0.75rem;">CLIENT</th>
+                    <th style="font-size:0.75rem;">TOURNÉE</th>
+                    <th style="font-size:0.75rem;">– MOTIF</th>
+                    <th style="font-size:0.75rem;">STATUT</th>
+                </tr>
+            `;
+        }
+
+        // Filter tab / card filter for standard view
         if (activeFilterTab === 'atleastone') {
             rows = rows.filter(r => r.has_facture || r.facture_status === 'AVEC FACTURE' || (r.motifs && r.motifs.some(m => String(m).toUpperCase() === 'OK')));
         } else if (activeFilterTab === 'nofacture') {
@@ -1705,26 +1861,52 @@ async function initAFacturerV2() {
         }
     };
 
-    const populateDropdown = () => {
+    const populateDropdown = async () => {
         if (!apiData) return;
         selectEntity.innerHTML = '';
         const list = mode === 'vendeur' ? (apiData.vendeurs || []) : (apiData.secteurs || []);
         const placeholder = mode === 'vendeur' ? '-- SÉLECTIONNER UN VENDEUR --' : '-- SÉLECTIONNER UN SECTEUR --';
         selectEntity.innerHTML = `<option value="">${placeholder}</option>`;
+
+        const categorySelect = document.getElementById('category-select');
+        const selectedCategory = categorySelect ? categorySelect.value : 'Chakib Equipe';
+
+        let allowedSellers = null;
+        if (mode === 'vendeur' && selectedCategory && selectedCategory !== 'All') {
+            try {
+                const sRes = await fetch(`/api/vendeurs?category=${encodeURIComponent(selectedCategory)}`);
+                const sData = await sRes.json();
+                if (sData.status === 'success' && sData.vendeurs) {
+                    allowedSellers = sData.vendeurs.map(v => v.toUpperCase().trim());
+                }
+            } catch (e) {
+                console.error("Error fetching category vendeurs:", e);
+            }
+        }
+
         list.forEach(item => {
+            const label = item.name || item.code;
+            if (mode === 'vendeur' && allowedSellers) {
+                const itemUpper = label.toUpperCase().trim();
+                const isMatch = allowedSellers.some(allowed => 
+                    itemUpper.includes(allowed) || allowed.includes(itemUpper)
+                );
+                if (!isMatch) return; // Skip seller if not in Chakib Equipe / selected category
+            }
+
             const opt = document.createElement('option');
-            const label = mode === 'vendeur' ? `${item.code} ${item.name}` : item.name;
-            opt.value = item.name || item.code;
+            opt.value = label;
             opt.textContent = label;
             selectEntity.appendChild(opt);
         });
+
         if (tourneesList) {
             tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Sélectionnez un vendeur ou secteur pour afficher les tournées.</span>';
             if (tourneesCount) tourneesCount.textContent = '0 passage(s)';
         }
     };
 
-    const renderTourneeCards = () => {
+    const renderTourneeCards = async () => {
         if (!apiData || !tourneesList) return;
         const val = selectEntity.value;
         if (!val) {
@@ -1733,13 +1915,52 @@ async function initAFacturerV2() {
             return;
         }
 
-        let item;
+        // ── VENDEUR MODE: fetch live from DB ─────────────────────────────────
         if (mode === 'vendeur') {
-            item = (apiData.vendeurs || []).find(v => v.name === val || v.code === val);
-        } else {
-            item = (apiData.secteurs || []).find(s => s.name === val);
+            tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</span>';
+            try {
+                const res = await fetch(`/api/afacturer/vendeur-tournees?vendeur=${encodeURIComponent(val)}`);
+                const data = await res.json();
+                if (data.status !== 'success') throw new Error(data.message);
+
+                const visits = data.tournee_dates || [];
+                const localites = data.localites || [];
+                const totalCount = visits.length + localites.length;
+                if (tourneesCount) tourneesCount.textContent = `${visits.length} visite(s) · ${localites.length} tournée(s) ACM`;
+
+                tourneesList.innerHTML = '';
+
+                if (visits.length > 0) {
+                    const hdr = document.createElement('div');
+                    hdr.style.cssText = 'font-size:0.65rem;font-weight:700;color:var(--neon-green);text-transform:uppercase;letter-spacing:0.08em;padding:0.3rem 0 0.2rem;margin-top:0.2rem;';
+                    hdr.innerHTML = '<i class="fa-solid fa-check-circle"></i> Visites enregistrées';
+                    tourneesList.appendChild(hdr);
+                    visits.forEach(entry => appendTourneeCard(tourneesList, entry, val, 'visite'));
+                }
+
+                if (localites.length > 0) {
+                    const hdr = document.createElement('div');
+                    hdr.style.cssText = 'font-size:0.65rem;font-weight:700;color:var(--neon-cyan);text-transform:uppercase;letter-spacing:0.08em;padding:0.4rem 0 0.2rem;margin-top:0.4rem;border-top:1px solid rgba(0,242,254,0.1);';
+                    hdr.innerHTML = '<i class="fa-solid fa-route"></i> Tournées ACM (' + localites.length + ')';
+                    tourneesList.appendChild(hdr);
+                    localites.forEach(loc => {
+                        const entry = { date: null, tournee: loc.localite, client_count: loc.client_count, secteur: loc.secteur, source: 'acm' };
+                        appendTourneeCard(tourneesList, entry, val, 'acm');
+                    });
+                }
+
+                if (totalCount === 0) {
+                    tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Aucune tournée trouvée pour ce vendeur.</span>';
+                }
+            } catch(err) {
+                console.error('renderTourneeCards vendeur error:', err);
+                tourneesList.innerHTML = '<span style="color:var(--neon-pink);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Erreur chargement tournées.</span>';
+            }
+            return;
         }
 
+        // ── SECTEUR MODE: use pre-loaded apiData ─────────────────────────────
+        const item = (apiData.secteurs || []).find(s => s.name === val);
         const entries = item ? (item.tournee_dates || []) : [];
         if (tourneesCount) tourneesCount.textContent = `${entries.length} passage(s)`;
 
@@ -1747,60 +1968,64 @@ async function initAFacturerV2() {
             tourneesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;padding:1rem 0;text-align:center;">Aucun passage trouvé.</span>';
             return;
         }
-
         tourneesList.innerHTML = '';
-        entries.forEach(entry => {
-            const dateFormatted = formatDate(entry.date);
-            const card = document.createElement('button');
-            card.type = 'button';
-            card.className = 'af2-tournee-card';
-            card.setAttribute('data-date', entry.date);
-            card.setAttribute('data-tournee', entry.tournee);
-            if (mode === 'secteur' && entry.vendeur_name) {
-                card.setAttribute('data-vendeur', entry.vendeur_name);
-            }
-            card.style.cssText = `
-                width: 100%; text-align: left; padding: 0.55rem 0.75rem;
-                background: rgba(0,242,254,0.04); border: 1px solid rgba(0,242,254,0.12);
-                border-radius: 5px; cursor: pointer; transition: all 0.18s;
-                display: flex; flex-direction: column; gap: 2px;
-            `;
-            const vendeurLine = (mode === 'secteur' && entry.vendeur_name)
-                ? `<span style="font-size:0.65rem;color:var(--neon-green);font-family:var(--font-mono);margin-top:2px;"><i class="fa-solid fa-user"></i> ${entry.vendeur_name}</span>`
-                : '';
-            card.innerHTML = `
-                <span style="font-size:0.75rem;font-weight:bold;color:var(--neon-cyan);font-family:var(--font-mono);">
-                    <i class="fa-solid fa-calendar-day" style="margin-right:4px;opacity:0.7;"></i>${dateFormatted}
-                </span>
-                <span style="font-size:0.72rem;color:var(--text-main);line-height:1.3;">${entry.tournee}</span>
-                ${vendeurLine}
-            `;
-            card.addEventListener('mouseenter', () => {
-                card.style.background = 'rgba(0,242,254,0.12)';
-                card.style.borderColor = 'var(--neon-cyan)';
-            });
-            card.addEventListener('mouseleave', () => {
-                if (!card.classList.contains('af2-active')) {
-                    card.style.background = 'rgba(0,242,254,0.04)';
-                    card.style.borderColor = 'rgba(0,242,254,0.12)';
-                }
-            });
-            card.addEventListener('click', () => {
-                // Deselect all
-                document.querySelectorAll('.af2-tournee-card').forEach(c => {
-                    c.classList.remove('af2-active');
-                    c.style.background = 'rgba(0,242,254,0.04)';
-                    c.style.borderColor = 'rgba(0,242,254,0.12)';
-                });
-                card.classList.add('af2-active');
-                card.style.background = 'rgba(0,242,254,0.18)';
-                card.style.borderColor = 'var(--neon-cyan)';
+        entries.forEach(entry => appendTourneeCard(tourneesList, entry, val, 'visite'));
+    };
 
-                // Trigger the analysis for this specific tournee + date
-                triggerAnalysis(entry.date, entry.tournee, entry.vendeur_code || val);
-            });
-            tourneesList.appendChild(card);
+    const appendTourneeCard = (container, entry, val, cardType) => {
+        const dateFormatted = entry.date ? formatDate(entry.date) : '';
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'af2-tournee-card';
+        if (entry.date) card.setAttribute('data-date', entry.date);
+        card.setAttribute('data-tournee', entry.tournee);
+        if (entry.vendeur_name) card.setAttribute('data-vendeur', entry.vendeur_name);
+
+        const isAcm = cardType === 'acm';
+        const acmBorder = isAcm ? 'rgba(0,242,254,0.08)' : 'rgba(0,242,254,0.12)';
+        const acmBg    = isAcm ? 'rgba(0,242,254,0.02)' : 'rgba(0,242,254,0.04)';
+        card.style.cssText = `
+            width: 100%; text-align: left; padding: 0.55rem 0.75rem;
+            background: ${acmBg}; border: 1px solid ${acmBorder};
+            border-radius: 5px; cursor: pointer; transition: all 0.18s;
+            display: flex; flex-direction: column; gap: 2px;
+        `;
+        const countBadge = entry.client_count
+            ? `<span style="font-size:0.6rem;color:var(--text-muted);">${entry.client_count} clients</span>`
+            : '';
+        const dateLine = dateFormatted
+            ? `<span style="font-size:0.75rem;font-weight:bold;color:var(--neon-cyan);font-family:var(--font-mono);"><i class="fa-solid fa-calendar-day" style="margin-right:4px;opacity:0.7;"></i>${dateFormatted}</span>`
+            : '';
+        const vendeurLine = entry.vendeur_name
+            ? `<span style="font-size:0.65rem;color:var(--neon-green);font-family:var(--font-mono);margin-top:2px;"><i class="fa-solid fa-user"></i> ${entry.vendeur_name}</span>`
+            : '';
+        card.innerHTML = `
+            ${dateLine}
+            <span style="font-size:0.72rem;color:var(--text-main);line-height:1.3;">${entry.tournee}</span>
+            ${countBadge}${vendeurLine}
+        `;
+        card.addEventListener('mouseenter', () => {
+            card.style.background = 'rgba(0,242,254,0.12)';
+            card.style.borderColor = 'var(--neon-cyan)';
         });
+        card.addEventListener('mouseleave', () => {
+            if (!card.classList.contains('af2-active')) {
+                card.style.background = acmBg;
+                card.style.borderColor = acmBorder;
+            }
+        });
+        card.addEventListener('click', () => {
+            document.querySelectorAll('.af2-tournee-card').forEach(c => {
+                c.classList.remove('af2-active');
+                c.style.background = acmBg;
+                c.style.borderColor = acmBorder;
+            });
+            card.classList.add('af2-active');
+            card.style.background = 'rgba(0,242,254,0.18)';
+            card.style.borderColor = 'var(--neon-cyan)';
+            triggerAnalysis(entry.date, entry.tournee, entry.vendeur_code || val);
+        });
+        container.appendChild(card);
     };
 
     const triggerAnalysis = async (date, tournee, vendeurKey) => {
@@ -1870,7 +2095,8 @@ async function initAFacturerV2() {
         'af-btn-loss': 'loss',
         'af-btn-gain': 'gain',
         'af-btn-never': 'never',
-        'af-btn-inactifs': 'inactifs'
+        'af-btn-inactifs': 'inactifs',
+        'af-btn-anomalies': 'anomalies'
     };
 
     Object.entries(filterBtnMap).forEach(([id, filter]) => {
@@ -1940,6 +2166,13 @@ async function initAFacturerV2() {
     });
 
     selectEntity.addEventListener('change', renderTourneeCards);
+
+    const categorySelectEl = document.getElementById('category-select');
+    if (categorySelectEl) {
+        categorySelectEl.addEventListener('change', () => {
+            populateDropdown();
+        });
+    }
 
     await loadData();
 }
@@ -2462,6 +2695,7 @@ const chakibFamiliesProgressCard = document.getElementById('chakib-families-prog
 let chakibFamiliesChartInstance = null;
 const chakibFocusProgressCard = document.getElementById('chakib-focus-progress-card');
 let chakibFocusChartInstance = null;
+let chakibVendeursFocusChartInstance = null;
 let chakibFocusHistoryData = null;
 
 // Layout Manager Configurations & State
@@ -2527,7 +2761,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const onFocusRoute = path === '/focus';
             const onRapportRoute = path === '/rapport';
             const onStockRoute = path === '/stock';
-            const onAnomalisRoute = path === '/anomalis';
+            const onAnomalisRoute = path === '/anomalis' || path === '/anomalies';
             const onTasksRoute = path === '/tasks';
             const onEngagementRoute = path === '/engagement';
             
@@ -4741,10 +4975,23 @@ function updateDashboard() {
 
     // 4. Render Tables
     let tableQuanti = quantiRecords;
-    if (isCdzSelected) {
-        tableQuanti = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === targetNameUpper);
+    if (targetNameUpper) {
+        if (targetNameUpper.includes('CHAKIB')) {
+            tableQuanti = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === 'CHAKIB ELFIL');
+        } else if (targetNameUpper.includes('BOUTMEZGUINE') || targetNameUpper.includes('MOSTAFA')) {
+            tableQuanti = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === 'BOUTMEZGUINE EL MOSTAFA');
+        } else {
+            tableQuanti = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === targetNameUpper);
+        }
+    } else {
+        const chakibRecs = quantiRecords.filter(r => r.vendeur.trim().toUpperCase() === 'CHAKIB ELFIL');
+        if (chakibRecs.length > 0) {
+            tableQuanti = chakibRecs;
+        }
     }
-    renderQuantiTable(quantiRecords);
+
+    renderQuantiTable(tableQuanti);
+    renderFamillesGrid(quantiRecords);
     const fHistData = (typeof focusHistoryData !== 'undefined') ? focusHistoryData : (window.focusHistoryData || (dashboardData && dashboardData.focusHistoryData) || null);
     renderVendeursScorecardTable(quantiRecords, qualiRecords, fHistData, (dashboardData && dashboardData.vendeur_activites) ? dashboardData.vendeur_activites : {});
     renderQualiTable(qualiRecords);
@@ -5032,8 +5279,9 @@ function renderFamillesGrid(records) {
         if (!families[r.famille]) {
             families[r.famille] = { real: 0, obj: 0, vendeurs: new Set() };
         }
+        const rObjGlobal = (r.obj !== undefined && r.obj !== null && r.obj > 0) ? r.obj : (r.obj_mois || 0);
         families[r.famille].real += (r.real || 0);
-        families[r.famille].obj += (r.obj || 0);
+        families[r.famille].obj += rObjGlobal;
         if (r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE') {
             families[r.famille].vendeurs.add(r.vendeur.trim());
         }
@@ -5124,14 +5372,18 @@ function renderFamillesGrid(records) {
         const vendorRecords = records.filter(r => r && r.famille === fam && r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE' && r.vendeur.toUpperCase() !== 'CHAKIB ELFIL' && r.vendeur.toUpperCase() !== 'BOUTMEZGUINE EL MOSTAFA');
         
         // Sort vendors by obj descending, then real descending
-        vendorRecords.sort((a, b) => (b.obj || 0) - (a.obj || 0) || (b.real || 0) - (a.real || 0));
+        vendorRecords.sort((a, b) => {
+            const objA = (a.obj !== undefined && a.obj !== null && a.obj > 0) ? a.obj : (a.obj_mois || 0);
+            const objB = (b.obj !== undefined && b.obj !== null && b.obj > 0) ? b.obj : (b.obj_mois || 0);
+            return (objB - objA) || ((b.real || 0) - (a.real || 0));
+        });
 
         let vendorTableHtml = '';
         if (vendorRecords.length > 0) {
             let rowsHtml = '';
             vendorRecords.forEach(r => {
                 const vReal = r.real || 0;
-                const vObjGlobal = r.obj || 0;
+                const vObjGlobal = (r.obj !== undefined && r.obj !== null && r.obj > 0) ? r.obj : (r.obj_mois || 0);
                 
                 let vPctText = '0%';
                 let vBadgeBg = 'rgba(239, 68, 68, 0.18)';
@@ -5162,6 +5414,7 @@ function renderFamillesGrid(records) {
                     vBadgeColor = '#64748b';
                 }
 
+                // Explicit calculation: RAF = Objectif Global - Realized
                 const vRaf = vObjGlobal - vReal;
 
                 rowsHtml += `
@@ -5180,7 +5433,7 @@ function renderFamillesGrid(records) {
                                 ${vPctText}
                             </span>
                         </td>
-                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: ${vRaf > 0 ? 'var(--neon-amber)' : 'var(--neon-green)'};">
+                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: ${vRaf > 0 ? 'var(--neon-amber)' : 'var(--neon-green)'}; font-weight: 600;">
                             ${formatNumber(vRaf)}
                         </td>
                     </tr>
@@ -5318,20 +5571,70 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
         });
     }
 
+    // Helper function for vendor matching (exact string or vendor code e.g. 'D48')
+    const getVendorCode = (name) => {
+        if (!name) return '';
+        return name.trim().split(/\s+/)[0].toUpperCase();
+    };
+
+    const isVendorMatch = (nameA, nameB) => {
+        if (!nameA || !nameB) return false;
+        const a = nameA.trim().toUpperCase();
+        const b = nameB.trim().toUpperCase();
+        if (a === b) return true;
+        const codeA = getVendorCode(a);
+        const codeB = getVendorCode(b);
+        return codeA.length > 0 && codeB.length > 0 && codeA === codeB;
+    };
+
     // 3. Attach Focus Deviations if available
     if (focusHistoryData) {
         const glaceReps = (focusHistoryData.glace && focusHistoryData.glace.reps) ? focusHistoryData.glace.reps : [];
         const tomateReps = (focusHistoryData.tomate && focusHistoryData.tomate.reps) ? focusHistoryData.tomate.reps : [];
 
         Object.keys(vendorsMap).forEach(vName => {
-            const gRecs = glaceReps.filter(r => r.representative && r.representative.trim().toUpperCase() === vName.toUpperCase()).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
-            const tRecs = tomateReps.filter(r => r.representative && r.representative.trim().toUpperCase() === vName.toUpperCase()).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+            const gRecs = glaceReps.filter(r => r.representative && isVendorMatch(r.representative, vName)).sort((a,b) => (b.upload_date || '').localeCompare(a.upload_date || ''));
+            const tRecs = tomateReps.filter(r => r.representative && isVendorMatch(r.representative, vName)).sort((a,b) => (b.upload_date || '').localeCompare(a.upload_date || ''));
 
-            if (gRecs.length > 0 && gRecs[0].deviation !== null) {
+            if (gRecs.length > 0 && gRecs[0].deviation !== null && gRecs[0].deviation !== undefined) {
                 vendorsMap[vName].glaceDev = gRecs[0].deviation;
             }
-            if (tRecs.length > 0 && tRecs[0].deviation !== null) {
+            if (tRecs.length > 0 && tRecs[0].deviation !== null && tRecs[0].deviation !== undefined) {
                 vendorsMap[vName].tomateDev = tRecs[0].deviation;
+            }
+        });
+    }
+
+    // 3b. Fallback to dashboardData focus_som and focus_vmm if not yet attached
+    const dData = (typeof dashboardData !== 'undefined') ? dashboardData : (window.rawDashboardData || null);
+    if (dData) {
+        const focusSom = dData.focus_som || dData.focus_som_summary || [];
+        const focusVmm = dData.focus_vmm || dData.focus_vmm_summary || [];
+
+        Object.keys(vendorsMap).forEach(vName => {
+            if (vendorsMap[vName].glaceDev === null && focusSom.length > 0) {
+                const sRec = focusSom.find(r => r.vendeur && isVendorMatch(r.vendeur, vName));
+                if (sRec) {
+                    if (sRec.percent !== undefined && sRec.percent !== null) {
+                        vendorsMap[vName].glaceDev = sRec.percent - 1.0;
+                    } else if (sRec.glace_ht > 0) {
+                        vendorsMap[vName].glaceDev = ((sRec.realise || 0) - sRec.glace_ht) / sRec.glace_ht;
+                    }
+                }
+            }
+
+            if (vendorsMap[vName].tomateDev === null && focusVmm.length > 0) {
+                const vRec = focusVmm.find(r => r.vendeur && isVendorMatch(r.vendeur, vName));
+                if (vRec) {
+                    if (vRec.percent !== undefined && vRec.percent !== null) {
+                        vendorsMap[vName].tomateDev = vRec.percent - 1.0;
+                    } else {
+                        const objVal = vRec.obj_acm || vRec.obj_juin || 0;
+                        if (objVal > 0) {
+                            vendorsMap[vName].tomateDev = ((vRec.realise || 0) - objVal) / objVal;
+                        }
+                    }
+                }
             }
         });
     }
@@ -5351,16 +5654,16 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
         const totalDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.total) ? dashboardData.workdays.total : 24;
         const prorataRatio = (totalDays > 0) ? (elapsedDays / totalDays) : 1;
 
-        // B. Focus Score (% PARTIEL deviation of focus products)
+        // B. Focus Score (Parcial % deviation of focus products converted directly to points: e.g. +96% partial = +96 pts)
         let scoreFocus = 0;
         let focusCount = 0;
-        if (v.glaceDev !== null) {
+        if (v.glaceDev !== null && v.glaceDev !== undefined) {
             const realRatioGlace = 1 + v.glaceDev;
             const devPartGlace = Math.round(((realRatioGlace / prorataRatio) - 1) * 100);
             scoreFocus += devPartGlace;
             focusCount++;
         }
-        if (v.tomateDev !== null) {
+        if (v.tomateDev !== null && v.tomateDev !== undefined) {
             const realRatioTomate = 1 + v.tomateDev;
             const devPartTomate = Math.round(((realRatioTomate / prorataRatio) - 1) * 100);
             scoreFocus += devPartTomate;
@@ -5370,19 +5673,20 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
             scoreFocus = Math.round(scoreFocus / focusCount);
         }
 
-        // C. Qualitatif Score (% deviation from 100% target: e.g. 95% = -5 pts, 105% = +5 pts)
+        // C. Qualitatif Score: percent value used directly as points (24% = 24 pts, 105% = 105 pts)
+        // tsm/acm/line stored as fractions (0.242 = 24.2%), multiply by 100 → direct pts
         let qualiAvg = 0;
         let qualiCount = 0;
-        if (v.tsm > 0) { qualiAvg += v.tsm; qualiCount++; }
-        if (v.acm > 0) { qualiAvg += v.acm; qualiCount++; }
-        if (v.line > 0) { qualiAvg += v.line; qualiCount++; }
+        if (v.tsm > 0) { qualiAvg += (v.tsm * 100); qualiCount++; }
+        if (v.acm > 0) { qualiAvg += (v.acm * 100); qualiCount++; }
+        if (v.line > 0) { qualiAvg += (v.line * 100); qualiCount++; }
         let scoreQuali = 0;
         if (qualiCount > 0) {
-            scoreQuali = Math.round((qualiAvg / qualiCount) - 100);
+            scoreQuali = Math.round(qualiAvg / qualiCount);
         }
 
-        // D. Score Total (Base 100 + scoreCa + scoreFocus + scoreQuali)
-        const scoreTotal = Math.max(0, Math.round(100 + scoreCa + scoreFocus + scoreQuali));
+        // D. Score Total = 100 Base + scoreCa + scoreFocus + scoreQuali (Base 100 pts, range from 1 to infinity)
+        const scoreTotal = Math.max(1, Math.round(100 + scoreCa + scoreFocus + scoreQuali));
 
         // Activity role
         const activite = (vendeurActivites && (vendeurActivites[v.vendeur] || vendeurActivites[v.vendeur.toUpperCase()])) ? (vendeurActivites[v.vendeur] || vendeurActivites[v.vendeur.toUpperCase()]) : 'SOM VMM';
@@ -5427,24 +5731,24 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
         let statusBg = 'rgba(239, 68, 68, 0.18)';
         let statusColor = '#dc2626';
 
-        if (v.scoreTotal >= 100) {
+        if (v.scoreTotal >= 200) {
             statusBadge = '🌟 EXCELLENT';
             statusBg = 'rgba(34, 197, 94, 0.2)';
             statusColor = '#15803d';
-        } else if (v.scoreTotal >= 80) {
+        } else if (v.scoreTotal >= 140) {
             statusBadge = '🟢 BON';
             statusBg = 'rgba(0, 212, 255, 0.18)';
             statusColor = '#00d4ff';
-        } else if (v.scoreTotal >= 60) {
+        } else if (v.scoreTotal >= 80) {
             statusBadge = '🟠 MOYEN';
             statusBg = 'rgba(245, 158, 11, 0.18)';
             statusColor = '#b45309';
         }
 
-        const scoreBarColor = v.scoreTotal >= 100 ? '#22c55e' : (v.scoreTotal >= 80 ? '#00d4ff' : (v.scoreTotal >= 60 ? '#f59e0b' : '#ef4444'));
+        const scoreBarColor = v.scoreTotal >= 200 ? '#22c55e' : (v.scoreTotal >= 130 ? '#00d4ff' : (v.scoreTotal >= 70 ? '#f59e0b' : '#ef4444'));
 
-        const formatPtsBadge = (pts) => {
-            const sign = pts >= 0 ? '+' : '';
+        const formatPtsBadge = (pts, unsigned = false) => {
+            const sign = (!unsigned && pts >= 0) ? '+' : '';
             const bg = pts >= 0 ? 'rgba(34, 197, 94, 0.18)' : 'rgba(239, 68, 68, 0.2)';
             const fg = pts >= 0 ? '#15803d' : '#dc2626';
             return `<span style="background: ${bg}; color: ${fg}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700;">${sign}${pts} pts</span>`;
@@ -5452,7 +5756,7 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
 
         const caBadge = formatPtsBadge(v.scoreCa);
         const focusBadge = formatPtsBadge(v.scoreFocus);
-        const qualiBadge = formatPtsBadge(v.scoreQuali);
+        const qualiBadge = formatPtsBadge(v.scoreQuali, true);
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -5470,9 +5774,9 @@ function renderVendeursScorecardTable(quantiRecords, qualiRecords, focusHistoryD
             <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono);">${qualiBadge}</td>
             <td style="padding: 0.5rem; text-align: center; min-width: 135px;">
                 <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
-                    <span style="font-size: 0.9rem; font-weight: 800; font-family: var(--font-mono); color: ${scoreBarColor}; width: 58px; text-align: right;">${v.scoreTotal}/100</span>
+                    <span style="font-size: 0.9rem; font-weight: 800; font-family: var(--font-mono); color: ${scoreBarColor}; width: 58px; text-align: right;">${v.scoreTotal} pts</span>
                     <div style="width: 55px; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
-                        <div style="width: ${Math.min(v.scoreTotal, 100)}%; height: 100%; background: ${scoreBarColor}; border-radius: 3px;"></div>
+                        <div style="width: ${Math.min((v.scoreTotal / 300) * 100, 100)}%; height: 100%; background: ${scoreBarColor}; border-radius: 3px;"></div>
                     </div>
                 </div>
             </td>
@@ -13323,7 +13627,145 @@ function renderChakibFocusProgress(historyData, settings, totalDays, focusNames)
             vTbody.appendChild(tr);
         });
     }
-    
+
+    // Render Bar Chart for Vendeurs Focus Performance Breakdown
+    const vLineCanvas = document.getElementById('chakib-vendeurs-focus-line-chart');
+    if (vLineCanvas && sortedChakibVendeurs.length > 0) {
+        if (chakibVendeursFocusChartInstance) {
+            chakibVendeursFocusChartInstance.destroy();
+            chakibVendeursFocusChartInstance = null;
+        }
+
+        const vLineCtx = vLineCanvas.getContext('2d');
+        const isWhiteMode = document.body.classList.contains('light-mode');
+        const styles = getComputedStyle(document.body);
+        const neonBlue = (styles.getPropertyValue('--neon-blue').trim() || '#00d4ff').substring(0, 7);
+        const neonPink = (styles.getPropertyValue('--neon-pink').trim() || '#ff2d55').substring(0, 7);
+        const neonAmber = (styles.getPropertyValue('--neon-amber').trim() || '#f0a030').substring(0, 7);
+        const gridColor = isWhiteMode ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+        const textColor = isWhiteMode ? '#334155' : '#e2e8f0';
+
+        const vLabels = sortedChakibVendeurs.map(vName => {
+            const parts = vName.split(' ');
+            if (parts.length >= 3) return `${parts[0]} ${parts[1]} ${parts[2][0]}.`;
+            return vName;
+        });
+
+        const glaceGlobalDevs = sortedChakibVendeurs.map(vName => {
+            const recs = chakibGlaceReps.filter(r => r.representative === vName).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+            return (recs[0] && recs[0].deviation !== null && recs[0].deviation !== undefined) ? Math.round(recs[0].deviation * 100) : null;
+        });
+
+        const glacePartielDevs = sortedChakibVendeurs.map(vName => {
+            const recs = chakibGlaceReps.filter(r => r.representative === vName).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+            if (!recs[0] || recs[0].deviation === null || recs[0].deviation === undefined) return null;
+            const realRatio = 1 + recs[0].deviation;
+            return Math.round(((realRatio / prorataRatio) - 1) * 100);
+        });
+
+        const tomateGlobalDevs = sortedChakibVendeurs.map(vName => {
+            const recs = chakibTomateReps.filter(r => r.representative === vName).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+            return (recs[0] && recs[0].deviation !== null && recs[0].deviation !== undefined) ? Math.round(recs[0].deviation * 100) : null;
+        });
+
+        const tomatePartielDevs = sortedChakibVendeurs.map(vName => {
+            const recs = chakibTomateReps.filter(r => r.representative === vName).sort((a,b) => b.upload_date.localeCompare(a.upload_date));
+            if (!recs[0] || recs[0].deviation === null || recs[0].deviation === undefined) return null;
+            const realRatio = 1 + recs[0].deviation;
+            return Math.round(((realRatio / prorataRatio) - 1) * 100);
+        });
+
+        chakibVendeursFocusChartInstance = new Chart(vLineCtx, {
+            type: 'bar',
+            data: {
+                labels: vLabels,
+                datasets: [
+                    {
+                        label: `${nameGlace} (Global %)`,
+                        data: glaceGlobalDevs,
+                        backgroundColor: neonBlue + 'cc',
+                        borderColor: neonBlue,
+                        borderWidth: 1.5,
+                        borderRadius: 4
+                    },
+                    {
+                        label: `${nameGlace} (Partiel à Date %)`,
+                        data: glacePartielDevs,
+                        backgroundColor: '#38bdf8cc',
+                        borderColor: '#38bdf8',
+                        borderWidth: 1.5,
+                        borderRadius: 4
+                    },
+                    {
+                        label: `${nameTomate} (Global %)`,
+                        data: tomateGlobalDevs,
+                        backgroundColor: neonPink + 'cc',
+                        borderColor: neonPink,
+                        borderWidth: 1.5,
+                        borderRadius: 4
+                    },
+                    {
+                        label: `${nameTomate} (Partiel à Date %)`,
+                        data: tomatePartielDevs,
+                        backgroundColor: neonAmber + 'cc',
+                        borderColor: neonAmber,
+                        borderWidth: 1.5,
+                        borderRadius: 4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: textColor,
+                            font: { family: 'JetBrains Mono', size: 9, weight: 'bold' }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                const val = context.raw;
+                                if (val === null || val === undefined) return ` ${context.dataset.label}: N/A`;
+                                return ` ${context.dataset.label}: ${(val >= 0 ? '+' : '') + val}%`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: gridColor },
+                        ticks: {
+                            color: textColor,
+                            font: { family: 'JetBrains Mono', size: 9, weight: '600' }
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: function (context) {
+                                if (context.tick && context.tick.value === 0) {
+                                    return isWhiteMode ? 'rgba(15, 23, 42, 0.6)' : '#00d4ff';
+                                }
+                                return gridColor;
+                            }
+                        },
+                        ticks: {
+                            color: textColor,
+                            font: { family: 'JetBrains Mono', size: 9 },
+                            callback: function (val) {
+                                return (val >= 0 ? '+' : '') + val + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     // Handle Chart View Mode Toggles
     let currentFocusMode = window.chakibFocusMode || 'all';
     const btnAll = document.getElementById('btn-chakib-focus-mode-all');
@@ -13890,8 +14332,8 @@ function initAnomalisView() {
         });
     }
 
-    const tagFilter = document.getElementById('anomalis-tag-filter');
-    if (tagFilter) tagFilter.addEventListener('change', loadAnomalies);
+    const dateFilter = document.getElementById('anomalis-date-filter');
+    if (dateFilter) dateFilter.addEventListener('change', loadAnomalies);
     
     const typeFilter = document.getElementById('anomalis-type-filter');
     if (typeFilter) typeFilter.addEventListener('change', loadAnomalies);
@@ -13904,7 +14346,7 @@ function initAnomalisView() {
         searchInput.addEventListener('input', loadAnomalies);
     }
 
-    if (window.location.pathname === '/anomalis') {
+    if (window.location.pathname === '/anomalis' || window.location.pathname === '/anomalies') {
         loadAnomalies();
     }
 }
@@ -13920,180 +14362,180 @@ async function loadAnomalies() {
 
     if (loadingEl) loadingEl.style.display = 'block';
     if (emptyEl) emptyEl.style.display = 'none';
-    if (tableCardEl) tableCardEl.style.display = 'none';
 
     try {
-        const categorySelect = document.getElementById('category-select');
-        const selectedCategory = categorySelect ? categorySelect.value : 'All';
-        
-        let sellersUrl = '/api/vendeurs';
-        if (selectedCategory && selectedCategory !== 'All') {
-            sellersUrl += '?category=' + encodeURIComponent(selectedCategory);
-        }
-        
-        const [anomRes, sellersRes] = await Promise.all([
-            fetch('/api/anomalies?_=' + Date.now()),
-            fetch(sellersUrl)
-        ]);
-        
-        const data = await anomRes.json();
-        const sellersData = await sellersRes.json();
-        
-        const allowedSellers = (sellersData.status === 'success' && sellersData.vendeurs) 
-            ? sellersData.vendeurs.map(v => v.toUpperCase().trim()) 
-            : [];
-        
+        const vendeurFilterEl = document.getElementById('anomalis-vendeur-filter');
+        const dateFilterEl = document.getElementById('anomalis-date-filter');
+        const typeFilterEl = document.getElementById('anomalis-type-filter');
+        const searchInputEl = document.getElementById('anomalis-search-input');
+
+        const selectedVendeur = vendeurFilterEl ? vendeurFilterEl.value : 'All';
+        const selectedDate = dateFilterEl ? dateFilterEl.value : 'All';
+        const selectedType = typeFilterEl ? typeFilterEl.value : 'All';
+        const searchQuery = searchInputEl ? searchInputEl.value.toLowerCase().trim() : '';
+
+        const url = `/api/anomalies/analysis?vendeur=${encodeURIComponent(selectedVendeur)}&date=${encodeURIComponent(selectedDate)}&_=${Date.now()}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
         if (loadingEl) loadingEl.style.display = 'none';
 
-        // 1. Populate Vendeur Filter options dynamically if needed
-        const vendeurFilter = document.getElementById('anomalis-vendeur-filter');
-        if (vendeurFilter && sellersData.status === 'success' && sellersData.vendeurs) {
-            const currentVal = vendeurFilter.value || 'All';
-            vendeurFilter.innerHTML = '<option value="All">TOUS</option>';
-            sellersData.vendeurs.forEach(v => {
+        if (data.status !== 'success' || !data.visites) {
+            if (emptyEl) emptyEl.style.display = 'block';
+            return;
+        }
+
+        // Populate Vendeur Dropdown options if empty or updated
+        if (vendeurFilterEl && data.vendeurs) {
+            const curr = vendeurFilterEl.value || 'All';
+            vendeurFilterEl.innerHTML = '<option value="All">TOUS LES VENDEURS</option>';
+            data.vendeurs.forEach(v => {
                 const opt = document.createElement('option');
                 opt.value = v;
-                opt.innerText = v;
-                vendeurFilter.appendChild(opt);
+                opt.textContent = v;
+                vendeurFilterEl.appendChild(opt);
             });
-            // Try to preserve previous selected value
-            const options = Array.from(vendeurFilter.options).map(o => o.value);
-            if (options.includes(currentVal)) {
-                vendeurFilter.value = currentVal;
-            } else {
-                vendeurFilter.value = 'All';
+            if (Array.from(vendeurFilterEl.options).some(o => o.value === curr)) {
+                vendeurFilterEl.value = curr;
             }
         }
 
-        if (data.status === 'success' && data.anomalies && data.anomalies.length > 0) {
-            tbodyEl.innerHTML = '';
-            
-            const tagFilter = document.getElementById('anomalis-tag-filter') ? document.getElementById('anomalis-tag-filter').value : 'All';
-            const typeFilter = document.getElementById('anomalis-type-filter') ? document.getElementById('anomalis-type-filter').value : 'All';
-            const vendeurFilterVal = document.getElementById('anomalis-vendeur-filter') ? document.getElementById('anomalis-vendeur-filter').value : 'All';
-            const searchQuery = document.getElementById('anomalis-search-input') ? document.getElementById('anomalis-search-input').value.toLowerCase().trim() : '';
-            
-            const filteredAnomalies = data.anomalies.filter(anomaly => {
-                // Category Filter
-                if (selectedCategory !== 'All' && !allowedSellers.includes((anomaly.vendeur || '').toUpperCase().trim())) {
-                    return false;
-                }
-                // Vendeur Filter
-                if (vendeurFilterVal !== 'All' && (anomaly.vendeur || '').toUpperCase().trim() !== vendeurFilterVal.toUpperCase().trim()) {
-                    return false;
-                }
-                // Type Filter
-                if (typeFilter !== 'All' && anomaly.type_anomali !== typeFilter) {
-                    return false;
-                }
-                // Tag Filter
-                if (tagFilter !== 'All') {
-                    if (tagFilter === 'None') {
-                        if (anomaly.tag && anomaly.tag !== '') return false;
+        // Populate Date Dropdown options if empty or updated
+        if (dateFilterEl && data.dates) {
+            const currD = dateFilterEl.value || 'All';
+            dateFilterEl.innerHTML = '<option value="All">TOUTES LES DATES</option>';
+            data.dates.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d;
+                opt.textContent = formatDate(d);
+                dateFilterEl.appendChild(opt);
+            });
+            if (Array.from(dateFilterEl.options).some(o => o.value === currD)) {
+                dateFilterEl.value = currD;
+            }
+        }
+
+        // Update KPI Summary Statistics
+        const stats = data.stats || {};
+        const kpiTotal = document.getElementById('anom-kpi-total');
+        const kpiLess3min = document.getElementById('anom-kpi-less3min');
+        const kpiMultiple = document.getElementById('anom-kpi-multiple');
+        const kpiFirstLate = document.getElementById('anom-kpi-firstlate');
+        const kpiLastEarly = document.getElementById('anom-kpi-lastearly');
+
+        if (kpiTotal) kpiTotal.innerText = stats.total_visites || 0;
+        if (kpiLess3min) kpiLess3min.innerText = stats.count_less_3min || 0;
+        if (kpiMultiple) kpiMultiple.innerText = stats.count_multiple || 0;
+        if (kpiFirstLate) kpiFirstLate.innerText = stats.count_first_late || 0;
+        if (kpiLastEarly) kpiLastEarly.innerText = stats.count_last_early || 0;
+
+        let filteredVisites = data.visites;
+
+        // Apply Anomaly Type Filter
+        if (selectedType === 'OnlyAnomalies') {
+            filteredVisites = filteredVisites.filter(v => v.has_anomaly);
+        } else if (selectedType === 'Rule1') {
+            filteredVisites = filteredVisites.filter(v => v.is_less_3min);
+        } else if (selectedType === 'Rule2') {
+            filteredVisites = filteredVisites.filter(v => v.is_multiple);
+        } else if (selectedType === 'Rule3') {
+            filteredVisites = filteredVisites.filter(v => v.is_first_late);
+        } else if (selectedType === 'Rule4') {
+            filteredVisites = filteredVisites.filter(v => v.is_last_early);
+        }
+
+        // Apply Search Query Filter
+        if (searchQuery !== '') {
+            filteredVisites = filteredVisites.filter(v =>
+                (v.client_code && v.client_code.toLowerCase().includes(searchQuery)) ||
+                (v.client_nom && v.client_nom.toLowerCase().includes(searchQuery)) ||
+                (v.motif && v.motif.toLowerCase().includes(searchQuery)) ||
+                (v.vendeur && v.vendeur.toLowerCase().includes(searchQuery))
+            );
+        }
+
+        if (badgeEl) {
+            const anomCount = filteredVisites.filter(v => v.has_anomaly).length;
+            badgeEl.innerText = `${anomCount} anomalie(s) détectée(s)`;
+        }
+
+        // Sort so visits with anomalies always appear at the top!
+        filteredVisites.sort((a, b) => (b.has_anomaly ? 1 : 0) - (a.has_anomaly ? 1 : 0));
+
+        if (filteredVisites.length === 0) {
+            if (tableCardEl) tableCardEl.style.display = 'block';
+            tbodyEl.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucune visite ne correspond à ces critères.</td></tr>`;
+            return;
+        }
+
+        if (tableCardEl) tableCardEl.style.display = 'block';
+        tbodyEl.innerHTML = '';
+
+        filteredVisites.forEach(v => {
+            const tr = document.createElement('tr');
+
+            // 1. Client Code & Nom Styling (Rule 2: Multiple Visits -> ORANGE)
+            let clientNomStyle = '';
+            let clientCodeStyle = '';
+            if (v.is_multiple) {
+                clientNomStyle = 'background: rgba(255, 170, 0, 0.18); color: #ffaa00; border-left: 3px solid #ffaa00; padding: 4px 8px; border-radius: 3px; font-weight: bold;';
+                clientCodeStyle = 'color: #ffaa00; font-weight: bold;';
+            }
+
+            // 2. Heure Début Styling (Rule 3: First Visit > 08:40 -> DARK RED / ROUGE FONCÉ)
+            let hStartHtml = `<span>${v.heure_debut || '-'}</span>`;
+            if (v.is_first_late) {
+                hStartHtml = `<span style="background: rgba(139, 0, 0, 0.5); color: #ff8080; border: 1px solid #b30000; border-radius: 4px; padding: 2px 7px; font-weight: bold; font-family: var(--font-mono);" title="1ère visite débutée après 08:40"><i class="fa-solid fa-triangle-exclamation"></i> ${v.heure_debut}</span>`;
+            }
+
+            // 3. Heure Fin Styling (Rule 4: Last Visit < 14:45 -> DARK RED / ROUGE FONCÉ)
+            let hEndHtml = `<span>${v.heure_fin || '-'}</span>`;
+            if (v.is_last_early) {
+                hEndHtml = `<span style="background: rgba(139, 0, 0, 0.5); color: #ff8080; border: 1px solid #b30000; border-radius: 4px; padding: 2px 7px; font-weight: bold; font-family: var(--font-mono);" title="Dernière visite terminée avant 14:45"><i class="fa-solid fa-triangle-exclamation"></i> ${v.heure_fin}</span>`;
+            }
+
+            // 4. Durée Styling (Rule 1: Durée < 3min -> RED / ROUGE)
+            let dureeHtml = `<span style="font-family: var(--font-mono);">${v.duree_formatted}</span>`;
+            if (v.is_less_3min) {
+                dureeHtml = `<span style="background: rgba(255, 77, 77, 0.25); color: #ff4d4d; border: 1px solid #ff4d4d; border-radius: 4px; padding: 2px 7px; font-weight: bold; font-family: var(--font-mono);" title="Durée inférieure à 3 minutes"><i class="fa-solid fa-stopwatch"></i> ${v.duree_formatted}</span>`;
+            }
+
+            // Badges HTML for Detected Anomalies
+            let badgesHtml = '<span style="color: var(--text-muted); font-size: 0.75rem; font-style: italic;">Aucune</span>';
+            if (v.anomalies && v.anomalies.length > 0) {
+                badgesHtml = v.anomalies.map(a => {
+                    if (a.includes('3min')) {
+                        return `<span class="badge-pink" style="background: rgba(255,77,77,0.2); color: #ff4d4d; border: 1px solid #ff4d4d; margin-right: 3px;"><i class="fa-solid fa-stopwatch"></i> ${a}</span>`;
+                    } else if (a.toLowerCase().includes('1 visite') || a.toLowerCase().includes('fermé') || a.toLowerCase().includes('multiple')) {
+                        return `<span class="badge-amber" style="background: rgba(255,170,0,0.2); color: #ffaa00; border: 1px solid #ffaa00; margin-right: 3px;"><i class="fa-solid fa-door-closed"></i> 1 Visite</span>`;
                     } else {
-                        if (anomaly.tag !== tagFilter) return false;
+                        return `<span class="badge-pink" style="background: rgba(139,0,0,0.4); color: #ff8080; border: 1px solid #b30000; margin-right: 3px;"><i class="fa-solid fa-clock"></i> ${a}</span>`;
                     }
-                }
-                // Search Query Filter
-                if (searchQuery !== '') {
-                    const dateParts = anomaly.date.split('-');
-                    const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : anomaly.date;
-                    const matchesSearch = 
-                        (anomaly.vendeur || '').toLowerCase().includes(searchQuery) ||
-                        (anomaly.type_anomali || '').toLowerCase().includes(searchQuery) ||
-                        (anomaly.commentaire || '').toLowerCase().includes(searchQuery) ||
-                        (anomaly.tag || '').toLowerCase().includes(searchQuery) ||
-                        formattedDate.includes(searchQuery);
-                    if (!matchesSearch) return false;
-                }
-                return true;
-            });
-            
-            if (filteredAnomalies.length > 0) {
-                filteredAnomalies.forEach(anomaly => {
-                    const tr = document.createElement('tr');
-                    
-                    const dateParts = anomaly.date.split('-');
-                    const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : anomaly.date;
-                    
-                    let formattedRegDate = anomaly.created_at || '';
-                    if (formattedRegDate && formattedRegDate.includes(' ')) {
-                        const [dPart, tPart] = formattedRegDate.split(' ');
-                        const regParts = dPart.split('-');
-                        if (regParts.length === 3) {
-                            formattedRegDate = `${regParts[2]}/${regParts[1]}/${regParts[0]} ${tPart}`;
-                        }
-                    }
-                    
-                    let badgeClass = 'badge-blue';
-                    if (anomaly.type_anomali === 'Retard') badgeClass = 'badge-amber';
-                    else if (anomaly.type_anomali === 'Rapport') badgeClass = 'badge-blue';
-                    else if (anomaly.type_anomali === 'Discipline' || anomaly.type_anomali === 'Décipline') badgeClass = 'badge-pink';
-
-                    // Determine tag badge class and label
-                    let tagBadgeHtml = '<span style="color:var(--text-muted); font-style:italic;">-</span>';
-                    if (anomaly.tag) {
-                        let tagBadgeClass = 'badge-blue';
-                        if (anomaly.tag === 'Urgent' || anomaly.tag === 'Non justifié') tagBadgeClass = 'badge-pink';
-                        else if (anomaly.tag === 'A Suivre') tagBadgeClass = 'badge-amber';
-                        else if (anomaly.tag === 'Résolu') tagBadgeClass = 'badge-green';
-                        else if (anomaly.tag === 'Justifié') tagBadgeClass = 'badge-cyan';
-                        
-                        tagBadgeHtml = `<span class="${tagBadgeClass}">${anomaly.tag}</span>`;
-                    }
-
-                    tr.innerHTML = `
-                        <td class="font-mono">${formattedDate}</td>
-                        <td><strong>${anomaly.vendeur}</strong></td>
-                        <td><span class="${badgeClass}">${anomaly.type_anomali}</span></td>
-                        <td style="color: var(--text-main); font-size: 0.85rem;">${anomaly.commentaire || '<span style="color:var(--text-muted); font-style:italic;">-</span>'}</td>
-                        <td>${tagBadgeHtml}</td>
-                        <td class="font-mono" style="font-size: 0.78rem; color: var(--text-muted);">${formattedRegDate}</td>
-                        <td style="text-align: center;">
-                            <button type="button" class="cyber-btn-mini delete-anomaly-btn" data-id="${anomaly.id}" style="border-color: var(--neon-pink); color: var(--neon-pink); background: transparent;" title="Supprimer">
-                                <i class="fa-solid fa-trash-can"></i>
-                            </button>
-                        </td>
-                    `;
-                    
-                    tr.querySelector('.delete-anomaly-btn').addEventListener('click', async (e) => {
-                        const id = e.currentTarget.getAttribute('data-id');
-                        if (confirm("Voulez-vous vraiment supprimer cette anomalie ?")) {
-                            try {
-                                const delRes = await fetch(`/api/anomalies/${id}`, { method: 'DELETE' });
-                                const delData = await delRes.json();
-                                if (delData.status === 'success') {
-                                    showToast("Anomalie supprimée.", "success");
-                                    loadAnomalies();
-                                } else {
-                                    showToast("Erreur : " + delData.message, "error");
-                                }
-                            } catch (err) {
-                                console.error(err);
-                                showToast("Erreur lors de la suppression.", "error");
-                            }
-                        }
-                    });
-                    
-                    tbodyEl.appendChild(tr);
-                });
-                
-                if (badgeEl) badgeEl.innerText = `${filteredAnomalies.length} anomalie${filteredAnomalies.length > 1 ? 's' : ''}`;
-                if (tableCardEl) tableCardEl.style.display = '';
-            } else {
-                if (emptyEl) emptyEl.style.display = 'block';
-                if (badgeEl) badgeEl.innerText = '0 anomalies';
+                }).join('');
             }
-        } else {
-            if (emptyEl) emptyEl.style.display = 'block';
-            if (badgeEl) badgeEl.innerText = '0 anomalies';
-        }
+
+            const formattedDate = formatDate(v.date_visite);
+
+            tr.innerHTML = `
+                <td class="font-mono"><code style="${clientCodeStyle}">${v.client_code}</code></td>
+                <td><div style="${clientNomStyle}">${v.client_nom}</div></td>
+                <td class="font-mono" style="font-size: 0.8rem;">${formattedDate}</td>
+                <td class="font-mono" style="font-size: 0.8rem; text-align: center;">${hStartHtml}</td>
+                <td class="font-mono" style="font-size: 0.8rem; text-align: center;">${hEndHtml}</td>
+                <td style="text-align: center;">${dureeHtml}</td>
+                <td style="text-align: center; font-family: var(--font-mono);">${v.distance || 0}</td>
+                <td style="font-size: 0.8rem;">${v.motif || '-'}</td>
+                <td style="font-size: 0.8rem; color: var(--text-muted);">${v.note || '-'}</td>
+                <td>${badgesHtml}</td>
+            `;
+
+            tbodyEl.appendChild(tr);
+        });
+
     } catch (err) {
-        console.error("Error loading anomalies:", err);
+        console.error("Error loading anomalies analysis:", err);
         if (loadingEl) loadingEl.style.display = 'none';
         if (emptyEl) emptyEl.style.display = 'block';
-        if (badgeEl) badgeEl.innerText = 'erreur';
-        showToast("Erreur lors du chargement des anomalies.", "error");
     }
 }
 

@@ -19,6 +19,8 @@ database.db
 excel/temp_*
 terrain_cache.json
 .gemini/
+.agents/
+mcp_config.json
 scratch/
 temp/
 tmp/

@@ -249,11 +249,190 @@ def stock():
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="stock", active_sub_tab=active_sub_tab)
 
 @app.route("/anomalis")
+@app.route("/anomalies")
 def anomalis_page():
     config = load_config()
     theme = config.get("theme", "theme-1")
     light_mode = config.get("light_mode", False)
-    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="anomalis")
+    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="anomalies")
+
+@app.route("/api/anomalies/analysis", methods=["GET"])
+def api_anomalies_analysis():
+    """Analyze all visits from visites_rapports against 4 strict anomaly rules:
+    1. Durée < 3 min (Red)
+    2. Multiple visits to same client on same date (Orange)
+    3. First visit > 08:40:00 (Dark Red)
+    4. Last visit < 14:45:00 (Dark Red)
+    """
+    try:
+        from collections import defaultdict
+        from datetime import datetime
+
+        vendeur_filter = request.args.get("vendeur", "All").strip()
+        date_filter = request.args.get("date", "All").strip()
+
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note
+            FROM visites_rapports
+            WHERE date_visite IS NOT NULL
+            ORDER BY date_visite DESC, vendeur ASC, heure ASC, id ASC
+        """)
+        rows = cursor.fetchall()
+
+        # Fallback to vendeur_tournees_visits if visites_rapports is empty
+        if not rows:
+            cursor.execute("""
+                SELECT id, '' as file_name, vendeur_name as vendeur, date as date_visite, tournee, '' as agence,
+                       client_code, client_name as client_nom,
+                       (heure_debut || ' - ' || heure_fin) as heure, distance, motif, note
+                FROM vendeur_tournees_visits
+                WHERE date IS NOT NULL
+                ORDER BY date DESC, vendeur_name ASC, heure_debut ASC, id ASC
+            """)
+            rows = cursor.fetchall()
+
+        conn.close()
+
+        vendeurs_set = set()
+        dates_set = set()
+
+        groups = defaultdict(list)
+        for r in rows:
+            v = (r['vendeur'] or '').strip()
+            d = (r['date_visite'] or '').strip()
+            if v: vendeurs_set.add(v)
+            if d: dates_set.add(d)
+            groups[(v, d)].append(dict(r))
+
+        analyzed_visites = []
+        stats = {
+            "total_visites": 0,
+            "count_less_3min": 0,
+            "count_multiple": 0,
+            "count_first_late": 0,
+            "count_last_early": 0,
+            "total_anomalies": 0
+        }
+
+        for (vendeur, date_visite), visits in groups.items():
+            client_counts = defaultdict(int)
+            for visit in visits:
+                c_code = (visit.get('client_code') or '').strip().upper()
+                if c_code:
+                    client_counts[c_code] += 1
+
+            total_v = len(visits)
+
+            for idx, visit in enumerate(visits):
+                c_code = (visit.get('client_code') or '').strip()
+                c_nom = (visit.get('client_nom') or '').strip()
+                heure_raw = (visit.get('heure') or '').strip()
+
+                parts = [p.strip() for p in heure_raw.split('-')]
+                h_start = parts[0] if len(parts) > 0 else ''
+                h_end = parts[1] if len(parts) > 1 else h_start
+
+                dur_sec = 0
+                if h_start and h_end:
+                    try:
+                        t1 = datetime.strptime(h_start, '%H:%M:%S')
+                        t2 = datetime.strptime(h_end, '%H:%M:%S')
+                        dur_sec = max(0, int((t2 - t1).total_seconds()))
+                    except Exception:
+                        pass
+
+                mins = dur_sec // 60
+                secs = dur_sec % 60
+                dur_str = f"{mins:02d}:{secs:02d}"
+
+                motif_str = (visit.get('motif') or '').strip().upper()
+                is_closed_motif = any(m in motif_str for m in ['FERM', 'ABSENT', 'NON VISITE', 'NON VISITÉ'])
+
+                # Rule 1: Durée < 3 min (180 seconds) -> RED (Seulement si le magasin est OUVERT! Si fermé, durée < 3min est normale)
+                is_less_3min = (dur_sec < 180) if not is_closed_motif else False
+
+                # Rule 2: Pour chaque client fermé/absent, vérifier s'il a au moins 2 visites. Si < 2 visites => ANOMALIE "1 Visite"!
+                total_client_visites = client_counts[c_code.upper()] if c_code else 1
+                is_closed_not_revisited = (is_closed_motif and total_client_visites < 2)
+                is_multiple = (total_client_visites >= 2) if c_code else False
+
+                # Rule 3: Première visite de la journée > 08:40 -> DARK RED
+                is_first = (idx == 0)
+                is_first_late = False
+                if is_first and h_start and h_start > '08:40:00':
+                    is_first_late = True
+
+                # Rule 4: Dernière visite de la journée < 14:45 -> DARK RED
+                is_last = (idx == total_v - 1)
+                is_last_early = False
+                if is_last and h_end and h_end < '14:45:00':
+                    is_last_early = True
+
+                anom_list = []
+                if is_less_3min: anom_list.append('Durée < 3min')
+                if is_closed_not_revisited: 
+                    anom_list.append('1 Visite')
+                if is_first_late: anom_list.append('1ère Visite > 08:40')
+                if is_last_early: anom_list.append('Dernière Visite < 14:45')
+
+                has_anom = len(anom_list) > 0
+
+                item = {
+                    "id": visit['id'],
+                    "client_code": c_code,
+                    "client_nom": c_nom,
+                    "date_visite": date_visite,
+                    "heure_debut": h_start,
+                    "heure_fin": h_end,
+                    "duree_seconds": dur_sec,
+                    "duree_formatted": dur_str,
+                    "distance": visit.get('distance') or 0,
+                    "motif": visit.get('motif') or '',
+                    "note": visit.get('note') or '',
+                    "vendeur": vendeur,
+                    "tournee": visit.get('tournee') or '',
+                    "is_less_3min": is_less_3min,
+                    "is_closed_not_revisited": is_closed_not_revisited,
+                    "is_multiple": is_multiple,
+                    "is_first_visit": is_first,
+                    "is_last_visit": is_last,
+                    "is_first_late": is_first_late,
+                    "is_last_early": is_last_early,
+                    "has_anomaly": has_anom,
+                    "anomalies": anom_list
+                }
+
+                # Apply filters if set
+                match_vendeur = (vendeur_filter == "All" or vendeur_filter.upper() in vendeur.upper() or vendeur.upper() in vendeur_filter.upper())
+                match_date = (date_filter == "All" or date_filter == date_visite)
+
+                if match_vendeur and match_date:
+                    analyzed_visites.append(item)
+                    stats['total_visites'] += 1
+                    if is_less_3min: stats['count_less_3min'] += 1
+                    if is_closed_not_revisited or is_multiple: stats['count_multiple'] += 1
+                    if is_first_late: stats['count_first_late'] += 1
+                    if is_last_early: stats['count_last_early'] += 1
+                    if has_anom: stats['total_anomalies'] += 1
+
+        # Sort so visits WITH anomalies appear at the top of the list!
+        analyzed_visites.sort(key=lambda x: (not x['has_anomaly'], x['heure_debut']))
+
+        return jsonify({
+            "status": "success",
+            "stats": stats,
+            "vendeurs": sorted(list(vendeurs_set)),
+            "dates": sorted(list(dates_set), reverse=True),
+            "visites": analyzed_visites
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @app.route("/api/anomalies", methods=["GET"])
 def api_anomalies_list():
@@ -1393,109 +1572,228 @@ def get_visites_rapport_endpoint():
 @app.route("/api/afacturer/tournees", methods=["GET"])
 def get_afacturer_tournees():
     """Return vendeurs and secteurs with their distinct tournée+date entries.
-    Tournée names come from the localites table (via client_code → clients → localites),
-    NOT from the Excel-stored tournee field in vendeur_tournees_visits.
-    For each (vendeur_code, date), the dominant localite (highest client count) is used.
+
+    Sources:
+      - fdv              → vendeur catalog (code + name + secteur)
+      - clients          → localites assigned per vendeur (vendeur_som / vendeur_vmm)
+      - visites_rapports → actual visit dates & tournée names
+      - secteurs         → secteur master list
     """
     try:
+        from collections import defaultdict
         conn = db_manager.get_db_connection()
         cursor = conn.cursor()
 
-        # 1. For each (vendeur_code, date, localite) count how many clients visited
-        #    This gives us the TRUE tournée name from the database
+        # ── 1. Vendeur catalog from fdv ──────────────────────────────────────
+        cursor.execute("SELECT vendeur, secteur FROM fdv")
+        fdv_rows = cursor.fetchall()
+
+        # Parse "CODE NOM" format → { "D48": {"name": "D48 IBACH MOHAMED", "secteur": "TAROUDANT"} }
+        fdv_map = {}
+        for row in fdv_rows:
+            vendeur_full = (row["vendeur"] or "").strip()
+            secteur_fdv  = (row["secteur"] or "").strip()
+            parts = vendeur_full.split(" ", 1)
+            code = parts[0].strip().upper() if parts else vendeur_full.upper()
+            if code:
+                fdv_map[code] = {"name": vendeur_full, "secteur": secteur_fdv, "code": code}
+
+        # ── 2. Localites per vendeur from clients table ──────────────────────
         cursor.execute("""
             SELECT
-                v.vendeur_code,
-                v.vendeur_name,
-                v.date,
+                c.vendeur_som,
+                c.vendeur_vmm,
                 l.name  AS localite,
                 s.name  AS secteur,
-                COUNT(DISTINCT v.client_code) AS client_count
-            FROM vendeur_tournees_visits v
-            LEFT JOIN clients cl ON cl.code = v.client_code
-            LEFT JOIN localites l ON cl.localite_id = l.id
-            LEFT JOIN secteurs s ON cl.secteur_id = s.id
-            WHERE v.date IS NOT NULL
-              AND l.name IS NOT NULL
-            GROUP BY v.vendeur_code, v.vendeur_name, v.date, l.name, s.name
-            ORDER BY v.vendeur_code, v.date, client_count DESC
+                COUNT(*) AS client_count
+            FROM clients c
+            LEFT JOIN localites l ON l.id = c.localite_id
+            LEFT JOIN secteurs  s ON s.id = c.secteur_id
+            WHERE l.name IS NOT NULL
+            GROUP BY c.vendeur_som, c.vendeur_vmm, l.name, s.name
+            ORDER BY client_count DESC
         """)
-        rows = cursor.fetchall()
-        conn.close()
+        client_rows = cursor.fetchall()
 
-        # 2. For each (vendeur_code, date) keep the localite with the most clients
-        #    (dominant tournée), and also record all secondary localites
-        from collections import defaultdict
+        # Build: vcode → [ {localite, secteur, count} ]
+        vendeur_localites = defaultdict(list)
+        for row in client_rows:
+            localite = row["localite"]
+            secteur  = row["secteur"]
+            count    = row["client_count"]
+            for vfield in ("vendeur_som", "vendeur_vmm"):
+                raw = (row[vfield] or "").strip()
+                if not raw:
+                    continue
+                vcode = raw.split(" ", 1)[0].strip().upper()
+                vendeur_localites[vcode].append({
+                    "localite": localite,
+                    "secteur":  secteur,
+                    "count":    count
+                })
 
-        # vendeur_code → { date → [ {localite, secteur, count} ] }
-        vendeur_date_map = defaultdict(lambda: defaultdict(list))
-        for row in rows:
-            code   = row["vendeur_code"]
-            name   = row["vendeur_name"]
-            date   = row["date"]
-            loc    = row["localite"]
-            sec    = row["secteur"]
-            cnt    = row["client_count"]
-            vendeur_date_map[(code, name)][date].append({
-                "localite": loc, "secteur": sec, "count": cnt
+        # ── 3. Visit dates & tournées from visites_rapports ─────────────────
+        cursor.execute("""
+            SELECT
+                vendeur,
+                date_visite AS date,
+                tournee,
+                COUNT(DISTINCT client_code) AS visit_count
+            FROM visites_rapports
+            WHERE date_visite IS NOT NULL
+            GROUP BY vendeur, date_visite, tournee
+            ORDER BY vendeur, date_visite
+        """)
+        visite_rows = cursor.fetchall()
+
+        # Build: vcode → [ {date, tournee, secteur, count} ]
+        vendeur_visits = defaultdict(list)
+        for row in visite_rows:
+            raw   = (row["vendeur"] or "").strip()
+            vcode = raw.split(" ", 1)[0].strip().upper()
+            tournee_name = (row["tournee"] or "TOURNÉE GÉNÉRALE").strip()
+            secteur = fdv_map.get(vcode, {}).get("secteur", "")
+            vendeur_visits[vcode].append({
+                "date":    row["date"],
+                "tournee": tournee_name,
+                "secteur": secteur,
+                "count":   row["visit_count"]
             })
 
-        # 3. Build vendeurs list
-        vendeurs_map = {}
-        for (code, name), date_locs in sorted(vendeur_date_map.items(), key=lambda x: x[0][1]):
-            entries = []
-            for date in sorted(date_locs.keys()):
-                locs = sorted(date_locs[date], key=lambda x: -x["count"])
-                dominant = locs[0]["localite"]   # highest count = the day's main tournée
-                secteur  = locs[0]["secteur"]
-                entries.append({
-                    "date":    date,
-                    "tournee": dominant,
-                    "secteur": secteur,
-                    "all_localites": [l["localite"] for l in locs]
+        # ── 4. All secteurs ──────────────────────────────────────────────────
+        cursor.execute("SELECT name FROM secteurs ORDER BY name")
+        all_secteurs = [r["name"] for r in cursor.fetchall()]
+        conn.close()
+
+        # ── 5. Build vendeurs list ───────────────────────────────────────────
+        all_vcodes = set(fdv_map.keys()) | set(vendeur_localites.keys()) | set(vendeur_visits.keys())
+        vendeurs_list = []
+
+        for vcode in sorted(all_vcodes):
+            info = fdv_map.get(vcode, {"code": vcode, "name": vcode, "secteur": ""})
+
+            # Deduplicate localites, keep top 20 by client count
+            loc_seen = {}
+            for loc in vendeur_localites.get(vcode, []):
+                key = loc["localite"]
+                if key not in loc_seen or loc["count"] > loc_seen[key]["count"]:
+                    loc_seen[key] = loc
+            sorted_localites = sorted(loc_seen.values(), key=lambda x: -x["count"])
+
+            vendeurs_list.append({
+                "code":          info["code"],
+                "name":          info["name"],
+                "secteur":       info["secteur"],
+                "tournee_dates": vendeur_visits.get(vcode, []),
+                "localites":     [l["localite"] for l in sorted_localites[:20]]
+            })
+
+        # ── 6. Build secteurs list ───────────────────────────────────────────
+        secteur_vendeur_map = defaultdict(list)
+        for v in vendeurs_list:
+            sec = v.get("secteur", "")
+            if sec:
+                secteur_vendeur_map[sec].append({
+                    "vendeur_code": v["code"],
+                    "vendeur_name": v["name"],
+                    "tournee_dates": v["tournee_dates"]
                 })
-            vendeurs_map[code] = {"code": code, "name": name, "tournee_dates": entries}
 
-        # 4. Build secteurs list  (aggregate across vendeurs in that secteur)
-        #    secteur → { date → { tournee → {vendeur_code, vendeur_name, count} } }
-        secteur_date_map = defaultdict(lambda: defaultdict(dict))
-        for (code, name), date_locs in vendeur_date_map.items():
-            for date, locs in date_locs.items():
-                for loc_info in locs:
-                    sec = loc_info["secteur"]
-                    loc = loc_info["localite"]
-                    cnt = loc_info["count"]
-                    key = (loc, code)
-                    if sec not in secteur_date_map or \
-                       date not in secteur_date_map[sec] or \
-                       key not in secteur_date_map[sec][date]:
-                        secteur_date_map[sec][date][key] = {
-                            "localite":     loc,
-                            "vendeur_code": code,
-                            "vendeur_name": name,
-                            "count":        cnt
-                        }
-
+        all_sec_names = set(secteur_vendeur_map.keys()) | set(all_secteurs)
         secteurs_list = []
-        for sec in sorted(secteur_date_map.keys()):
-            entries = []
-            for date in sorted(secteur_date_map[sec].keys()):
-                all_locs = sorted(secteur_date_map[sec][date].values(),
-                                  key=lambda x: -x["count"])
-                dominant = all_locs[0]
-                entries.append({
-                    "date":         date,
-                    "tournee":      dominant["localite"],
-                    "vendeur_code": dominant["vendeur_code"],
-                    "vendeur_name": dominant["vendeur_name"],
-                    "all_localites": list({e["localite"] for e in all_locs})
-                })
-            secteurs_list.append({"name": sec, "tournee_dates": entries})
+        for sec in sorted(all_sec_names):
+            fdv_vendeurs = secteur_vendeur_map.get(sec, [])
+            secteurs_list.append({
+                "name":         sec,
+                "vendeurs":     fdv_vendeurs,
+                "tournee_dates": [td for v in fdv_vendeurs for td in v["tournee_dates"]]
+            })
 
         return jsonify({
             "status":   "success",
-            "vendeurs": list(vendeurs_map.values()),
+            "vendeurs": vendeurs_list,
             "secteurs": secteurs_list
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
+@app.route("/api/afacturer/vendeur-tournees", methods=["GET"])
+def get_vendeur_tournees():
+    """Return all tournées for a specific vendeur.
+    Sources:
+      - visites_rapports (database.db)    → actual visit dates & tournée names
+      - clients_vendeurs.db               → all localites/tournées assigned to this vendeur
+    """
+    try:
+        vendeur_raw = request.args.get("vendeur", "").strip()
+        if not vendeur_raw:
+            return jsonify({"status": "error", "message": "vendeur param required"}), 400
+
+        vcode = vendeur_raw.split(" ", 1)[0].strip().upper()
+
+        # ── 1. Real visits from database.db → visites_rapports ───────────────
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                date_visite  AS date,
+                tournee,
+                COUNT(DISTINCT client_code) AS client_count
+            FROM visites_rapports
+            WHERE UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ?
+            GROUP BY date_visite, tournee
+            ORDER BY date_visite DESC, client_count DESC
+        """, (f"{vcode}%", f"%{vcode}%"))
+        visite_rows = cursor.fetchall()
+        conn.close()
+
+        tournee_dates = []
+        for row in visite_rows:
+            tournee_dates.append({
+                "date":         row["date"],
+                "tournee":      row["tournee"] or "TOURNÉE GÉNÉRALE",
+                "client_count": row["client_count"],
+                "source":       "visite"
+            })
+
+        # ── 2. Localites from clients_vendeurs.db ────────────────────────────
+        cv_conn = db_manager.get_cv_db_connection()
+        cv_cursor = cv_conn.cursor()
+        cv_cursor.execute("""
+            SELECT
+                l.name  AS localite,
+                s.name  AS secteur,
+                COUNT(*) AS client_count
+            FROM clients c
+            LEFT JOIN localites l ON l.id = c.localite_id
+            LEFT JOIN secteurs  s ON s.id = c.secteur_id
+            WHERE (UPPER(c.vendeur_som) LIKE ? OR UPPER(c.vendeur_vmm) LIKE ?)
+              AND l.name IS NOT NULL
+            GROUP BY l.name, s.name
+            ORDER BY client_count DESC
+        """, (f"{vcode}%", f"{vcode}%"))
+        localite_rows = cv_cursor.fetchall()
+        cv_conn.close()
+
+        localites = []
+        for row in localite_rows:
+            localites.append({
+                "localite":     row["localite"],
+                "secteur":      row["secteur"],
+                "client_count": row["client_count"]
+            })
+
+        return jsonify({
+            "status":          "success",
+            "vendeur":         vendeur_raw,
+            "tournee_dates":   tournee_dates,
+            "localites":       localites,
+            "total_visites":   len(tournee_dates),
+            "total_localites": len(localites)
         })
     except Exception as e:
         import traceback
@@ -5200,6 +5498,31 @@ def get_vendeur_quanti_history():
     except Exception as e:
         import traceback
         traceback.print_exc()
+@app.route('/api/login', methods=['POST'])
+def login_api():
+    try:
+        data = request.get_json() or {}
+        email = (data.get('email') or '').strip().lower()
+        password = data.get('password') or ''
+        
+        valid_email = "guostonline@gmail.com"
+        valid_password = "@Iamsorry123#"
+        
+        if email == valid_email.lower() and password == valid_password:
+            return jsonify({
+                "status": "success",
+                "message": "Connexion réussie!",
+                "user": {
+                    "email": valid_email,
+                    "name": "Guostonline"
+                }
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "Email ou mot de passe incorrect. Veuillez réessayer."
+            }), 401
+    except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 

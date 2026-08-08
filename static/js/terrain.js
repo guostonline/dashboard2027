@@ -49,6 +49,18 @@ function deduplicateVendeurs(vendeurs) {
     return Array.from(mapByCode.values()).sort();
 }
 
+function getVendorSubmittedDaysCount(vName, data) {
+    const dataset = (data && data.length > 0) ? data : ((terrainFilteredData && terrainFilteredData.length > 0) ? terrainFilteredData : (terrainRawData || []));
+    if (!dataset || dataset.length === 0) return 0;
+    const datesSet = new Set();
+    dataset.forEach(r => {
+        if (r.date && r.vendeur && isSameVendeur(r.vendeur, vName)) {
+            datesSet.add(r.date);
+        }
+    });
+    return datesSet.size;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // Only initialize if the terrain-container exists in the DOM
     if (document.getElementById('terrain-container')) {
@@ -149,8 +161,10 @@ function populateTerrainFilters() {
         if (tableDateSelect) tableDateSelect.innerHTML += `<option value="${d}">${d}</option>`;
     });
     vendeurs.forEach(v => {
-        vendeurSelect.innerHTML += `<option value="${v}">${v}</option>`;
-        if (tableVendeurSelect) tableVendeurSelect.innerHTML += `<option value="${v}">${v}</option>`;
+        const vDays = getVendorSubmittedDaysCount(v, terrainRawData);
+        const daySuffix = vDays > 0 ? ` (${vDays} J)` : '';
+        vendeurSelect.innerHTML += `<option value="${v}">${v}${daySuffix}</option>`;
+        if (tableVendeurSelect) tableVendeurSelect.innerHTML += `<option value="${v}">${v}${daySuffix}</option>`;
     });
     activites.forEach(a => {
         activiteSelect.innerHTML += `<option value="${a}">${a}</option>`;
@@ -492,12 +506,35 @@ function renderTerrainView() {
     renderTerrainAnomalies();
 }
 
+let excludedAnomalyDatesMap = {}; // { [vendeurCode]: Set([dateStr1, dateStr2]) }
+
+function toggleAnomalyDateExclusion(vCode, dateStr) {
+    if (!excludedAnomalyDatesMap[vCode]) {
+        excludedAnomalyDatesMap[vCode] = new Set();
+    }
+    if (excludedAnomalyDatesMap[vCode].has(dateStr)) {
+        excludedAnomalyDatesMap[vCode].delete(dateStr);
+    } else {
+        excludedAnomalyDatesMap[vCode].add(dateStr);
+    }
+    renderTerrainAnomalies();
+}
+
+function resetAnomalyDateExclusions(vCode) {
+    if (vCode) {
+        delete excludedAnomalyDatesMap[vCode];
+    } else {
+        excludedAnomalyDatesMap = {};
+    }
+    renderTerrainAnomalies();
+}
+
 function renderTerrainAnomalies() {
     const anomaliesTableBody = document.querySelector('#terrain-anomalies-table tbody');
     if (!anomaliesTableBody) return;
 
     if (!terrainRawData || terrainRawData.length === 0) {
-        anomaliesTableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Aucune donnée terrain disponible pour calculer les anomalies.</td></tr>`;
+        anomaliesTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Aucune donnée terrain disponible pour calculer les anomalies.</td></tr>`;
         return;
     }
 
@@ -659,22 +696,41 @@ function renderTerrainAnomalies() {
         : selectedAnomalyMonth;
 
     anomaliesTableBody.innerHTML = vendorResults.map(res => {
+        const vCode = getVendeurCode(res.vendeur);
+        const excludedSet = excludedAnomalyDatesMap[vCode] || new Set();
+        
+        const activeMissingDates = res.missingDates.filter(d => !excludedSet.has(d.dateStr));
+        const activeMissingCount = activeMissingDates.length;
+
         let statusBadge = "";
-        if (res.missingCount === 0) {
+        if (activeMissingCount === 0) {
             statusBadge = `<span class="badge-green"><i class="fa-solid fa-circle-check"></i> 100% Conforme</span>`;
-        } else if (res.missingCount <= 3) {
-            statusBadge = `<span class="badge-amber"><i class="fa-solid fa-triangle-exclamation"></i> ${res.missingCount} manqué(s)</span>`;
+        } else if (activeMissingCount <= 3) {
+            statusBadge = `<span class="badge-amber"><i class="fa-solid fa-triangle-exclamation"></i> ${activeMissingCount} manqué(s)</span>`;
         } else {
-            statusBadge = `<span class="badge-pink"><i class="fa-solid fa-circle-exclamation"></i> ${res.missingCount} manqués (Alerte)</span>`;
+            statusBadge = `<span class="badge-pink"><i class="fa-solid fa-circle-exclamation"></i> ${activeMissingCount} manqués (Alerte)</span>`;
         }
 
-        const dateTags = res.missingDates.length > 0 
-            ? res.missingDates.map(d => `<span class="anomaly-date-chip" title="Absence de déclaration le ${d.dayName} ${d.dateStr}">${d.dayName} ${d.dateStr.substring(0,5)}</span>`).join('')
-            : `<span style="color: var(--neon-green); font-size: 0.78rem;"><i class="fa-solid fa-circle-check"></i> Aucun retard / envoi complet</span>`;
+        let dateTags = "";
+        if (res.missingDates.length > 0) {
+            const tagsHtml = res.missingDates.map(d => {
+                const isExcluded = excludedSet.has(d.dateStr);
+                const chipClass = isExcluded ? 'anomaly-date-chip excluded-date' : 'anomaly-date-chip';
+                const icon = isExcluded ? '<i class="fa-solid fa-plus" style="font-size: 0.6rem; margin-left: 2px;"></i>' : '<i class="fa-solid fa-xmark remove-date-btn"></i>';
+                const title = isExcluded ? `Cliquez pour réinclure ${d.dayName} ${d.dateStr}` : `Cliquez pour retirer ${d.dayName} ${d.dateStr} avant l'envoi WA`;
+                return `<span class="${chipClass}" title="${title}" onclick="toggleAnomalyDateExclusion('${vCode}', '${d.dateStr}')">${d.dayName} ${d.dateStr.substring(0,5)} ${icon}</span>`;
+            }).join('');
+
+            const restoreBtn = excludedSet.size > 0 ? `<button type="button" class="cyber-btn" onclick="resetAnomalyDateExclusions('${vCode}')" title="Restaurer toutes les dates de ce vendeur" style="padding: 1px 6px; font-size: 0.65rem; border-radius: 4px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: var(--neon-amber); font-weight: bold;"><i class="fa-solid fa-rotate-left"></i> Restaurer (${excludedSet.size})</button>` : '';
+
+            dateTags = `<div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center; max-width: 520px;">${tagsHtml}${restoreBtn}</div>`;
+        } else {
+            dateTags = `<span style="color: var(--neon-green); font-size: 0.78rem;"><i class="fa-solid fa-circle-check"></i> Aucun retard / envoi complet</span>`;
+        }
 
         // Generate WhatsApp button and prefilled message
         let actionCell = "";
-        if (res.missingCount === 0) {
+        if (activeMissingCount === 0) {
             actionCell = `<span class="rp-wa-ok-badge" title="Aucun rappel nécessaire"><i class="fa-solid fa-check"></i> Conforme</span>`;
         } else {
             let rawPhone = res.telephone || res.whatsapp || (terrainVendeurPhones && terrainVendeurPhones[res.vendeur]) || "";
@@ -709,13 +765,13 @@ function renderTerrainAnomalies() {
             const lastWord = vParts[vParts.length - 1] || res.vendeur || '';
             const firstName = lastWord ? (lastWord.charAt(0).toUpperCase() + lastWord.slice(1).toLowerCase()) : '';
 
-            const datesListStr = res.missingDates.map(d => `* ${d.dayName} ${d.dateStr}`).join('\n');
+            const datesListStr = activeMissingDates.map(d => `* ${d.dayName} ${d.dateStr}`).join('\n');
             const message = `Bonjour ${firstName}.\n\nMerci de remplir le form de ces jours:\n${datesListStr}`;
             const waHref = phoneDigits ? `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}` : `https://wa.me/?text=${encodeURIComponent(message)}`;
             
             actionCell = `
-                <a href="${waHref}" target="_blank" class="rp-wa-reminder-btn" title="Envoyer un rappel WhatsApp à ${res.vendeur} (${phoneDigits || 'Sans numéro'})">
-                    <i class="fa-brands fa-whatsapp"></i> Rappel WA
+                <a href="${waHref}" target="_blank" class="rp-wa-reminder-btn" title="Envoyer un rappel WhatsApp (${activeMissingCount} date(s)) à ${res.vendeur} (${phoneDigits || 'Sans numéro'})">
+                    <i class="fa-brands fa-whatsapp"></i> Rappel WA (${activeMissingCount})
                 </a>
             `;
         }
@@ -724,9 +780,9 @@ function renderTerrainAnomalies() {
             <tr>
                 <td><strong style="color: var(--text-main);">${res.vendeur}</strong></td>
                 <td><span style="font-family: var(--font-mono); font-weight: bold; color: var(--text-main);">${res.sentCount} / ${res.totalWorkingDays} j</span></td>
-                <td><span style="font-family: var(--font-mono); font-weight: bold; color: ${res.missingCount > 0 ? 'var(--neon-pink)' : 'var(--neon-green)'}">${res.missingCount} j</span></td>
+                <td><span style="font-family: var(--font-mono); font-weight: bold; color: ${activeMissingCount > 0 ? 'var(--neon-pink)' : 'var(--neon-green)'}">${activeMissingCount} j</span></td>
                 <td>${statusBadge}</td>
-                <td><div style="display: flex; flex-wrap: wrap; gap: 4px; max-width: 500px;">${dateTags}</div></td>
+                <td>${dateTags}</td>
                 <td style="text-align: center; vertical-align: middle;">${actionCell}</td>
             </tr>
         `;
@@ -814,10 +870,11 @@ function populateTerrainChartControls() {
         chipsHtml += sortedVendors.map((v, idx) => {
             const vColor = VENDOR_PALETTE[idx % VENDOR_PALETTE.length];
             const isSelected = isAllSelected || selectedChartVendors.has(v);
+            const vDays = getVendorSubmittedDaysCount(v, terrainFilteredData);
             return `
                 <button class="cyber-chip-btn" type="button" data-vendor="${v}" style="padding: 3px 10px; font-size: 0.72rem; border-radius: 12px; cursor: pointer; transition: all 0.2s ease; border: 1px solid ${isSelected ? vColor : 'rgba(255,255,255,0.15)'}; background: ${isSelected ? vColor + '33' : 'rgba(255,255,255,0.03)'}; color: ${isSelected ? '#fff' : 'var(--text-muted)'}; font-weight: 500;">
                     <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${vColor}; margin-right: 5px;"></span>
-                    ${v}
+                    ${v} <span style="opacity: 0.85; font-size: 0.68rem; margin-left: 3px; font-family: var(--font-mono); background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 8px; font-weight: 700; color: var(--neon-amber);">${vDays} J</span>
                 </button>
             `;
         }).join('');
@@ -991,7 +1048,10 @@ function renderTerrainChart() {
 
     if (selectedMode === 'bars_by_vendor') {
         chartType = 'bar';
-        chartData.labels = sortedVendors;
+        chartData.labels = sortedVendors.map(v => {
+            const vDays = getVendorSubmittedDaysCount(v, dataForChart);
+            return `${v} (${vDays} J)`;
+        });
 
         metricsList.forEach((mKey, mIdx) => {
             const mColor = METRIC_PALETTE[mIdx % METRIC_PALETTE.length];

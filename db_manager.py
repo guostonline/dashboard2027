@@ -43,9 +43,16 @@ def get_dynamic_workdays(date_str):
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.db")
 UPLOADS_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads.db")
+CV_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clients_vendeurs.db")
 
 def get_uploads_db_connection():
     conn = sqlite3.connect(UPLOADS_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def get_cv_db_connection():
+    """Connection to clients_vendeurs.db (vendeurs, clients, localites, secteurs)."""
+    conn = sqlite3.connect(CV_DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -188,14 +195,51 @@ def init_uploads_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS vendeur_tournees_visits (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        vendeur TEXT NOT NULL,
-        tournee TEXT NOT NULL,
-        visit_date TEXT NOT NULL,
-        passage_num INTEGER DEFAULT 1,
+        vendeur_code TEXT NOT NULL,
+        vendeur_name TEXT,
+        date TEXT NOT NULL,
+        tournee TEXT,
+        client_code TEXT NOT NULL,
+        client_name TEXT,
+        date_visite TEXT,
+        heure_debut TEXT,
+        heure_fin TEXT,
+        duree_minutes REAL,
+        motif TEXT,
+        distance TEXT,
+        note TEXT,
+        facture_status TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(vendeur, tournee, visit_date)
+        UNIQUE(vendeur_code, client_code, date, heure_debut)
     )
     """)
+
+    # Auto-migrate: if table was created with old schema (vendeur col instead of vendeur_code), rebuild it
+    cursor.execute("PRAGMA table_info(vendeur_tournees_visits)")
+    vtv_cols = [row[1] for row in cursor.fetchall()]
+    if "vendeur" in vtv_cols and "vendeur_code" not in vtv_cols:
+        cursor.execute("DROP TABLE IF EXISTS vendeur_tournees_visits")
+        cursor.execute("""
+        CREATE TABLE vendeur_tournees_visits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendeur_code TEXT NOT NULL,
+            vendeur_name TEXT,
+            date TEXT NOT NULL,
+            tournee TEXT,
+            client_code TEXT NOT NULL,
+            client_name TEXT,
+            date_visite TEXT,
+            heure_debut TEXT,
+            heure_fin TEXT,
+            duree_minutes REAL,
+            motif TEXT,
+            distance TEXT,
+            note TEXT,
+            facture_status TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(vendeur_code, client_code, date, heure_debut)
+        )
+        """)
 
     # 10. Visites rapports
     cursor.execute("""

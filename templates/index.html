@@ -18,7 +18,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=3.2">
+    <link rel="stylesheet" href="/static/css/style.css?v=3.3">
 </head>
 <body class="cyber-grid {% if theme %}{{ theme }}{% endif %} {% if light_mode %}light-mode{% endif %}">
     <!-- ===== Animated background layers ===== -->
@@ -38,7 +38,7 @@
             </div>
             
             <nav class="sidebar-nav">
-                <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' and active_tab != 'anomalis' and active_tab != 'tasks' and active_tab != 'engagement' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
+                <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' and active_tab != 'anomalis' and active_tab != 'anomalies' and active_tab != 'tasks' and active_tab != 'engagement' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
                 <a href="/details" class="nav-item {% if active_tab == 'details' and active_sub_tab != 'vendeur360' %}active{% endif %}" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
                 <a href="/vendeur360" class="nav-item {% if active_tab == 'details' and active_sub_tab == 'vendeur360' %}active{% endif %}" id="nav-vendeur-360" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'details' %}display: none;{% endif %}"><i class="fa-solid fa-id-card neon-text-blue"></i> <span>Vendeur</span></a>
                 <a href="/clients" class="nav-item {% if active_tab == 'clients' and active_sub_tab != 'facturation' %}active{% endif %}" id="nav-clients"><i class="fa-solid fa-address-book"></i> <span>Client</span></a>
@@ -49,7 +49,7 @@
                 <a href="/focus" class="nav-item {% if active_tab == 'focus' %}active{% endif %}" id="nav-focus"><i class="fa-solid fa-bullseye"></i> <span>Focus</span></a>
                 <a href="/rapport" class="nav-item {% if active_tab == 'rapport' %}active{% endif %}" id="nav-rapport"><i class="fa-solid fa-brain"></i> <span>Rapport</span></a>
                 <a href="/stock" class="nav-item {% if active_tab == 'stock' and active_sub_tab != 'favorites' and active_sub_tab != 'favorit' %}active{% endif %}" id="nav-stock"><i class="fa-solid fa-boxes-stacked"></i> <span>Stock</span></a>
-                <a href="/anomalis" class="nav-item {% if active_tab == 'anomalis' %}active{% endif %}" id="nav-anomalis"><i class="fa-solid fa-triangle-exclamation neon-text-pink"></i> <span>Anomalies</span></a>
+                <a href="/anomalies" class="nav-item {% if active_tab == 'anomalis' or active_tab == 'anomalies' %}active{% endif %}" id="nav-anomalis"><i class="fa-solid fa-triangle-exclamation neon-text-pink"></i> <span>Anomalies</span></a>
                 <a href="/tasks" class="nav-item {% if active_tab == 'tasks' %}active{% endif %}" id="nav-tasks"><i class="fa-solid fa-list-check"></i> <span>Tâches</span></a>
                 <a href="/engagement" class="nav-item {% if active_tab == 'engagement' %}active{% endif %}" id="nav-engagement"><i class="fa-solid fa-handshake"></i> <span>Engagement</span></a>
                 <a href="/stock?view=favorit" class="nav-item {% if active_tab == 'stock' and (active_sub_tab == 'favorites' or active_sub_tab == 'favorit') %}active{% endif %}" id="nav-stock-favorites" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'stock' %}display: none;{% endif %}"><i class="fa-solid fa-star" style="color: var(--neon-amber);"></i> <span>Favorit</span></a>
@@ -218,6 +218,10 @@
             <button id="settings-btn" class="cyber-btn" title="Configuration">
                 <i class="fa-solid fa-sliders"></i>
                 <span>CONFIG</span>
+            </button>
+            <button id="logout-btn" class="cyber-btn" title="Se déconnecter" style="border-color: var(--neon-pink); color: var(--neon-pink);">
+                <i class="fa-solid fa-right-from-bracket"></i>
+                <span>DÉCONNEXION</span>
             </button>
         </div>
     </header>
@@ -442,8 +446,8 @@
                     </div>
                 </div>
 
-                <!-- CHAKIB ELFIL SPECIFIC FOCUS TREND -->
-                <div class="cyber-card focus-card" id="chakib-focus-progress-card" style="display: none; margin-bottom: 1.5rem;">
+                <!-- CHAKIB ELFIL SPECIFIC FOCUS TREND & VENDEURS BREAKDOWN -->
+                <div class="cyber-card focus-card" id="chakib-focus-progress-card" style="margin-bottom: 1.5rem;">
                     <div class="card-edge"></div>
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                         <span class="tech-label"><i class="fa-solid fa-chart-line"></i> PROGRESSION FOCUS DE CHAKIB ELFIL (ÉQUIPE & VENDEURS)</span>
@@ -457,13 +461,13 @@
                         </div>
                     </div>
                     <div class="focus-trend-grid">
-                        <div class="chart-wrapper" style="height: 380px; position: relative;">
+                        <div class="chart-wrapper" style="height: 260px; position: relative;">
                             <canvas id="chakib-focus-progress-chart"></canvas>
                         </div>
-                        <div class="table-container" style="max-height: 380px; overflow-y: auto;">
+                        <div class="table-container" style="max-height: 260px; overflow-y: auto; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
                             <table class="cyber-table" id="chakib-focus-progress-table">
                                 <thead>
-                                    <tr>
+                                    <tr style="background: rgba(0, 212, 255, 0.08); position: sticky; top: 0; z-index: 2;">
                                         <th>Date</th>
                                         <th>Écart Glace (SOM)</th>
                                         <th>Écart Tomate (VMM)</th>
@@ -477,14 +481,17 @@
                     </div>
 
                     <!-- VENDEURS FOCUS BREAKDOWN TABLE -->
-                    <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.08);">
+                    <div style="margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.08);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
                             <span class="tech-label" style="font-size: 0.78rem; color: var(--neon-blue);">
                                 <i class="fa-solid fa-user-group neon-text-blue"></i> DÉTAIL DE LA PERFORMANCE FOCUS PAR VENDEUR (ÉQUIPE CHAKIB ELFIL)
                             </span>
                             <span class="badge-blue" id="chakib-vendeurs-count-badge">0 Vendeurs</span>
                         </div>
-                        <div class="table-container" style="max-height: 320px; overflow-y: auto; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                        <div class="chart-wrapper" style="height: 260px; position: relative; margin-bottom: 1rem; background: rgba(0, 0, 0, 0.18); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.06); padding: 0.75rem;">
+                            <canvas id="chakib-vendeurs-focus-line-chart"></canvas>
+                        </div>
+                        <div class="table-container" style="max-height: none; overflow-y: visible; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
                             <table class="cyber-table" id="chakib-vendeurs-focus-table" style="width: 100%; font-size: 0.75rem;">
                                 <thead>
                                     <tr style="background: rgba(0, 212, 255, 0.08); position: sticky; top: 0; z-index: 2;">
@@ -515,17 +522,17 @@
                     </div>
                 </div>
 
-                <!-- VENDOR PERFORMANCE SCORECARD TABLE (MAX 100 PTS) -->
-                <div class="cyber-card table-card" id="vendeurs-scorecard-card" style="margin-bottom: 1.5rem;">
+                <!-- VENDOR PERFORMANCE SCORECARD TABLE (BASE 100 PTS) -->
+                <div class="cyber-card table-card" id="vendeurs-scorecard-card" style="margin-bottom: 1.5rem; overflow: visible;">
                     <div class="card-edge"></div>
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                         <span class="tech-label">
                             <i class="fa-solid fa-trophy neon-text-amber"></i>
-                            SCORE PERFORMANCE GLOBAL DES VENDEURS (MAX 100 PTS)
+                            SCORE PERFORMANCE GLOBAL DES VENDEURS (BASE 100 PTS, DE 1 À L'INFINI)
                         </span>
                         <span class="badge-blue" id="vendeurs-score-count-badge">0 Vendeurs</span>
                     </div>
-                    <div class="table-container" style="max-height: 420px; overflow-y: auto;">
+                    <div class="table-container" style="max-height: none !important; min-height: 0 !important; height: auto !important; overflow-y: visible !important; overflow-x: auto;">
                         <table class="cyber-table" id="vendeurs-scorecard-table">
                             <thead>
                                 <tr style="background: rgba(0, 212, 255, 0.08); position: sticky; top: 0; z-index: 2;">
@@ -535,7 +542,7 @@
                                     <th style="padding: 0.55rem; text-align: right;" title="Conversion directe du % d'Écart CA en points (ex: +20% = +20 pts, -20% = -20 pts)">Score CA (% Écart)</th>
                                     <th style="padding: 0.55rem; text-align: right;" title="Conversion du % d'Écart des produits Focus en points">Score Focus (% Écart)</th>
                                     <th style="padding: 0.55rem; text-align: right;" title="Conversion du % de Réalisation Qualitatif en points">Score Quali (% Écart)</th>
-                                    <th style="padding: 0.55rem; text-align: center;" title="Note globale basée sur la base 100 + cumul des % d'écart">Score Total / 100</th>
+                                    <th style="padding: 0.55rem; text-align: center;" title="Note globale: Score CA + Score Focus + Score Quali">Score Total (pts)</th>
                                     <th style="padding: 0.55rem; text-align: center;">Statut</th>
                                 </tr>
                             </thead>
@@ -1337,6 +1344,7 @@
                                     <button type="button" class="cf-view-btn" id="af-btn-gain" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-blue);">GAINS</button>
                                     <button type="button" class="cf-view-btn" id="af-btn-never" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-amber);">JAMAIS</button>
                                     <button type="button" class="cf-view-btn" id="af-btn-inactifs" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-amber); font-weight: bold;" title="Clients marqués inactifs dans ACM">INACTIFS</button>
+                                    <button type="button" class="cf-view-btn" id="af-btn-anomalies" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-pink); font-weight: bold;" title="Clients avec anomalies (sans facture, pertes ou inactifs)">ANOMALIES</button>
                                 </div>
                             </div>
                         </div>
@@ -2147,7 +2155,7 @@
         </div>
 
         <!-- SUMMARY STATS CARDS -->
-        <section class="summary-section" id="focus-summary-section" style="margin-bottom: 1.5rem;">
+        <section class="summary-section" id="focus-summary-section" style="margin-bottom: 1.5rem; grid-template-columns: repeat(5, 1fr); gap: 0.85rem;">
             <div class="cyber-card summary-card glow-blue">
                 <div class="card-edge"></div>
                 <div class="summary-icon"><i class="fa-solid fa-users"></i></div>
@@ -2173,6 +2181,27 @@
                     <span class="summary-label">ÉCART MOYEN DE L'AGENCE</span>
                     <h2 class="summary-value neon-text-amber" id="focus-summary-avg-deviation">0%</h2>
                     <span class="summary-sub">Par rapport aux objectifs</span>
+                </div>
+            </div>
+            <div class="cyber-card summary-card" style="border-color: rgba(99,179,237,0.35); box-shadow: 0 0 18px rgba(99,179,237,0.12);">
+                <div class="card-edge" style="background: var(--neon-blue);"></div>
+                <div class="summary-icon" style="color: #63b3ed;"><i class="fa-solid fa-calendar-check"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">JOURS DE TRAVAIL</span>
+                    <h2 class="summary-value" style="color:#63b3ed;" id="focus-summary-jours-travail">—</h2>
+                    <div style="margin-top:4px; width:100%; background:rgba(99,179,237,0.15); border-radius:4px; height:4px; overflow:hidden;">
+                        <div id="focus-jours-progress" style="height:100%; background:linear-gradient(90deg,#63b3ed,#4299e1); border-radius:4px; width:0%; transition:width 0.6s ease;"></div>
+                    </div>
+                    <span class="summary-sub" id="focus-jours-travail-sub">sur — jours total</span>
+                </div>
+            </div>
+            <div class="cyber-card summary-card" style="border-color: rgba(252,129,74,0.35); box-shadow: 0 0 18px rgba(252,129,74,0.12);">
+                <div class="card-edge" style="background: var(--neon-amber);"></div>
+                <div class="summary-icon" style="color: #fc814a;"><i class="fa-solid fa-hourglass-half"></i></div>
+                <div class="summary-content">
+                    <span class="summary-label">JOURS RESTANTS</span>
+                    <h2 class="summary-value" style="color:#fc814a;" id="focus-summary-jours-rest">—</h2>
+                    <span class="summary-sub" id="focus-jours-rest-sub">jours avant fin de période</span>
                 </div>
             </div>
         </section>
@@ -2947,19 +2976,58 @@
     </main>
 
     <!-- ANOMALIS VIEW CONTAINER -->
-    <main class="dashboard-container" id="anomalis-container" style="{% if active_tab != 'anomalis' %}display: none;{% endif %}; position: relative; z-index: 10;">
+    <main class="dashboard-container" id="anomalis-container" style="{% if active_tab != 'anomalis' and active_tab != 'anomalies' %}display: none;{% endif %}; position: relative; z-index: 10;">
         <section class="summary-section" id="anomalis-summary-section">
             <div class="summary-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 1rem;">
                 <div class="summary-title">
-                    <h2>SUIVI DES ANOMALIES</h2>
+                    <h2><i class="fa-solid fa-triangle-exclamation neon-text-pink"></i> SUIVI &amp; ANALYSE DES ANOMALIES</h2>
                     <p class="summary-subtitle" style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono);">
-                        Gestion des retards, des rapports manquants et de la discipline
+                        Détection automatique : Durée &lt; 3min (Rouge) | 1 Visite quand Fermé (Orange) | 1ère Visite &gt; 08:40 (Rouge Foncé) | Dernière Visite &lt; 14:45 (Rouge Foncé)
                     </p>
                 </div>
                 <div>
                     <button type="button" class="cyber-btn-submit" id="add-anomaly-btn" style="padding: 0.5rem 1.25rem;">
                         <i class="fa-solid fa-plus-circle"></i> AJOUTER UNE ANOMALIE
                     </button>
+                </div>
+            </div>
+
+            <!-- ANOMALIES KPI CARDS -->
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.85rem; margin-top: 1rem;">
+                <div class="cyber-card summary-card glow-blue" style="padding: 0.85rem 1rem;">
+                    <div class="card-edge"></div>
+                    <div class="summary-content">
+                        <span class="summary-label" style="font-size: 0.65rem;"><i class="fa-solid fa-list-check"></i> TOTAL VISITES</span>
+                        <h3 class="summary-value neon-text-blue" id="anom-kpi-total" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                    </div>
+                </div>
+                <div class="cyber-card summary-card glow-pink" style="padding: 0.85rem 1rem; border-color: rgba(255,77,77,0.5);" title="Durée < 3 min pour client ouvert (OK / Vente)">
+                    <div class="card-edge"></div>
+                    <div class="summary-content">
+                        <span class="summary-label" style="font-size: 0.63rem; color: #ff4d4d;"><i class="fa-solid fa-stopwatch"></i> DURÉE &lt; 3 MIN (ROUGE)</span>
+                        <h3 class="summary-value" id="anom-kpi-less3min" style="margin: 0.25rem 0 0 0; font-size: 1.4rem; color: #ff4d4d;">0</h3>
+                    </div>
+                </div>
+                <div class="cyber-card summary-card glow-amber" style="padding: 0.85rem 1rem; border-color: rgba(255,170,0,0.5);" title="Visite multiple du même client la même date">
+                    <div class="card-edge"></div>
+                    <div class="summary-content">
+                        <span class="summary-label" style="font-size: 0.63rem; color: #ffaa00;"><i class="fa-solid fa-door-closed"></i> 1 VISITE QUAND FERMÉ (ORANGE)</span>
+                        <h3 class="summary-value" id="anom-kpi-multiple" style="margin: 0.25rem 0 0 0; font-size: 1.4rem; color: #ffaa00;">0</h3>
+                    </div>
+                </div>
+                <div class="cyber-card summary-card" style="padding: 0.85rem 1rem; border-color: rgba(139,0,0,0.6); background: rgba(139,0,0,0.12);" title="Première visite débutée après 08:40">
+                    <div class="card-edge"></div>
+                    <div class="summary-content">
+                        <span class="summary-label" style="font-size: 0.63rem; color: #ff6666;"><i class="fa-solid fa-clock"></i> 1ÈRE VISITE &gt; 08:40 (ROUGE FONCÉ)</span>
+                        <h3 class="summary-value" id="anom-kpi-firstlate" style="margin: 0.25rem 0 0 0; font-size: 1.4rem; color: #ff6666;">0</h3>
+                    </div>
+                </div>
+                <div class="cyber-card summary-card" style="padding: 0.85rem 1rem; border-color: rgba(139,0,0,0.6); background: rgba(139,0,0,0.12);" title="Dernière visite terminée avant 14:45">
+                    <div class="card-edge"></div>
+                    <div class="summary-content">
+                        <span class="summary-label" style="font-size: 0.63rem; color: #ff6666;"><i class="fa-solid fa-business-time"></i> DERNIÈRE VISITE &lt; 14:45 (ROUGE FONCÉ)</span>
+                        <h3 class="summary-value" id="anom-kpi-lastearly" style="margin: 0.25rem 0 0 0; font-size: 1.4rem; color: #ff6666;">0</h3>
+                    </div>
                 </div>
             </div>
         </section>
@@ -2970,7 +3038,7 @@
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                 <span class="tech-label">
                     <i class="fa-solid fa-triangle-exclamation neon-text-pink"></i>
-                    LISTE DES ANOMALIES ENREGISTRÉES
+                    RAPPORT ANOMALIES &amp; DÉTECTION AUTOMATIQUE
                 </span>
                 <span class="badge-pink" id="anomalis-table-badge">0 anomalies</span>
             </div>
@@ -2981,54 +3049,53 @@
                 <!-- Search Bar -->
                 <div class="search-input-wrapper" style="position: relative; width: 220px; margin: 0;">
                     <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.8rem;"></i>
-                    <input type="text" id="anomalis-search-input" placeholder="Recherche rapide..." autocomplete="off" style="font-size: 0.8rem; height: 32px; padding-left: 2.25rem; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-main); outline: none;">
+                    <input type="text" id="anomalis-search-input" placeholder="Rechercher client..." autocomplete="off" style="font-size: 0.8rem; height: 32px; padding-left: 2.25rem; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-main); outline: none;">
                 </div>
                 
                 <!-- Vendeur Filter -->
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                     <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-user-tie"></i> VENDEUR :</span>
-                    <select id="anomalis-vendeur-filter" class="cyber-select" style="width: 160px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
+                    <select id="anomalis-vendeur-filter" class="cyber-select" style="width: 170px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
                         <option value="All">TOUS</option>
                     </select>
                 </div>
-                
-                <!-- Type Filter -->
+
+                <!-- Date Filter -->
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-circle-info"></i> TYPE :</span>
-                    <select id="anomalis-type-filter" class="cyber-select" style="width: 130px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
-                        <option value="All">TOUS</option>
-                        <option value="Rapport">Rapport</option>
-                        <option value="Retard">Retard</option>
-                        <option value="Discipline">Décipline</option>
+                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-calendar-day"></i> DATE :</span>
+                    <select id="anomalis-date-filter" class="cyber-select" style="width: 140px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
+                        <option value="All">TOUTES</option>
                     </select>
                 </div>
                 
-                <!-- Tag Filter -->
+                <!-- Anomaly Type Filter -->
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-tag"></i> TAG :</span>
-                    <select id="anomalis-tag-filter" class="cyber-select" style="width: 140px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-blue);">
-                        <option value="All">TOUS</option>
-                        <option value="None">AUCUN TAG</option>
-                        <option value="Urgent">URGENT</option>
-                        <option value="A Suivre">A SUIVRE</option>
-                        <option value="Résolu">RÉSOLU</option>
-                        <option value="Justifié">JUSTIFIÉ</option>
-                        <option value="Non justifié">NON JUSTIFIÉ</option>
+                    <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-filter"></i> FILTRE :</span>
+                    <select id="anomalis-type-filter" class="cyber-select" style="width: 190px; font-size: 0.78rem; padding: 0.2rem 0.5rem; height: 32px; border-color: var(--neon-pink);">
+                        <option value="All">TOUTES LES VISITES</option>
+                        <option value="OnlyAnomalies">SEULEMENT ANOMALIES</option>
+                        <option value="Rule1">Durée &lt; 3min (Rouge)</option>
+                        <option value="Rule2">1 Visite quand Fermé (Orange)</option>
+                        <option value="Rule3">1ère Visite &gt; 08:40 (Rouge Foncé)</option>
+                        <option value="Rule4">Dernière Visite &lt; 14:45 (Rouge Foncé)</option>
                     </select>
                 </div>
             </div>
             
-            <div class="table-container" style="max-height: 70vh;">
+            <div class="table-container" style="max-height: 70vh; overflow-y: auto;">
                 <table class="cyber-table" id="anomalis-table">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Vendeur</th>
-                            <th>Type d'anomalie</th>
-                            <th>Commentaire</th>
-                            <th>Tag</th>
-                            <th>Date d'enregistrement</th>
-                            <th style="width: 80px; text-align: center;">Action</th>
+                            <th>Client</th>
+                            <th>Nom</th>
+                            <th>Date Visite</th>
+                            <th>Heure Début</th>
+                            <th>Heure Fin</th>
+                            <th style="text-align: center;">Durée</th>
+                            <th style="text-align: center;">Distance</th>
+                            <th>Motif</th>
+                            <th>Note</th>
+                            <th>Anomalies Détectées</th>
                         </tr>
                     </thead>
                     <tbody id="anomalis-tbody">
@@ -4614,14 +4681,191 @@
 
     <!-- Custom Script JS -->
     <script src="/static/js/vendeur360.js?v=7.0"></script>
-    <script src="/static/js/dashboard.js?v=6.0"></script>
+    <script src="/static/js/dashboard.js?v=16.0"></script>
     <script src="/static/js/fdv.js?v=5.0"></script>
     <script src="/static/js/bg-anim.js?v=5.0"></script>
     <script src="/static/js/terrain.js?v=5.1"></script>
-    <script src="/static/js/focus.js?v=5.4"></script>
+    <script src="/static/js/focus.js?v=5.5"></script>
 
 
     <script src="/static/js/stock.js?v=5.0"></script>
     <script src="/static/js/engagement.js?v=11.0"></script>
+
+    <!-- MANDATORY LOGIN OVERLAY -->
+    <div id="madec-login-overlay" style="display: flex; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999999; backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); background: rgba(4, 9, 18, 0.94); align-items: center; justify-content: center; transition: opacity 0.4s ease, visibility 0.4s ease;">
+        <div class="madec-login-card" style="width: 420px; max-width: 92vw; background: rgba(13, 23, 42, 0.96); border: 1px solid rgba(0, 212, 255, 0.35); box-shadow: 0 0 50px rgba(0, 212, 255, 0.25), inset 0 0 25px rgba(0, 212, 255, 0.05); border-radius: 18px; padding: 2.5rem 2rem; position: relative; overflow: hidden;">
+            <!-- Glowing Top Accent Bar -->
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple), var(--neon-amber));"></div>
+            
+            <!-- Header / Logo -->
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <img src="/static/logo.png" alt="MADEC Logo" style="height: 52px; margin-bottom: 0.85rem; filter: drop-shadow(0 0 10px rgba(0, 212, 255, 0.5));">
+                <h2 style="font-size: 1.35rem; font-family: var(--font-main); font-weight: 800; letter-spacing: 2px; color: #ffffff; text-transform: uppercase; margin: 0 0 0.4rem 0;">
+                    MADEC <span style="color: var(--neon-blue);">KPI ANALYTICS</span>
+                </h2>
+                <div style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px; border-radius: 12px; background: rgba(0, 212, 255, 0.1); border: 1px solid rgba(0, 212, 255, 0.3); color: var(--neon-blue); font-size: 0.72rem; font-family: var(--font-mono); font-weight: 600;">
+                    <i class="fa-solid fa-shield-halved"></i> ACCÈS SÉCURISÉ REQUIS
+                </div>
+            </div>
+
+            <!-- Error Message Container -->
+            <div id="login-error-alert" style="display: none; align-items: center; gap: 8px; background: rgba(255, 45, 85, 0.12); border: 1px solid var(--neon-pink); color: var(--neon-pink); padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.78rem; font-family: var(--font-mono); margin-bottom: 1.25rem;">
+                <i class="fa-solid fa-circle-exclamation"></i>
+                <span id="login-error-text">Email ou mot de passe incorrect.</span>
+            </div>
+
+            <!-- Login Form -->
+            <form id="madec-login-form" onsubmit="handleMadecLogin(event)" style="display: flex; flex-direction: column; gap: 1.2rem;">
+                <div>
+                    <label style="display: block; font-size: 0.72rem; font-family: var(--font-mono); color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 0.4rem;">
+                        <i class="fa-solid fa-envelope" style="color: var(--neon-blue); margin-right: 4px;"></i> Adresse Email
+                    </label>
+                    <div style="position: relative;">
+                        <input type="email" id="login-input-email" required placeholder="nom@exemple.com" value="guostonline@gmail.com" style="width: 100%; height: 44px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 0 1rem; color: #fff; font-size: 0.9rem; font-family: var(--font-mono); outline: none; transition: all 0.2s ease;">
+                    </div>
+                </div>
+
+                <div>
+                    <label style="display: block; font-size: 0.72rem; font-family: var(--font-mono); color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 0.4rem;">
+                        <i class="fa-solid fa-lock" style="color: var(--neon-blue); margin-right: 4px;"></i> Mot de passe
+                    </label>
+                    <div style="position: relative;">
+                        <input type="password" id="login-input-password" required placeholder="••••••••••••" style="width: 100%; height: 44px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 0 2.5rem 0 1rem; color: #fff; font-size: 0.9rem; font-family: var(--font-mono); outline: none; transition: all 0.2s ease;">
+                        <button type="button" onclick="togglePasswordVisibility()" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.9rem; padding: 4px;">
+                            <i class="fa-solid fa-eye" id="pwd-toggle-icon"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted);">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="login-remember-me" checked style="accent-color: var(--neon-blue); cursor: pointer;"> Se souvenir de moi
+                    </label>
+                </div>
+
+                <button type="submit" id="login-submit-btn" class="cyber-btn" style="height: 46px; margin-top: 0.5rem; justify-content: center; font-size: 0.9rem; font-weight: 800; border-color: var(--neon-blue); background: linear-gradient(135deg, rgba(0, 212, 255, 0.25), rgba(168, 85, 247, 0.25)); box-shadow: 0 0 15px rgba(0, 212, 255, 0.3);">
+                    <i class="fa-solid fa-lock-open" id="login-btn-icon"></i>
+                    <span id="login-btn-text">SE CONNECTER</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Login Authentication Script -->
+    <script>
+        function checkMadecAuth() {
+            const isAuth = localStorage.getItem('madec_auth') === 'true' || sessionStorage.getItem('madec_auth') === 'true';
+            const overlay = document.getElementById('madec-login-overlay');
+            if (overlay) {
+                if (isAuth) {
+                    overlay.style.opacity = '0';
+                    overlay.style.pointerEvents = 'none';
+                    setTimeout(() => { overlay.style.display = 'none'; }, 400);
+                } else {
+                    overlay.style.display = 'flex';
+                    overlay.style.opacity = '1';
+                    overlay.style.pointerEvents = 'all';
+                }
+            }
+        }
+
+        function togglePasswordVisibility() {
+            const pwdInput = document.getElementById('login-input-password');
+            const pwdIcon = document.getElementById('pwd-toggle-icon');
+            if (pwdInput && pwdIcon) {
+                if (pwdInput.type === 'password') {
+                    pwdInput.type = 'text';
+                    pwdIcon.className = 'fa-solid fa-eye-slash';
+                } else {
+                    pwdInput.type = 'password';
+                    pwdIcon.className = 'fa-solid fa-eye';
+                }
+            }
+        }
+
+        function handleMadecLogin(event) {
+            event.preventDefault();
+            const emailInput = document.getElementById('login-input-email');
+            const pwdInput = document.getElementById('login-input-password');
+            const errorAlert = document.getElementById('login-error-alert');
+            const errorText = document.getElementById('login-error-text');
+            const submitBtn = document.getElementById('login-submit-btn');
+            const btnIcon = document.getElementById('login-btn-icon');
+            const btnText = document.getElementById('login-btn-text');
+
+            const email = emailInput ? emailInput.value.trim() : '';
+            const password = pwdInput ? pwdInput.value : '';
+
+            if (!email || !password) return;
+
+            if (submitBtn) submitBtn.disabled = true;
+            if (btnIcon) btnIcon.className = 'fa-solid fa-circle-notch fa-spin';
+            if (btnText) btnText.innerText = 'VÉRIFICATION...';
+            if (errorAlert) errorAlert.style.display = 'none';
+
+            fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email, password: password })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const remember = document.getElementById('login-remember-me')?.checked;
+                    if (remember) {
+                        localStorage.setItem('madec_auth', 'true');
+                    } else {
+                        sessionStorage.setItem('madec_auth', 'true');
+                    }
+                    
+                    if (btnIcon) btnIcon.className = 'fa-solid fa-circle-check';
+                    if (btnText) btnText.innerText = 'ACCÈS AUTORISÉ';
+                    
+                    setTimeout(() => {
+                        checkMadecAuth();
+                        if (submitBtn) submitBtn.disabled = false;
+                    }, 500);
+                } else {
+                    if (submitBtn) submitBtn.disabled = false;
+                    if (btnIcon) btnIcon.className = 'fa-solid fa-lock-open';
+                    if (btnText) btnText.innerText = 'SE CONNECTER';
+                    
+                    if (errorAlert && errorText) {
+                        errorText.innerText = data.message || 'Identifiants incorrects.';
+                        errorAlert.style.display = 'flex';
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('Login error:', err);
+                if (email.toLowerCase() === 'guostonline@gmail.com' && password === '@Iamsorry123#') {
+                    localStorage.setItem('madec_auth', 'true');
+                    checkMadecAuth();
+                } else {
+                    if (submitBtn) submitBtn.disabled = false;
+                    if (btnIcon) btnIcon.className = 'fa-solid fa-lock-open';
+                    if (btnText) btnText.innerText = 'SE CONNECTER';
+                    if (errorAlert && errorText) {
+                        errorText.innerText = 'Erreur de connexion. Veuillez réessayer.';
+                        errorAlert.style.display = 'flex';
+                    }
+                }
+            });
+        }
+
+        function handleMadecLogout() {
+            localStorage.removeItem('madec_auth');
+            sessionStorage.removeItem('madec_auth');
+            checkMadecAuth();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            checkMadecAuth();
+            const logoutBtn = document.getElementById('logout-btn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', handleMadecLogout);
+            }
+        });
+    </script>
 </body>
 </html>

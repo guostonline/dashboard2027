@@ -640,6 +640,28 @@ body.light-mode .bg-vignette {
     margin-top: 0.25rem;
 }
 
+/* Focus tab — 5-card compact summary bar */
+#focus-summary-section .cyber-card.summary-card {
+    padding: 0.9rem 0.85rem;
+    gap: 0.75rem;
+}
+#focus-summary-section .summary-icon {
+    font-size: 1.6rem;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+}
+#focus-summary-section .summary-value {
+    font-size: 1.35rem;
+}
+#focus-summary-section .summary-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.03em;
+}
+#focus-summary-section .summary-sub {
+    font-size: 0.68rem;
+}
+
 /* Colors and Glows */
 .glow-blue { border-color: rgba(0, 212, 255, 0.2); }
 .glow-blue .card-edge { border-color: var(--neon-blue); border-left-color: var(--neon-blue); }
@@ -1156,6 +1178,14 @@ body.light-mode .bg-vignette {
     overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: var(--border-color) transparent;
+}
+
+#vendeurs-scorecard-card,
+#vendeurs-scorecard-card .table-container {
+    max-height: none !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow-y: visible !important;
 }
 
 .cyber-table {
@@ -4535,9 +4565,10 @@ body.light-mode .cyber-dropzone:hover, body.light-mode .cyber-dropzone.dragover 
 /* CHAKIB ELFIL FOCUS TREND */
 .focus-trend-grid {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
-    padding: 1.25rem;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 1.25rem;
+    padding: 0.75rem 1rem;
+    align-items: start;
 }
 @media (max-width: 1024px) {
     .focus-trend-grid {
@@ -5928,6 +5959,7 @@ body.light-mode #wa-zoom-toolbar button:hover {
 .anomaly-date-chip {
     display: inline-flex;
     align-items: center;
+    gap: 4px;
     padding: 2px 7px;
     border-radius: 6px;
     font-family: var(--font-mono);
@@ -5937,12 +5969,44 @@ body.light-mode #wa-zoom-toolbar button:hover {
     border: 1px solid rgba(255, 45, 85, 0.25);
     color: var(--neon-pink);
     white-space: nowrap;
+    cursor: pointer;
     transition: all 0.15s ease;
+    user-select: none;
 }
 .anomaly-date-chip:hover {
-    background: rgba(255, 45, 85, 0.18);
+    background: rgba(255, 45, 85, 0.2);
     border-color: var(--neon-pink);
+    box-shadow: 0 0 8px rgba(255, 45, 85, 0.2);
     transform: scale(1.04);
+}
+.anomaly-date-chip.excluded-date {
+    background: rgba(100, 116, 139, 0.12) !important;
+    border-color: rgba(100, 116, 139, 0.3) !important;
+    color: var(--text-muted, #94a3b8) !important;
+    text-decoration: line-through;
+    opacity: 0.6;
+}
+.anomaly-date-chip.excluded-date:hover {
+    opacity: 0.9;
+    background: rgba(100, 116, 139, 0.25) !important;
+    border-color: var(--neon-amber) !important;
+    color: var(--text-main) !important;
+}
+.anomaly-date-chip .remove-date-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: rgba(255, 45, 85, 0.25);
+    font-size: 0.55rem;
+    margin-left: 2px;
+    transition: all 0.15s ease;
+}
+.anomaly-date-chip:hover .remove-date-btn {
+    background: var(--neon-pink);
+    color: #fff;
 }
 body.light-mode .anomaly-date-chip {
     background: rgba(225, 29, 72, 0.08);

@@ -1208,6 +1208,7 @@
         .then(res => {
             if (res.status === 'success') {
                 focusHistoryData = res.data;
+                window.focusHistoryData = res.data;
                 focusSettings = res.settings || null;
                 focusTotalDays = res.total_days || 24;
                 renderFocusTrendChart();
@@ -1315,7 +1316,36 @@
             document.getElementById('focus-summary-avg-deviation').innerText = "0%";
         }
 
-        // 2. Render Vendeur filter select dropdown options
+        // Populate Jours de Travail & Jours Restants cards
+        const joursTravailEl = document.getElementById('focus-summary-jours-travail');
+        const joursTravailSub = document.getElementById('focus-jours-travail-sub');
+        const joursProgress = document.getElementById('focus-jours-progress');
+        const joursRestEl = document.getElementById('focus-summary-jours-rest');
+        const joursRestSub = document.getElementById('focus-jours-rest-sub');
+        if (joursTravailEl && joursRestEl) {
+            const wk = focusWorkdays;
+            const elapsed = (wk && wk.elapsed !== undefined) ? wk.elapsed : null;
+            const total   = (wk && wk.total   !== undefined) ? wk.total   : null;
+            const rest    = (wk && wk.rest    !== undefined) ? wk.rest    : null;
+            if (elapsed !== null && total !== null && rest !== null) {
+                joursTravailEl.innerText = elapsed;
+                joursTravailSub.innerText = `sur ${total} jours ouvrables`;
+                joursRestEl.innerText = rest;
+                joursRestSub.innerText = rest === 1 ? 'jour avant fin de période' : 'jours avant fin de période';
+                if (joursProgress && total > 0) {
+                    const pct = Math.min(100, Math.round((elapsed / total) * 100));
+                    setTimeout(() => { joursProgress.style.width = pct + '%'; }, 100);
+                }
+            } else {
+                joursTravailEl.innerText = '—';
+                joursTravailSub.innerText = 'données non disponibles';
+                joursRestEl.innerText = '—';
+                joursRestSub.innerText = 'données non disponibles';
+                if (joursProgress) joursProgress.style.width = '0%';
+            }
+        }
+
+
         const vendeurFilter = document.getElementById('focus-vendeur-filter');
         if (vendeurFilter) {
             // Keep track of currently selected filter

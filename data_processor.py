@@ -819,11 +819,7 @@ class ExcelProcessor:
 
                     acm_val = to_pct(acm) or 0.0
                     tsm_val = to_pct(tsm) or 0.0
-                    
-                    if "D86 ACHAOUI AZIZ" in vendeur:
-                        line_val = 1.08712212705026
-                    else:
-                        line_val = to_ratio(line)
+                    line_val = to_ratio(line)
                     
                     quali_records.append({
                         "vendeur": vendeur,
