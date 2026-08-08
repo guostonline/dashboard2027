@@ -53,6 +53,12 @@ function initVendeur360SubTabs() {
             const select = document.getElementById('v360-vendeur-select');
             const selectedVal = select ? select.value : '';
             loadVendeur360Data(selectedVal);
+
+            setTimeout(() => {
+                if (v360QuantiChartInstance) v360QuantiChartInstance.resize();
+                if (v360QualiChartInstance) v360QualiChartInstance.resize();
+                if (radarChartInstance) radarChartInstance.resize();
+            }, 150);
         });
     }
 }
@@ -613,7 +619,7 @@ function renderV360RadarChart(breakdown, targetMode) {
 }
 
 /**
- * Render Quantitative horizontal bar chart: % evolution vs H-1 per famille
+ * Render Quantitative horizontal bar chart: % Realization per famille
  */
 function renderV360QuantiChart(quantiRows) {
     const canvas = document.getElementById('v360-quanti-chart');
@@ -635,7 +641,7 @@ function renderV360QuantiChart(quantiRows) {
         ctx.font = 'bold 12px Inter, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('Chargement ou aucune donnée quantitative', canvas.width / 2, canvas.height / 2);
+        ctx.fillText('Aucune donnée quantitative', canvas.width / 2, canvas.height / 2);
         ctx.restore();
         return;
     }
@@ -644,30 +650,26 @@ function renderV360QuantiChart(quantiRows) {
     const textSub = isLight ? '#334155' : '#94a3b8';
     const gridColor = isLight ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.08)';
 
-    // Sort by famille: put C.A (TTC) first, then others alphabetically
-    const sorted = [...quantiRows].sort((a, b) => {
-        if (a.famille === 'C.A (TTC)') return -1;
-        if (b.famille === 'C.A (TTC)') return 1;
-        return a.famille.localeCompare(b.famille);
-    });
+    const rowsWithoutCA = quantiRows.filter(r => (r.famille || '').toUpperCase() !== 'C.A (HT)' && (r.famille || '').toUpperCase() !== 'TOTAL');
+    const displayRows = rowsWithoutCA.length > 0 ? rowsWithoutCA : quantiRows;
 
-    const labels = sorted.map(r => r.famille);
-    // Use percent field for Realization vs Objective deviation (%) - already decimal e.g. -0.109 = -11%
-    const values = sorted.map(r => {
-        if ((!r.real || r.real === 0) && (!r.obj || r.obj === 0)) {
-            return 0;
-        }
-        const pct = r.percent !== undefined ? r.percent : (r.obj > 0 ? (r.real / r.obj - 1.0) : 0);
-        return Math.round((pct || 0) * 100);
+    const labels = displayRows.map(r => r.famille || 'FAMILLE');
+    const values = displayRows.map(r => {
+        const obj = r.obj || 0;
+        const real = r.real || 0;
+        if (obj > 0) return Math.round((real / obj) * 100);
+        if (r.percent !== undefined) return Math.round(r.percent * 100);
+        return 0;
     });
 
     const colors = values.map(v => {
-        if (v > 0) return '#22c55e';       // green (exceeded objective)
-        if (v >= -15) return '#f59e0b';    // amber (near objective)
-        return '#ef4444';                  // red (behind objective)
+        if (v >= 100) return '#00ff87'; // Bright Green
+        if (v >= 75) return '#00d4ff';  // Neon Blue
+        if (v >= 50) return '#ffb703';  // Amber
+        return '#ff0055';               // Pink
     });
 
-    // Update vendeur label
+    // Update label
     const labelEl = document.getElementById('v360-quanti-vendeur-label');
     if (labelEl && quantiRows[0]) {
         const vName = (quantiRows[0].vendeur || '').toUpperCase();
@@ -679,7 +681,7 @@ function renderV360QuantiChart(quantiRows) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Écart / Objectif (%)',
+                label: 'Taux de Réalisation (%)',
                 data: values,
                 backgroundColor: colors,
                 borderRadius: 4,
@@ -695,24 +697,20 @@ function renderV360QuantiChart(quantiRows) {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: ctx => {
-                            const v = ctx.parsed.x;
-                            return ` ${v > 0 ? '+' : ''}${v}%`;
-                        }
+                        label: ctx => ` Réalisation: ${ctx.parsed.x}%`
                     }
                 },
-                datalabels: {
-                    display: false
-                }
+                datalabels: { display: false }
             },
             scales: {
                 x: {
+                    beginAtZero: true,
+                    max: 120,
                     grid: { color: gridColor },
-                    border: { display: false },
                     ticks: {
                         color: textSub,
                         font: { size: 10 },
-                        callback: v => `${v > 0 ? '+' : ''}${v}%`
+                        callback: v => `${v}%`
                     }
                 },
                 y: {
@@ -724,45 +722,35 @@ function renderV360QuantiChart(quantiRows) {
                     }
                 }
             },
-            layout: { padding: { right: 40, left: 10 } },
-            animation: {
-                duration: 600,
-                easing: 'easeOutQuart'
-            }
+            layout: { padding: { right: 45, left: 10 } },
+            animation: { duration: 600, easing: 'easeOutQuart' }
         },
-        plugins: [{
-            id: 'v360QuantiLabels',
-            afterDatasetsDraw(chart) {
-                const { ctx, data, scales } = chart;
-                ctx.save();
-                data.datasets[0].data.forEach((val, i) => {
-                    const meta = chart.getDatasetMeta(0);
-                    const bar = meta.data[i];
-                    if (!bar) return;
-                    const isPos = val >= 0;
-                    const y = bar.y;
-                    ctx.fillStyle = isLight ? '#0f172a' : '#e2e8f0';
-                    ctx.font = 'bold 10px JetBrains Mono, monospace';
-                    ctx.textBaseline = 'middle';
-
-                    if (isPos) {
+        plugins: [
+            {
+                id: 'v360QuantiLabels',
+                afterDatasetsDraw(chart) {
+                    const { ctx, data } = chart;
+                    ctx.save();
+                    data.datasets[0].data.forEach((val, i) => {
+                        const meta = chart.getDatasetMeta(0);
+                        const bar = meta.data[i];
+                        if (!bar) return;
+                        ctx.fillStyle = isLight ? '#0f172a' : '#e2e8f0';
+                        ctx.font = 'bold 11px JetBrains Mono, monospace';
                         ctx.textAlign = 'left';
-                        ctx.fillText(`+${val}%`, bar.x + 5, y);
-                    } else {
-                        // For negative bars, if bar.x is near left axis margin, draw text inside or right of bar
-                        const minLeftX = (scales.x ? scales.x.left : 0) + 40;
-                        if (bar.x - 5 < minLeftX) {
-                            ctx.textAlign = 'left';
-                            ctx.fillText(`${val}%`, bar.x + 5, y);
-                        } else {
-                            ctx.textAlign = 'right';
-                            ctx.fillText(`${val}%`, bar.x - 5, y);
-                        }
-                    }
-                });
-                ctx.restore();
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(`${val}%`, bar.x + 6, bar.y);
+                    });
+                    ctx.restore();
+                }
+            },
+            {
+                id: 'v360QuantiPartialLine',
+                afterDraw(chart) {
+                    drawPartialVerticalLine(chart, isLight);
+                }
             }
-        }]
+        ]
     });
 }
 
