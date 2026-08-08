@@ -24,6 +24,16 @@ function checkIsLightMode() {
     return false;
 }
 
+const isSameV360Vendeur = (name1, name2) => {
+    if (!name1 || !name2) return false;
+    const n1 = name1.trim().toUpperCase();
+    const n2 = name2.trim().toUpperCase();
+    if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
+    const c1 = n1.split(' ')[0];
+    const c2 = n2.split(' ')[0];
+    return (c1 && c2 && c1.length >= 2 && c1 === c2);
+};
+
 function init360Auto() {
     initVendeur360SubTabs();
     initVendeur360Listeners();
@@ -985,15 +995,7 @@ function renderV360FocusBarChart(vendeurName, apiData) {
         labelEl.textContent = ` - ${vendeurName.toUpperCase()}`;
     }
 
-    const isSameV360Vendeur = (name1, name2) => {
-        if (!name1 || !name2) return false;
-        const n1 = name1.trim().toUpperCase();
-        const n2 = name2.trim().toUpperCase();
-        if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
-        const c1 = n1.split(' ')[0];
-        const c2 = n2.split(' ')[0];
-        return (c1 && c2 && c1.length >= 2 && c1 === c2);
-    };
+
 
     let vmmList = [];
     let somList = [];
@@ -1405,15 +1407,7 @@ function renderV360FocusTable(vendeurName, apiData) {
 
     if (!tbody || !vendeurName) return;
 
-    const isSameV360Vendeur = (name1, name2) => {
-        if (!name1 || !name2) return false;
-        const n1 = name1.trim().toUpperCase();
-        const n2 = name2.trim().toUpperCase();
-        if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
-        const c1 = n1.split(' ')[0];
-        const c2 = n2.split(' ')[0];
-        return (c1 && c2 && c1.length >= 2 && c1 === c2);
-    };
+
 
     let vmmList = [];
     let somList = [];
