@@ -22,43 +22,164 @@
     <!-- Global Safe Fetch Interceptor for Static Netlify Host -->
     <script>
         (function() {
+            let realmDataCache = null;
+            let realmLoadingPromise = null;
+
             const originalFetch = window.fetch;
+
+            async function getRealmData() {
+                if (realmDataCache) return realmDataCache;
+                if (realmLoadingPromise) return realmLoadingPromise;
+                realmLoadingPromise = (async () => {
+                    try {
+                        const r = await originalFetch('/realm_data.json?v=' + Date.now());
+                        if (r.ok) {
+                            realmDataCache = await r.json();
+                        }
+                    } catch (e) {
+                        console.warn('Failed to load realm_data.json for static Netlify mode', e);
+                    }
+                    return realmDataCache;
+                })();
+                return realmLoadingPromise;
+            }
+
             window.fetch = async function(...args) {
+                const url = (typeof args[0] === 'string') ? args[0] : (args[0] && args[0].url) || '';
+                
                 try {
                     const response = await originalFetch.apply(this, args);
-                    const url = (typeof args[0] === 'string') ? args[0] : (args[0] && args[0].url) || '';
-                    
                     if (url.includes('/api/')) {
                         const contentType = response.headers.get('content-type') || '';
                         if (contentType.includes('text/html') || response.status === 404) {
-                            return new Response(JSON.stringify({ status: 'offline', message: 'Mode statique (Netlify)', data: [] }), {
-                                status: 200,
-                                headers: { 'Content-Type': 'application/json' }
-                            });
+                            return await handleStaticApi(url, args[1]);
                         }
-                        
                         const cloned = response.clone();
                         try {
                             const text = await cloned.text();
                             if (text.trim().startsWith('<')) {
-                                return new Response(JSON.stringify({ status: 'offline', message: 'Mode statique (Netlify)', data: [] }), {
-                                    status: 200,
-                                    headers: { 'Content-Type': 'application/json' }
-                                });
+                                return await handleStaticApi(url, args[1]);
                             }
                         } catch (e) {}
                     }
                     return response;
                 } catch (err) {
-                    if (args[0] && String(args[0]).includes('/api/')) {
-                        return new Response(JSON.stringify({ status: 'offline', message: err.message, data: [] }), {
-                            status: 200,
-                            headers: { 'Content-Type': 'application/json' }
-                        });
+                    if (url.includes('/api/')) {
+                        return await handleStaticApi(url, args[1]);
                     }
                     throw err;
                 }
             };
+
+            async function handleStaticApi(urlStr, options) {
+                const data = await getRealmData();
+                const urlObj = new URL(urlStr, window.location.origin);
+                const path = urlObj.pathname;
+                const params = urlObj.searchParams;
+
+                if (!data) {
+                    return new Response(JSON.stringify({ status: 'success', message: 'Mode statique (Netlify)', data: [] }), {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                }
+
+                let body = { status: 'success', data: [] };
+
+                if (path.endsWith('/api/config')) {
+                    const s = (data.settings && data.settings[0]) || {};
+                    body = {
+                        rest_days: s.rest_days || 20,
+                        exclude_families: s.exclude_families ? (typeof s.exclude_families === 'string' ? JSON.parse(s.exclude_families) : s.exclude_families) : [],
+                        theme: "theme-1",
+                        light_mode: true,
+                        excluded_dates: [],
+                        google_sheet_url: ""
+                    };
+                } else if (path.endsWith('/api/suivi_dates')) {
+                    const dates = [...new Set((data.quantitative_data || []).map(r => r.date))].sort().reverse();
+                    body = { status: 'success', dates: dates.length ? dates : ["2026-06-08"] };
+                } else if (path.includes('/api/vendeurs')) {
+                    let list = (data.fdv || []).map(f => f.vendeur).filter(Boolean);
+                    if (!list.length) {
+                        list = [...new Set((data.quantitative_data || []).map(r => r.vendeur))];
+                    }
+                    body = { status: 'success', vendeurs: list };
+                } else if (path.includes('/api/data')) {
+                    const dVal = params.get('date') || (data.quantitative_data && data.quantitative_data[0] ? data.quantitative_data[0].date : '');
+                    const quant = (data.quantitative_data || []).filter(r => !dVal || r.date === dVal);
+                    const qual = (data.qualitative_data || []).filter(r => !dVal || r.date === dVal);
+                    const vmm = (data.focus_vmm_data || []).filter(r => !dVal || r.date === dVal);
+                    const som = (data.focus_som_data || []).filter(r => !dVal || r.date === dVal);
+                    const setObj = (data.settings || []).find(r => r.date === dVal) || {};
+                    const meta = (data.file_metadata || []).find(r => r.date === dVal) || null;
+
+                    body = {
+                        status: 'success',
+                        quantitative: quant,
+                        qualitative: qual,
+                        focus_vmm: vmm,
+                        focus_som: som,
+                        rest_days: setObj.rest_days || 20,
+                        file_metadata: meta
+                    };
+                } else if (path.includes('/api/fdv')) {
+                    body = { status: 'success', fdv: data.fdv || [], data: data.fdv || [] };
+                } else if (path.endsWith('/api/clients_full/stats')) {
+                    const allClients = data.clients || [];
+                    body = {
+                        status: 'success',
+                        stats: {
+                            total: allClients.length,
+                            active: allClients.length,
+                            secteurs_count: (data.secteurs || []).length,
+                            localites_count: (data.localites || []).length
+                        }
+                    };
+                } else if (path.endsWith('/api/clients_full/filters')) {
+                    const allClients = data.clients || [];
+                    const sec = [...new Set(allClients.map(c => c.secteur_id))].filter(Boolean);
+                    const loc = [...new Set(allClients.map(c => c.localite_id))].filter(Boolean);
+                    const vSom = [...new Set(allClients.map(c => c.vendeur_som))].filter(Boolean);
+                    const vVmm = [...new Set(allClients.map(c => c.vendeur_vmm))].filter(Boolean);
+                    body = {
+                        status: 'success',
+                        filters: {
+                            secteurs: sec,
+                            localites: loc,
+                            vendeurs_som: vSom,
+                            vendeurs_vmm: vVmm
+                        }
+                    };
+                } else if (path.includes('/api/clients_full') || path.includes('/api/clients')) {
+                    const page = parseInt(params.get('page') || '1', 10);
+                    const limit = parseInt(params.get('limit') || '50', 10);
+                    const search = (params.get('q') || params.get('search') || '').toLowerCase();
+                    let items = data.clients || [];
+                    if (search) {
+                        items = items.filter(c => (c.name && c.name.toLowerCase().includes(search)) || (c.code && String(c.code).toLowerCase().includes(search)));
+                    }
+                    const start = (page - 1) * limit;
+                    const paginated = items.slice(start, start + limit);
+                    body = { status: 'success', data: paginated, clients: paginated, total: items.length, page: page, pages: Math.ceil(items.length / limit) };
+                } else if (path.includes('/api/tasks')) {
+                    body = { status: 'success', tasks: data.tasks || [], data: data.tasks || [] };
+                } else if (path.includes('/api/stock')) {
+                    body = { status: 'success', stock: data.stock || [], data: data.stock || [] };
+                } else if (path.includes('/api/anomalies')) {
+                    body = { status: 'success', anomalies: data.anomalies || [], data: data.anomalies || [] };
+                } else if (path.includes('/api/engagements')) {
+                    body = { status: 'success', engagements: data.engagements || [], data: data.engagements || [] };
+                } else {
+                    const key = path.split('/').pop();
+                    body = { status: 'success', data: data[key] || [] };
+                }
+
+                return new Response(JSON.stringify(body), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
         })();
     </script>
 </head>
