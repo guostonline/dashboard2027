@@ -813,7 +813,6 @@ function renderTerrainAnomalies() {
         tb.innerHTML = rowsHtml;
     });
 }
-}
 
 const VENDOR_PALETTE = [
     '#00d4ff', '#00ff87', '#ff0055', '#ffb703', '#a855f7', 
