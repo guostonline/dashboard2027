@@ -154,23 +154,59 @@ async function fetchVendeurQuantiQuali(vendeurName) {
         const apiData = await dataRes.json();
         if (apiData.status !== 'success') return;
 
-        const isSameV360Vendeur = (name1, name2) => {
-            if (!name1 || !name2) return false;
-            const n1 = name1.trim().toUpperCase();
-            const n2 = name2.trim().toUpperCase();
-            if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
-            const c1 = n1.split(' ')[0];
-            const c2 = n2.split(' ')[0];
-            return (c1 && c2 && c1.length >= 2 && c1 === c2);
-        };
+        const isAllMode = !vendeurName || vendeurName.toUpperCase() === 'ALL' || vendeurName.toUpperCase() === 'TOUS LES VENDEURS' || vendeurName.toUpperCase().includes('CHAKIB EQUIPE');
 
-        const quanti = (apiData.data.quantitative || []).filter(r =>
-            isSameV360Vendeur(r.vendeur, vendeurName)
-        );
-        const qualiArr = (apiData.data.qualitative || []).filter(r =>
-            isSameV360Vendeur(r.vendeur, vendeurName)
-        );
-        const quali = qualiArr.length > 0 ? qualiArr[0] : null;
+        let quanti = [];
+        let quali = null;
+
+        if (!isAllMode) {
+            quanti = (apiData.data.quantitative || []).filter(r =>
+                isSameV360Vendeur(r.vendeur, vendeurName)
+            );
+            const qualiArr = (apiData.data.qualitative || []).filter(r =>
+                isSameV360Vendeur(r.vendeur, vendeurName)
+            );
+            quali = qualiArr.length > 0 ? qualiArr[0] : null;
+        }
+
+        // If team mode or empty single-vendor quanti, aggregate team totals by family (Image 1)
+        if (quanti.length === 0 && apiData.data.quantitative) {
+            const familyMap = {};
+            apiData.data.quantitative.forEach(r => {
+                const fam = r.famille || 'C.A (HT)';
+                if (!familyMap[fam]) {
+                    familyMap[fam] = {
+                        famille: fam,
+                        vendeurs: new Set(),
+                        vendeursObj: new Set(),
+                        obj: 0,
+                        real: 0,
+                        rest: 0,
+                        histo_2025: 0,
+                        histo_2026: 0
+                    };
+                }
+                familyMap[fam].obj += (r.obj || 0);
+                familyMap[fam].real += (r.real || 0);
+                familyMap[fam].rest += (r.rest !== undefined ? r.rest : Math.max(0, (r.obj || 0) - (r.real || 0)));
+                familyMap[fam].histo_2025 += (r.real_2025 || r.histo_2025 || 0);
+                familyMap[fam].histo_2026 += (r.h_2024 || r.histo_2026 || 0);
+                if (r.vendeur && r.vendeur.trim() && !r.vendeur.toUpperCase().includes('AUTRE')) {
+                    familyMap[fam].vendeurs.add(r.vendeur.trim());
+                    if (r.obj > 0) familyMap[fam].vendeursObj.add(r.vendeur.trim());
+                }
+            });
+
+            quanti = Object.values(familyMap).map(f => ({
+                famille: f.famille,
+                vendeur_count: f.vendeursObj.size > 0 ? f.vendeursObj.size : f.vendeurs.size,
+                obj: f.obj,
+                real: f.real,
+                rest: f.rest,
+                histo_2025: f.histo_2025,
+                histo_2026: f.histo_2026
+            }));
+        }
 
         // Store on current360Data for theme-toggle re-render
         if (current360Data) {
@@ -1521,7 +1557,7 @@ function renderV360QuantiTable(quantiRows, vendeurName) {
         return `
             <tr>
                 <td style="font-weight: 700; color: var(--text-main);">${r.famille || 'FAMILLE'}</td>
-                <td style="text-align: center;"><span class="badge-blue" style="font-size: 0.7rem; padding: 1px 6px;">1</span></td>
+                <td style="text-align: center;"><span class="badge-blue" style="font-size: 0.7rem; padding: 1px 6px;">${r.vendeur_count || 1}</span></td>
                 <td><strong style="font-family: var(--font-mono); color: var(--text-main);">${Math.round(real).toLocaleString('fr-FR')}</strong></td>
                 <td><span style="font-family: var(--font-mono); color: var(--text-sub);">${Math.round(obj).toLocaleString('fr-FR')}</span></td>
                 <td><strong style="font-family: var(--font-mono); color: ${tauColor};">${tauSign}${pctDiff}%</strong></td>
