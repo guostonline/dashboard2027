@@ -7,6 +7,23 @@ let radarChartInstance = null;
 let v360QuantiChartInstance = null;
 let v360QualiChartInstance = null;
 
+function checkIsLightMode() {
+    if (document.body.classList.contains('light-mode')) return true;
+    const themeSelect = document.getElementById('theme-select');
+    const val = themeSelect ? themeSelect.value.toLowerCase() : '';
+    if (val.includes('light') || val.includes('contemporary')) return true;
+    const card = document.querySelector('.cyber-card');
+    if (card) {
+        const bg = window.getComputedStyle(card).backgroundColor;
+        const rgb = bg.match(/\d+/g);
+        if (rgb && rgb.length >= 3) {
+            const avg = (parseInt(rgb[0]) + parseInt(rgb[1]) + parseInt(rgb[2])) / 3;
+            if (avg > 140) return true;
+        }
+    }
+    return false;
+}
+
 function init360Auto() {
     initVendeur360SubTabs();
     initVendeur360Listeners();
@@ -632,7 +649,7 @@ function renderV360QuantiChart(quantiRows) {
         v360QuantiChartInstance = null;
     }
 
-    const isLight = document.body.classList.contains('light-mode');
+    const isLight = checkIsLightMode();
 
     if (!quantiRows || quantiRows.length === 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -768,7 +785,7 @@ function renderV360QualiChart(qualiRow) {
         v360QualiChartInstance = null;
     }
 
-    const isLight = document.body.classList.contains('light-mode');
+    const isLight = checkIsLightMode();
 
     if (!qualiRow) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
