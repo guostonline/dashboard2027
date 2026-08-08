@@ -4803,54 +4803,35 @@
             if (btnText) btnText.innerText = 'VÉRIFICATION...';
             if (errorAlert) errorAlert.style.display = 'none';
 
-            fetch('/api/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email, password: password })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    const remember = document.getElementById('login-remember-me')?.checked;
-                    if (remember) {
-                        localStorage.setItem('madec_auth', 'true');
-                    } else {
-                        sessionStorage.setItem('madec_auth', 'true');
-                    }
-                    
-                    if (btnIcon) btnIcon.className = 'fa-solid fa-circle-check';
-                    if (btnText) btnText.innerText = 'ACCÈS AUTORISÉ';
-                    
-                    setTimeout(() => {
-                        checkMadecAuth();
-                        if (submitBtn) submitBtn.disabled = false;
-                    }, 500);
-                } else {
-                    if (submitBtn) submitBtn.disabled = false;
-                    if (btnIcon) btnIcon.className = 'fa-solid fa-lock-open';
-                    if (btnText) btnText.innerText = 'SE CONNECTER';
-                    
-                    if (errorAlert && errorText) {
-                        errorText.innerText = data.message || 'Identifiants incorrects.';
-                        errorAlert.style.display = 'flex';
-                    }
-                }
-            })
-            .catch(err => {
-                console.error('Login error:', err);
-                if (email.toLowerCase() === 'guostonline@gmail.com' && password === '@Iamsorry123#') {
+            const isValid = (email.toLowerCase() === 'guostonline@gmail.com' && password === '@Iamsorry123#');
+
+            if (isValid) {
+                const remember = document.getElementById('login-remember-me')?.checked;
+                if (remember) {
                     localStorage.setItem('madec_auth', 'true');
-                    checkMadecAuth();
                 } else {
+                    sessionStorage.setItem('madec_auth', 'true');
+                }
+                
+                if (btnIcon) btnIcon.className = 'fa-solid fa-circle-check';
+                if (btnText) btnText.innerText = 'ACCÈS AUTORISÉ';
+                
+                setTimeout(() => {
+                    checkMadecAuth();
+                    if (submitBtn) submitBtn.disabled = false;
+                }, 400);
+            } else {
+                setTimeout(() => {
                     if (submitBtn) submitBtn.disabled = false;
                     if (btnIcon) btnIcon.className = 'fa-solid fa-lock-open';
                     if (btnText) btnText.innerText = 'SE CONNECTER';
+                    
                     if (errorAlert && errorText) {
-                        errorText.innerText = 'Erreur de connexion. Veuillez réessayer.';
+                        errorText.innerText = 'Email ou mot de passe incorrect. Veuillez réessayer.';
                         errorAlert.style.display = 'flex';
                     }
-                }
-            });
+                }, 400);
+            }
         }
 
         function handleMadecLogout() {
@@ -4860,6 +4841,11 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            // Check if URL has ?logout=1
+            if (window.location.search.includes('logout=1')) {
+                localStorage.removeItem('madec_auth');
+                sessionStorage.removeItem('madec_auth');
+            }
             checkMadecAuth();
             const logoutBtn = document.getElementById('logout-btn');
             if (logoutBtn) {
