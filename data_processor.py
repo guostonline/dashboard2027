@@ -252,15 +252,48 @@ class ExcelProcessor:
         self.output_path = output_path or "excel/finale_jour.xlsx"
         self.date = date
         
+    def extract_workdays_from_excel(self) -> tuple:
+        """
+        Extracts (elapsed, total) workdays directly from the Excel header cell
+        (e.g., '6/ 24 Jours Sont Ecoulées' in Sheet AGADIR or QUALI NV).
+        """
+        if not self.path or not os.path.exists(self.path):
+            return None
+        try:
+            from openpyxl import load_workbook
+            import re
+            
+            wb = load_workbook(self.path, data_only=True, read_only=True)
+            for sname in wb.sheetnames:
+                ws = wb[sname]
+                for row in ws.iter_rows(max_row=12, max_col=12, values_only=True):
+                    for val in row:
+                        if val and isinstance(val, str):
+                            m = re.search(r'(\d+)\s*/\s*(\d+)\s*Jours?', val, re.IGNORECASE)
+                            if m:
+                                elapsed = int(m.group(1))
+                                total = int(m.group(2))
+                                wb.close()
+                                return elapsed, total
+            wb.close()
+        except Exception as e:
+            print(f"Warning: Failed to extract workdays from Excel '{self.path}': {e}")
+        return None
+
     def get_day_work(self) -> tuple:
         """
-        Calculate work days dynamically based on the current date,
-        excluding Sundays and the last day of the month.
+        Extracts work days directly from the Excel file header cell if present,
+        otherwise calculates work days dynamically based on calendar date.
         """
-        dynamic_days = calculate_calendar_workdays(self.date)
-        total_days_dyn = dynamic_days["total"]
-        elapsed_days_dyn = dynamic_days["elapsed"]
-        rest_days_dyn = dynamic_days["rest"]
+        from_excel = self.extract_workdays_from_excel()
+        if from_excel:
+            elapsed_days_dyn, total_days_dyn = from_excel
+            rest_days_dyn = max(0, total_days_dyn - elapsed_days_dyn)
+        else:
+            dynamic_days = calculate_calendar_workdays(self.date)
+            total_days_dyn = dynamic_days["total"]
+            elapsed_days_dyn = dynamic_days["elapsed"]
+            rest_days_dyn = dynamic_days["rest"]
         
         # Load or create days.json
         if os.path.exists("days.json"):
