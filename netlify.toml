@@ -2,6 +2,11 @@
   command = "echo 'Static build ready'"
   publish = "."
 
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
 [[headers]]
   for = "/*"
   [headers.values]
