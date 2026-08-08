@@ -1,4 +1,112 @@
 {
+  "quantitative_data": {
+    "name": "quantitative_data",
+    "primaryKey": "famille",
+    "properties": {
+      "date": {
+        "type": "string",
+        "optional": false
+      },
+      "vendeur": {
+        "type": "string",
+        "optional": false
+      },
+      "famille": {
+        "type": "string",
+        "optional": false
+      },
+      "j1": {
+        "type": "int",
+        "optional": true
+      },
+      "real": {
+        "type": "int",
+        "optional": true
+      },
+      "obj": {
+        "type": "int",
+        "optional": true
+      },
+      "percent": {
+        "type": "double",
+        "optional": true
+      },
+      "real_2025": {
+        "type": "int",
+        "optional": true
+      },
+      "h_2024": {
+        "type": "int",
+        "optional": true
+      },
+      "h_pct": {
+        "type": "double",
+        "optional": true
+      },
+      "encours": {
+        "type": "int",
+        "optional": true
+      },
+      "obj_mois": {
+        "type": "int",
+        "optional": true
+      },
+      "raf": {
+        "type": "int",
+        "optional": true
+      },
+      "created_at": {
+        "type": "string",
+        "optional": true
+      }
+    }
+  },
+  "qualitative_data": {
+    "name": "qualitative_data",
+    "primaryKey": "vendeur",
+    "properties": {
+      "date": {
+        "type": "string",
+        "optional": false
+      },
+      "vendeur": {
+        "type": "string",
+        "optional": false
+      },
+      "clt_programme": {
+        "type": "int",
+        "optional": true
+      },
+      "clt_facture": {
+        "type": "int",
+        "optional": true
+      },
+      "acm": {
+        "type": "double",
+        "optional": true
+      },
+      "tsm": {
+        "type": "double",
+        "optional": true
+      },
+      "line": {
+        "type": "double",
+        "optional": true
+      },
+      "raf_tsm": {
+        "type": "int",
+        "optional": true
+      },
+      "raf_acm": {
+        "type": "int",
+        "optional": true
+      },
+      "created_at": {
+        "type": "string",
+        "optional": true
+      }
+    }
+  },
   "focus_vmm_data": {
     "name": "focus_vmm_data",
     "primaryKey": "id",
@@ -153,13 +261,79 @@
         "type": "int",
         "optional": true
       },
-      "created_at": {
-        "type": "string",
-        "optional": true
-      },
       "file_content": {
         "type": "data",
         "optional": true
+      },
+      "created_at": {
+        "type": "string",
+        "optional": true
+      }
+    }
+  },
+  "secteurs": {
+    "name": "secteurs",
+    "primaryKey": "id",
+    "properties": {
+      "id": {
+        "type": "int",
+        "optional": false
+      },
+      "name": {
+        "type": "string",
+        "optional": false
+      }
+    }
+  },
+  "localites": {
+    "name": "localites",
+    "primaryKey": "id",
+    "properties": {
+      "id": {
+        "type": "int",
+        "optional": false
+      },
+      "name": {
+        "type": "string",
+        "optional": false
+      },
+      "secteur_id": {
+        "type": "int",
+        "optional": false
+      }
+    }
+  },
+  "clients": {
+    "name": "clients",
+    "primaryKey": "id",
+    "properties": {
+      "id": {
+        "type": "int",
+        "optional": false
+      },
+      "code": {
+        "type": "string",
+        "optional": false
+      },
+      "name": {
+        "type": "string",
+        "optional": false
+      },
+      "secteur_id": {
+        "type": "int",
+        "optional": false
+      },
+      "localite_id": {
+        "type": "int",
+        "optional": false
+      },
+      "vendeur_som": {
+        "type": "string",
+        "optional": false
+      },
+      "vendeur_vmm": {
+        "type": "string",
+        "optional": false
       }
     }
   },
@@ -172,6 +346,14 @@
         "optional": false
       },
       "vendeur": {
+        "type": "string",
+        "optional": false
+      },
+      "role": {
+        "type": "string",
+        "optional": false
+      },
+      "type_role": {
         "type": "string",
         "optional": false
       },
@@ -207,125 +389,9 @@
         "type": "string",
         "optional": true
       },
-      "role": {
-        "type": "string",
-        "optional": false
-      },
-      "type_role": {
-        "type": "string",
-        "optional": false
-      },
       "cdz": {
         "type": "string",
         "optional": false
-      }
-    }
-  },
-  "quantitative_data": {
-    "name": "quantitative_data",
-    "primaryKey": "famille",
-    "properties": {
-      "date": {
-        "type": "string",
-        "optional": false
-      },
-      "vendeur": {
-        "type": "string",
-        "optional": false
-      },
-      "famille": {
-        "type": "string",
-        "optional": false
-      },
-      "real": {
-        "type": "int",
-        "optional": true
-      },
-      "obj": {
-        "type": "int",
-        "optional": true
-      },
-      "percent": {
-        "type": "double",
-        "optional": true
-      },
-      "real_2025": {
-        "type": "int",
-        "optional": true
-      },
-      "h_2024": {
-        "type": "int",
-        "optional": true
-      },
-      "h_pct": {
-        "type": "double",
-        "optional": true
-      },
-      "encours": {
-        "type": "int",
-        "optional": true
-      },
-      "obj_mois": {
-        "type": "int",
-        "optional": true
-      },
-      "raf": {
-        "type": "int",
-        "optional": true
-      },
-      "created_at": {
-        "type": "string",
-        "optional": true
-      },
-      "j1": {
-        "type": "int",
-        "optional": true
-      }
-    }
-  },
-  "qualitative_data": {
-    "name": "qualitative_data",
-    "primaryKey": "vendeur",
-    "properties": {
-      "date": {
-        "type": "string",
-        "optional": false
-      },
-      "vendeur": {
-        "type": "string",
-        "optional": false
-      },
-      "clt_programme": {
-        "type": "int",
-        "optional": true
-      },
-      "clt_facture": {
-        "type": "int",
-        "optional": true
-      },
-      "acm": {
-        "type": "double",
-        "optional": true
-      },
-      "tsm": {
-        "type": "double",
-        "optional": true
-      },
-      "line": {
-        "type": "double",
-        "optional": true
-      },
-      "raf_tsm": {
-        "type": "int",
-        "optional": true
-      },
-      "raf_acm": {
-        "type": "int",
-        "optional": true
-      },
-      "created_at": {
-        "type": "string",
-        "optional": true
       }
     }
   },
@@ -447,6 +513,20 @@
       }
     }
   },
+  "focus_names": {
+    "name": "focus_names",
+    "primaryKey": "focus_type",
+    "properties": {
+      "focus_type": {
+        "type": "string",
+        "optional": false
+      },
+      "focus_name": {
+        "type": "string",
+        "optional": false
+      }
+    }
+  },
   "stock": {
     "name": "stock",
     "primaryKey": "id",
@@ -523,20 +603,6 @@
       }
     }
   },
-  "focus_names": {
-    "name": "focus_names",
-    "primaryKey": "focus_type",
-    "properties": {
-      "focus_type": {
-        "type": "string",
-        "optional": false
-      },
-      "focus_name": {
-        "type": "string",
-        "optional": false
-      }
-    }
-  },
   "anomalies": {
     "name": "anomalies",
     "primaryKey": "id",
@@ -557,15 +623,15 @@
         "type": "string",
         "optional": false
       },
-      "created_at": {
-        "type": "string",
-        "optional": true
-      },
       "commentaire": {
         "type": "string",
         "optional": true
       },
       "tag": {
+        "type": "string",
+        "optional": true
+      },
+      "created_at": {
         "type": "string",
         "optional": true
       }
@@ -693,72 +759,6 @@
       }
     }
   },
-  "secteurs": {
-    "name": "secteurs",
-    "primaryKey": "id",
-    "properties": {
-      "id": {
-        "type": "int",
-        "optional": false
-      },
-      "name": {
-        "type": "string",
-        "optional": false
-      }
-    }
-  },
-  "localites": {
-    "name": "localites",
-    "primaryKey": "id",
-    "properties": {
-      "id": {
-        "type": "int",
-        "optional": false
-      },
-      "name": {
-        "type": "string",
-        "optional": false
-      },
-      "secteur_id": {
-        "type": "int",
-        "optional": false
-      }
-    }
-  },
-  "clients": {
-    "name": "clients",
-    "primaryKey": "id",
-    "properties": {
-      "id": {
-        "type": "int",
-        "optional": false
-      },
-      "code": {
-        "type": "string",
-        "optional": false
-      },
-      "name": {
-        "type": "string",
-        "optional": false
-      },
-      "secteur_id": {
-        "type": "int",
-        "optional": false
-      },
-      "localite_id": {
-        "type": "int",
-        "optional": false
-      },
-      "vendeur_som": {
-        "type": "string",
-        "optional": false
-      },
-      "vendeur_vmm": {
-        "type": "string",
-        "optional": false
-      }
-    }
-  },
   "engagements": {
     "name": "engagements",
     "primaryKey": "id",
@@ -812,6 +812,44 @@
       "amount_dh": {
         "type": "double",
         "optional": false
+      }
+    }
+  },
+  "focus_obj": {
+    "name": "focus_obj",
+    "primaryKey": "id",
+    "properties": {
+      "id": {
+        "type": "int",
+        "optional": false
+      },
+      "focus_type": {
+        "type": "string",
+        "optional": false
+      },
+      "vendeur": {
+        "type": "string",
+        "optional": false
+      },
+      "secteur": {
+        "type": "string",
+        "optional": false
+      },
+      "obj_ht": {
+        "type": "double",
+        "optional": true
+      },
+      "obj_ttc": {
+        "type": "double",
+        "optional": true
+      },
+      "focus_name": {
+        "type": "string",
+        "optional": false
+      },
+      "created_at": {
+        "type": "string",
+        "optional": true
       }
     }
   },

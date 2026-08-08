@@ -1,5 +1,43 @@
 // Realm Object Schemas exported from SQLite database.db
 
+export const quantitative_dataSchema = {
+  name: 'quantitative_data',
+  primaryKey: 'famille',
+  properties: {
+    'date': 'string',
+    'vendeur': 'string',
+    'famille': 'string',
+    'j1': 'int?',
+    'real': 'int?',
+    'obj': 'int?',
+    'percent': 'double?',
+    'real_2025': 'int?',
+    'h_2024': 'int?',
+    'h_pct': 'double?',
+    'encours': 'int?',
+    'obj_mois': 'int?',
+    'raf': 'int?',
+    'created_at': 'string?',
+  }
+};
+
+export const qualitative_dataSchema = {
+  name: 'qualitative_data',
+  primaryKey: 'vendeur',
+  properties: {
+    'date': 'string',
+    'vendeur': 'string',
+    'clt_programme': 'int?',
+    'clt_facture': 'int?',
+    'acm': 'double?',
+    'tsm': 'double?',
+    'line': 'double?',
+    'raf_tsm': 'int?',
+    'raf_acm': 'int?',
+    'created_at': 'string?',
+  }
+};
+
 export const focus_vmm_dataSchema = {
   name: 'focus_vmm_data',
   primaryKey: 'id',
@@ -58,8 +96,41 @@ export const file_metadataSchema = {
     'date': 'string',
     'file_name': 'string?',
     'file_size': 'int?',
-    'created_at': 'string?',
     'file_content': 'data?',
+    'created_at': 'string?',
+  }
+};
+
+export const secteursSchema = {
+  name: 'secteurs',
+  primaryKey: 'id',
+  properties: {
+    'id': 'int',
+    'name': 'string',
+  }
+};
+
+export const localitesSchema = {
+  name: 'localites',
+  primaryKey: 'id',
+  properties: {
+    'id': 'int',
+    'name': 'string',
+    'secteur_id': 'int',
+  }
+};
+
+export const clientsSchema = {
+  name: 'clients',
+  primaryKey: 'id',
+  properties: {
+    'id': 'int',
+    'code': 'string',
+    'name': 'string',
+    'secteur_id': 'int',
+    'localite_id': 'int',
+    'vendeur_som': 'string',
+    'vendeur_vmm': 'string',
   }
 };
 
@@ -69,6 +140,8 @@ export const fdvSchema = {
   properties: {
     'id': 'int',
     'vendeur': 'string',
+    'role': 'string',
+    'type_role': 'string',
     'activite': 'string',
     'secteur': 'string',
     'telephone': 'string',
@@ -77,47 +150,7 @@ export const fdvSchema = {
     'notes': 'string',
     'created_at': 'string?',
     'updated_at': 'string?',
-    'role': 'string',
-    'type_role': 'string',
     'cdz': 'string',
-  }
-};
-
-export const quantitative_dataSchema = {
-  name: 'quantitative_data',
-  primaryKey: 'famille',
-  properties: {
-    'date': 'string',
-    'vendeur': 'string',
-    'famille': 'string',
-    'real': 'int?',
-    'obj': 'int?',
-    'percent': 'double?',
-    'real_2025': 'int?',
-    'h_2024': 'int?',
-    'h_pct': 'double?',
-    'encours': 'int?',
-    'obj_mois': 'int?',
-    'raf': 'int?',
-    'created_at': 'string?',
-    'j1': 'int?',
-  }
-};
-
-export const qualitative_dataSchema = {
-  name: 'qualitative_data',
-  primaryKey: 'vendeur',
-  properties: {
-    'date': 'string',
-    'vendeur': 'string',
-    'clt_programme': 'int?',
-    'clt_facture': 'int?',
-    'acm': 'double?',
-    'tsm': 'double?',
-    'line': 'double?',
-    'raf_tsm': 'int?',
-    'raf_acm': 'int?',
-    'created_at': 'string?',
   }
 };
 
@@ -167,6 +200,15 @@ export const focus_objectivesSchema = {
   }
 };
 
+export const focus_namesSchema = {
+  name: 'focus_names',
+  primaryKey: 'focus_type',
+  properties: {
+    'focus_type': 'string',
+    'focus_name': 'string',
+  }
+};
+
 export const stockSchema = {
   name: 'stock',
   primaryKey: 'id',
@@ -197,15 +239,6 @@ export const stock_favoritesSchema = {
   }
 };
 
-export const focus_namesSchema = {
-  name: 'focus_names',
-  primaryKey: 'focus_type',
-  properties: {
-    'focus_type': 'string',
-    'focus_name': 'string',
-  }
-};
-
 export const anomaliesSchema = {
   name: 'anomalies',
   primaryKey: 'id',
@@ -214,9 +247,9 @@ export const anomaliesSchema = {
     'date': 'string',
     'vendeur': 'string',
     'type_anomali': 'string',
-    'created_at': 'string?',
     'commentaire': 'string?',
     'tag': 'string?',
+    'created_at': 'string?',
   }
 };
 
@@ -267,39 +300,6 @@ export const visites_rapportsSchema = {
   }
 };
 
-export const secteursSchema = {
-  name: 'secteurs',
-  primaryKey: 'id',
-  properties: {
-    'id': 'int',
-    'name': 'string',
-  }
-};
-
-export const localitesSchema = {
-  name: 'localites',
-  primaryKey: 'id',
-  properties: {
-    'id': 'int',
-    'name': 'string',
-    'secteur_id': 'int',
-  }
-};
-
-export const clientsSchema = {
-  name: 'clients',
-  primaryKey: 'id',
-  properties: {
-    'id': 'int',
-    'code': 'string',
-    'name': 'string',
-    'secteur_id': 'int',
-    'localite_id': 'int',
-    'vendeur_som': 'string',
-    'vendeur_vmm': 'string',
-  }
-};
-
 export const engagementsSchema = {
   name: 'engagements',
   primaryKey: 'id',
@@ -322,6 +322,21 @@ export const engagement_itemsSchema = {
     'category': 'string',
     'title': 'string',
     'amount_dh': 'double',
+  }
+};
+
+export const focus_objSchema = {
+  name: 'focus_obj',
+  primaryKey: 'id',
+  properties: {
+    'id': 'int',
+    'focus_type': 'string',
+    'vendeur': 'string',
+    'secteur': 'string',
+    'obj_ht': 'double?',
+    'obj_ttc': 'double?',
+    'focus_name': 'string',
+    'created_at': 'string?',
   }
 };
 

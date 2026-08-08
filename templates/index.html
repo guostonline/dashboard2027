@@ -113,7 +113,9 @@
                     const som = (data.focus_som_data || []).filter(r => !dVal || r.date === dVal);
                     const setObj = (data.settings || []).find(r => r.date === dVal) || {};
                     const meta = (data.file_metadata || []).find(r => r.date === dVal) || null;
-                    const restDays = setObj.rest_days || 20;
+                    const restDays = (setObj && setObj.rest_days !== undefined && setObj.rest_days !== null) ? setObj.rest_days : 18;
+                    const totalDays = 24;
+                    const elapsedDays = Math.max(0, totalDays - restDays);
 
                     body = {
                         status: 'success',
@@ -122,7 +124,7 @@
                         focus_vmm: vmm,
                         focus_som: som,
                         rest_days: restDays,
-                        workdays: { total: 24, elapsed: Math.max(0, 24 - restDays), rest: restDays },
+                        workdays: { total: totalDays, elapsed: elapsedDays, rest: restDays },
                         file_metadata: meta
                     };
                 } else if (path.includes('/api/focus')) {
@@ -134,7 +136,7 @@
                         glace: { reps: glaceReps, cdz: cdzData },
                         tomate: { reps: tomateReps, cdz: cdzData },
                         objectives: objData,
-                        workdays: { total: 24, elapsed: 20, rest: 4 },
+                        workdays: { total: 24, elapsed: 6, rest: 18 },
                         total_days: 24
                     };
                     body = {
