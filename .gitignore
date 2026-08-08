@@ -10,10 +10,13 @@ env/
 venv/
 ENV/
 
-# Databases
-database.db
-*.db
-*.sqlite
+# Databases (included for Netlify deployment)
+!database.db
+!clients_vendeurs.db
+!uploads.db
+!*.db
+!*.sqlite
+!realm_data.json
 
 # Cache and temporary files
 excel/temp_*
