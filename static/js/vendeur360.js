@@ -626,6 +626,8 @@ function renderV360QuantiChart(quantiRows) {
         v360QuantiChartInstance = null;
     }
 
+    const isLight = document.body.classList.contains('light-mode');
+
     if (!quantiRows || quantiRows.length === 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.save();
@@ -638,7 +640,6 @@ function renderV360QuantiChart(quantiRows) {
         return;
     }
 
-    const isLight = document.body.classList.contains('light-mode');
     const textColor = isLight ? '#0f172a' : '#e2e8f0';
     const textSub = isLight ? '#334155' : '#94a3b8';
     const gridColor = isLight ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.08)';
@@ -779,6 +780,8 @@ function renderV360QualiChart(qualiRow) {
         v360QualiChartInstance = null;
     }
 
+    const isLight = document.body.classList.contains('light-mode');
+
     if (!qualiRow) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.save();
@@ -791,7 +794,6 @@ function renderV360QualiChart(qualiRow) {
         return;
     }
 
-    const isLight = document.body.classList.contains('light-mode');
     const textColor = isLight ? '#0f172a' : '#e2e8f0';
     const textSub = isLight ? '#334155' : '#94a3b8';
     const gridColor = isLight ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.08)';
