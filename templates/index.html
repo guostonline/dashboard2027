@@ -219,7 +219,7 @@
                 <i class="fa-solid fa-sliders"></i>
                 <span>CONFIG</span>
             </button>
-            <button id="logout-btn" class="cyber-btn" title="Se déconnecter" style="border-color: var(--neon-pink); color: var(--neon-pink);">
+            <button id="logout-btn" class="cyber-btn" onclick="handleMadecLogout(event)" title="Se déconnecter" style="border-color: var(--neon-pink); color: var(--neon-pink);">
                 <i class="fa-solid fa-right-from-bracket"></i>
                 <span>DÉCONNEXION</span>
             </button>
@@ -4834,10 +4834,23 @@
             }
         }
 
-        function handleMadecLogout() {
+        function handleMadecLogout(e) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            }
             localStorage.removeItem('madec_auth');
             sessionStorage.removeItem('madec_auth');
+            
+            const pwdInput = document.getElementById('login-input-password');
+            if (pwdInput) pwdInput.value = '';
+            
+            const errorAlert = document.getElementById('login-error-alert');
+            if (errorAlert) errorAlert.style.display = 'none';
+
             checkMadecAuth();
+            return false;
         }
 
         document.addEventListener('DOMContentLoaded', () => {
