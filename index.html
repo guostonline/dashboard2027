@@ -19,6 +19,48 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/static/css/style.css?v=3.3">
+    <!-- Global Safe Fetch Interceptor for Static Netlify Host -->
+    <script>
+        (function() {
+            const originalFetch = window.fetch;
+            window.fetch = async function(...args) {
+                try {
+                    const response = await originalFetch.apply(this, args);
+                    const url = (typeof args[0] === 'string') ? args[0] : (args[0] && args[0].url) || '';
+                    
+                    if (url.includes('/api/')) {
+                        const contentType = response.headers.get('content-type') || '';
+                        if (contentType.includes('text/html') || response.status === 404) {
+                            return new Response(JSON.stringify({ status: 'offline', message: 'Mode statique (Netlify)', data: [] }), {
+                                status: 200,
+                                headers: { 'Content-Type': 'application/json' }
+                            });
+                        }
+                        
+                        const cloned = response.clone();
+                        try {
+                            const text = await cloned.text();
+                            if (text.trim().startsWith('<')) {
+                                return new Response(JSON.stringify({ status: 'offline', message: 'Mode statique (Netlify)', data: [] }), {
+                                    status: 200,
+                                    headers: { 'Content-Type': 'application/json' }
+                                });
+                            }
+                        } catch (e) {}
+                    }
+                    return response;
+                } catch (err) {
+                    if (args[0] && String(args[0]).includes('/api/')) {
+                        return new Response(JSON.stringify({ status: 'offline', message: err.message, data: [] }), {
+                            status: 200,
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                    }
+                    throw err;
+                }
+            };
+        })();
+    </script>
 </head>
 <body class="cyber-grid {% if theme %}{{ theme }}{% endif %} {% if light_mode %}light-mode{% endif %}">
     <!-- ===== Animated background layers ===== -->
