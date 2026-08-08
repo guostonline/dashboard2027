@@ -541,11 +541,13 @@ function resetAnomalyDateExclusions(vCode) {
 }
 
 function renderTerrainAnomalies() {
-    const anomaliesTableBody = document.querySelector('#terrain-anomalies-table tbody');
-    if (!anomaliesTableBody) return;
+    const anomaliesTableBodies = document.querySelectorAll('#terrain-anomalies-table tbody, #dashboard-terrain-anomalies-table tbody');
+    if (anomaliesTableBodies.length === 0) return;
 
     if (!terrainRawData || terrainRawData.length === 0) {
-        anomaliesTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Aucune donnée terrain disponible pour calculer les anomalies.</td></tr>`;
+        anomaliesTableBodies.forEach(tb => {
+            tb.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Aucune donnée terrain disponible pour calculer les anomalies.</td></tr>`;
+        });
         return;
     }
 
@@ -569,24 +571,28 @@ function renderTerrainAnomalies() {
 
     if (monthKeys.length === 0) return;
 
-    // Populate month select dropdown
-    const monthSelect = document.getElementById('terrain-anomalies-month-select');
-    if (monthSelect) {
-        const currentSelected = monthSelect.value;
-        monthSelect.innerHTML = monthKeys.map(m => {
-            const [mNum, yNum] = m.split('/').map(Number);
-            const monthName = new Date(yNum, mNum - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-            return `<option value="${m}">${monthName.toUpperCase()} (${m})</option>`;
-        }).join('');
+    // Populate month select dropdowns
+    ['terrain-anomalies-month-select', 'dashboard-terrain-anomalies-month-select'].forEach(id => {
+        const monthSelect = document.getElementById(id);
+        if (monthSelect) {
+            const currentSelected = monthSelect.value;
+            monthSelect.innerHTML = monthKeys.map(m => {
+                const [mNum, yNum] = m.split('/').map(Number);
+                const monthName = new Date(yNum, mNum - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+                return `<option value="${m}">${monthName.toUpperCase()} (${m})</option>`;
+            }).join('');
 
-        if (currentSelected && monthKeys.includes(currentSelected)) {
-            monthSelect.value = currentSelected;
-            selectedAnomalyMonth = currentSelected;
-        } else {
-            selectedAnomalyMonth = monthKeys[monthKeys.length - 1]; // latest month
-            monthSelect.value = selectedAnomalyMonth;
+            if (currentSelected && monthKeys.includes(currentSelected)) {
+                monthSelect.value = currentSelected;
+            } else if (selectedAnomalyMonth && monthKeys.includes(selectedAnomalyMonth)) {
+                monthSelect.value = selectedAnomalyMonth;
+            } else {
+                selectedAnomalyMonth = monthKeys[monthKeys.length - 1]; // latest month
+                monthSelect.value = selectedAnomalyMonth;
+            }
         }
-    } else if (!selectedAnomalyMonth) {
+    });
+    if (!selectedAnomalyMonth) {
         selectedAnomalyMonth = monthKeys[monthKeys.length - 1];
     }
 
@@ -685,28 +691,32 @@ function renderTerrainAnomalies() {
     vendorResults.sort((a,b) => b.missingCount - a.missingCount || a.vendeur.localeCompare(b.vendeur));
 
     // 7. Update Summary Bar KPIs
-    const kpiWorkDays = document.getElementById('anomalies-kpi-working-days');
-    const kpiVendorsCount = document.getElementById('anomalies-kpi-vendeurs-count');
-    const kpiTotalMissing = document.getElementById('anomalies-kpi-total-missing');
-    const badgeEl = document.getElementById('terrain-anomalies-badge');
-
-    if (kpiWorkDays) kpiWorkDays.innerText = `${workingDays.length} j`;
-    if (kpiVendorsCount) kpiVendorsCount.innerText = vendorsWithAnomaliesCount;
-    if (kpiTotalMissing) kpiTotalMissing.innerText = totalMissingCount;
-    if (badgeEl) badgeEl.innerText = `${vendorsWithAnomaliesCount} vendeur(s) en anomalie`;
+    ['anomalies-kpi-working-days', 'dashboard-anomalies-kpi-working-days'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = `${workingDays.length} j`;
+    });
+    ['anomalies-kpi-vendeurs-count', 'dashboard-anomalies-kpi-vendeurs-count'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = vendorsWithAnomaliesCount;
+    });
+    ['anomalies-kpi-total-missing', 'dashboard-anomalies-kpi-total-missing'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = totalMissingCount;
+    });
+    ['terrain-anomalies-badge', 'dashboard-terrain-anomalies-badge'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = `${vendorsWithAnomaliesCount} vendeur(s) en anomalie`;
+    });
 
     // 8. Render Table
     if (vendorResults.length === 0) {
-        anomaliesTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Aucun vendeur trouvé.</td></tr>`;
+        anomaliesTableBodies.forEach(tb => {
+            tb.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Aucun vendeur trouvé.</td></tr>`;
+        });
         return;
     }
 
-    const monthSelectEl = document.getElementById('terrain-anomalies-month-select');
-    const selectedMonthName = (monthSelectEl && monthSelectEl.options[monthSelectEl.selectedIndex]) 
-        ? monthSelectEl.options[monthSelectEl.selectedIndex].text 
-        : selectedAnomalyMonth;
-
-    anomaliesTableBody.innerHTML = vendorResults.map(res => {
+    const rowsHtml = vendorResults.map(res => {
         const vCode = getVendeurCode(res.vendeur);
         const excludedSet = excludedAnomalyDatesMap[vCode] || new Set();
         
@@ -798,6 +808,11 @@ function renderTerrainAnomalies() {
             </tr>
         `;
     }).join('');
+
+    anomaliesTableBodies.forEach(tb => {
+        tb.innerHTML = rowsHtml;
+    });
+}
 }
 
 const VENDOR_PALETTE = [

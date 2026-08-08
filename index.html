@@ -142,6 +142,38 @@
                         data: focusPayload,
                         ...focusPayload
                     };
+                } else if (path.includes('/api/terrain')) {
+                    const rawVisites = data.visites_rapports || [];
+                    const mappedTerrain = rawVisites.map(v => {
+                        let dStr = v.date_visite || '';
+                        if (dStr.includes('-')) {
+                            const parts = dStr.split('-');
+                            if (parts.length === 3) {
+                                dStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+                            }
+                        }
+                        return {
+                            ...v,
+                            date: dStr,
+                            vendeur: v.vendeur || ''
+                        };
+                    });
+                    const fdvList = data.fdv || [];
+                    const phones = {};
+                    fdvList.forEach(f => {
+                        if (f.vendeur && (f.telephone || f.whatsapp)) {
+                            phones[f.vendeur] = f.telephone || f.whatsapp;
+                        }
+                    });
+
+                    body = {
+                        status: 'success',
+                        data: mappedTerrain,
+                        headers: ["Vendeur", "Date", "Tournée", "Client", "Heure"],
+                        all_vendeurs: fdvList.map(f => f.vendeur).filter(Boolean),
+                        vendeur_phones: phones,
+                        focus_names: { GLACE: "GLACE (SOM)", TOMATE_FRITO: "TOMATE FRITO (VMM)" }
+                    };
                 } else if (path.includes('/api/fdv')) {
                     body = { status: 'success', fdv: data.fdv || [], data: data.fdv || [] };
                 } else if (path.endsWith('/api/clients_full/stats')) {
@@ -791,6 +823,47 @@
                 </div>
             </div>
             
+        </div>
+
+        <!-- ANOMALIES TERRAIN PANEL ON DASHBOARD -->
+        <div class="cyber-card table-card" id="dashboard-terrain-anomalies-card" style="margin-top: 1.5rem;">
+            <div class="card-edge"></div>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <span class="tech-label" style="color: var(--neon-pink); font-weight: 800;"><i class="fa-solid fa-triangle-exclamation"></i> ANOMALIES TERRAIN : RAPPORTS DU MOIS MANQUANTS (HORS DIMANCHES)</span>
+                    <span class="rp-badge" id="dashboard-terrain-anomalies-badge" style="background: rgba(255, 45, 85, 0.15); border: 1px solid var(--neon-pink); color: var(--neon-pink); font-family: var(--font-mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; font-weight: 700;">0 anomalie</span>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <label class="tech-label" style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0;">Mois :</label>
+                    <select id="dashboard-terrain-anomalies-month-select" class="cyber-select" style="height: 32px; font-size: 0.75rem; padding: 0 0.5rem; border-color: var(--neon-pink); text-transform: uppercase; width: auto; min-width: 140px;">
+                        <!-- Options generated dynamically -->
+                    </select>
+                </div>
+            </div>
+            
+            <div class="anomalies-summary-bar" style="padding: 0.85rem 1.25rem; background: rgba(255, 45, 85, 0.04); border-bottom: 1px solid var(--border-color); display: flex; flex-wrap: wrap; gap: 1.5rem; font-size: 0.8rem; font-family: var(--font-mono);">
+                <div><span style="color: var(--text-muted);">Jours ouvrés analysés :</span> <strong id="dashboard-anomalies-kpi-working-days" style="color: var(--text-main);">0 j</strong> <small style="color: var(--text-muted);">(dimanches exclus)</small></div>
+                <div><span style="color: var(--text-muted);">Vendeurs en anomalie :</span> <strong id="dashboard-anomalies-kpi-vendeurs-count" style="color: var(--neon-pink);">0</strong></div>
+                <div><span style="color: var(--text-muted);">Total rapports manqués :</span> <strong id="dashboard-anomalies-kpi-total-missing" style="color: var(--neon-amber);">0</strong></div>
+            </div>
+
+            <div class="table-container">
+                <table class="cyber-table" id="dashboard-terrain-anomalies-table">
+                    <thead>
+                        <tr>
+                            <th>Vendeur</th>
+                            <th>Déclarations Envoyées</th>
+                            <th>Jours Manquants</th>
+                            <th>Conformité</th>
+                            <th>Dates des Anomalies (Non-Envoi)</th>
+                            <th style="text-align: center;">Action WhatsApp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Inserted dynamically -->
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- SYSTEM ALERTS SECTION -->
