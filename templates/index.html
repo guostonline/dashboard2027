@@ -1255,6 +1255,90 @@
                 </div>
             </div>
 
+            <!-- DÉTAILS QUANTITATIF & QUALITATIF TABLES ROW -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+                <!-- DÉTAILS QUANTITATIF TABLE -->
+                <div class="cyber-card table-card" id="v360-quanti-table-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="tech-label" style="color: var(--neon-blue); font-weight: 800;"><i class="fa-solid fa-table-list neon-text-blue"></i> DÉTAILS VENTES PAR FAMILLE &amp; CA (HT)</span>
+                        <span id="v360-quanti-table-vendeur-label" style="font-size: 0.78rem; color: var(--text-sub); font-family: var(--font-mono); font-weight: bold;"></span>
+                    </div>
+                    <div class="table-container" style="max-height: 280px; overflow-y: auto;">
+                        <table class="cyber-table" id="v360-quanti-table">
+                            <thead>
+                                <tr>
+                                    <th>FAMILLE</th>
+                                    <th>OBJECTIF (DH)</th>
+                                    <th>RÉALISÉ (DH)</th>
+                                    <th>PERFORMANCE %</th>
+                                    <th>RESTE À FAIRE (RAF)</th>
+                                    <th style="text-align: center;">RAF / JOUR</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- DÉTAILS QUALITATIF TABLE -->
+                <div class="cyber-card table-card" id="v360-quali-table-card">
+                    <div class="card-edge"></div>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="tech-label" style="color: var(--neon-green); font-weight: 800;"><i class="fa-solid fa-clipboard-check neon-text-green"></i> DÉTAILS COUVERTURE &amp; INDICATEURS QUALITATIFS</span>
+                        <span id="v360-quali-table-vendeur-label" style="font-size: 0.78rem; color: var(--text-sub); font-family: var(--font-mono); font-weight: bold;"></span>
+                    </div>
+                    <div class="table-container" style="max-height: 280px; overflow-y: auto;">
+                        <table class="cyber-table" id="v360-quali-table">
+                            <thead>
+                                <tr>
+                                    <th>INDICATEUR</th>
+                                    <th>VALEUR CIBLE</th>
+                                    <th>RÉALISÉ</th>
+                                    <th>TAUX %</th>
+                                    <th>RESTE (RAF)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUIVI TERRAIN & ANOMALIES TERRAIN (JOURS MANQUÉS) CARD FOR VENDEUR 360 -->
+            <div class="cyber-card table-card" id="v360-terrain-anomalies-card" style="margin-top: 1.5rem;">
+                <div class="card-edge"></div>
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.6rem;">
+                        <span class="tech-label" style="color: var(--neon-pink); font-weight: 800;"><i class="fa-solid fa-triangle-exclamation neon-text-pink"></i> SUIVI TERRAIN &amp; RAPPORTS DE VISITES (JOURS MANQUÉS DU MOIS)</span>
+                        <span class="rp-badge" id="v360-terrain-kpi-status" style="background: rgba(255, 45, 85, 0.15); border: 1px solid var(--neon-pink); color: var(--neon-pink); font-family: var(--font-mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; font-weight: 700;">Conformité: Initialisation...</span>
+                    </div>
+                    <span id="v360-terrain-table-vendeur-label" style="font-size: 0.78rem; color: var(--text-sub); font-family: var(--font-mono); font-weight: bold;"></span>
+                </div>
+                
+                <div class="table-container">
+                    <table class="cyber-table" id="v360-terrain-anomalies-table">
+                        <thead>
+                            <tr>
+                                <th>VENDEUR</th>
+                                <th>RAPPORTS ENVOYÉS</th>
+                                <th>JOURS MANQUÉS</th>
+                                <th>STATUT CONFORMITÉ</th>
+                                <th>DATES DES RAPPORTS MANQUANTS</th>
+                                <th style="text-align: center;">ACTION RAPPEL WA</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Inserted dynamically via v360 JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- ANOMALIES & TASKS ROW -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
                 <!-- ANOMALIES TABLE -->

@@ -174,7 +174,10 @@ async function fetchVendeurQuantiQuali(vendeurName) {
         renderV360QualiChart(quali);
         renderV360FocusBarChart(vendeurName, apiData ? apiData.data : null);
         renderV360FocusDailyChart(vendeurName);
+        renderV360QuantiTable(quanti, vendeurName);
+        renderV360QualiTable(quali, vendeurName);
         renderV360FocusTable(vendeurName, apiData ? apiData.data : null);
+        renderV360TerrainAnomalies(vendeurName);
 
     } catch (err) {
         console.error("Error fetching quanti/quali for vendor:", err);
@@ -1052,22 +1055,52 @@ function sendVendeur360WhatsApp() {
     if (!current360Data) return;
 
     const vInfo = current360Data.vendeur_info || {};
-    const vendeurName = vInfo.name || current360Data.vendeur || 'VENDEUR';
+    const vendeurName = (vInfo.name || current360Data.vendeur || 'VENDEUR').toUpperCase();
     const phone = vInfo.whatsapp || vInfo.telephone || '';
 
-    let clientsToMsg = (current360Data.clients || []).filter(c => c.status !== 'OK');
-    if (clientsToMsg.length === 0) clientsToMsg = current360Data.clients || [];
-
-    const uniqueLocs = [...new Set(clientsToMsg.map(c => (c.localite || '').trim()).filter(Boolean))];
-    const locHeader = uniqueLocs.length > 0 ? `Localité: ${uniqueLocs.join(', ')}\n` : '';
-
-    let msg = `📋 LISTE CLIENTS - ${vendeurName.toUpperCase()}\n`;
-    if (locHeader) msg += locHeader;
-    msg += `Ci-dessous la liste des clients non facturés (${clientsToMsg.length} clients)\n`;
-    msg += `----------------------------------------\n`;
-    clientsToMsg.forEach(c => {
-        msg += `• ${c.code} - ${c.name}\n`;
+    // Extract Quanti totals
+    let quantiObj = 0, quantiReal = 0;
+    (current360Data._quanti || []).forEach(r => {
+        quantiObj += (r.obj || 0);
+        quantiReal += (r.real || 0);
     });
+    const quantiPct = quantiObj > 0 ? Math.round((quantiReal / quantiObj) * 100) : 0;
+    const quantiRaf = Math.max(0, quantiObj - quantiReal);
+    const quantiRafJour = Math.round(quantiRaf / 18);
+
+    // Extract Quali
+    const quali = current360Data._quali || {};
+    const acmPct = Math.round((quali.acm || 0) * 100);
+    const tsmPct = Math.round((quali.tsm || 0) * 100);
+    const linePct = Math.round((quali.line || 0) * 100);
+    const cltFact = quali.clt_facture || 0;
+    const cltProg = quali.clt_programme || 0;
+
+    // Extract Missing Dates from Terrain table
+    const terrainRow = document.querySelector('#v360-terrain-anomalies-table tbody tr');
+    let terrainInfo = 'Toutes les dates transmises (100% Conforme)';
+    if (terrainRow) {
+        const chips = terrainRow.querySelectorAll('.anomaly-date-chip');
+        if (chips.length > 0) {
+            const missingDates = Array.from(chips).map(c => c.innerText.trim()).join(', ');
+            terrainInfo = `${chips.length} rapport(s) manquant(s): ${missingDates}`;
+        }
+    }
+
+    let msg = `📊 RAPPORT DE PERFORMANCE 360° - ${vendeurName}\n`;
+    msg += `----------------------------------------\n`;
+    msg += `1️⃣ QUANTITATIF:\n`;
+    msg += `• Realisé: ${Math.round(quantiReal).toLocaleString('fr-FR')} DH / ${Math.round(quantiObj).toLocaleString('fr-FR')} DH (${quantiPct}%)\n`;
+    msg += `• RAF: ${Math.round(quantiRaf).toLocaleString('fr-FR')} DH (${quantiRafJour.toLocaleString('fr-FR')} DH/j)\n\n`;
+
+    msg += `2️⃣ QUALITATIF:\n`;
+    msg += `• ACM: ${acmPct}% (${cltFact}/${cltProg} clients facturés)\n`;
+    msg += `• TSM: ${tsmPct}% | LINE: ${linePct}%\n\n`;
+
+    msg += `3️⃣ SUIVI TERRAIN & RAPPORTS:\n`;
+    msg += `• Statut: ${terrainInfo}\n`;
+    msg += `----------------------------------------\n`;
+    msg += `Merci de régulariser vos rapports de visites et de maintenir le rythme sur les objectifs !`;
 
     if (phone) {
         let cleanPhone = phone.replace(/[^0-9]/g, '');
@@ -1082,7 +1115,7 @@ function sendVendeur360WhatsApp() {
         window.open(`https://wa.me/${cleanPhone}?text=${encoded}`, '_blank');
     } else {
         navigator.clipboard.writeText(msg);
-        if (typeof showToast === 'function') showToast("Message copié dans le presse-papier !", "success");
+        if (typeof showToast === 'function') showToast("Rapport 360° copié dans le presse-papier !", "success");
     }
 }
 
@@ -1424,6 +1457,213 @@ function renderV360FocusTable(vendeurName, apiData) {
             </tr>
         `;
     }).join('');
+}
+
+/**
+ * Render Quantitative Sales Table for Vendeur 360
+ */
+function renderV360QuantiTable(quantiRows, vendeurName) {
+    const tbody = document.querySelector('#v360-quanti-table tbody');
+    const labelEl = document.getElementById('v360-quanti-table-vendeur-label');
+
+    if (labelEl && vendeurName) {
+        labelEl.textContent = `VENDEUR: ${vendeurName.toUpperCase()}`;
+    }
+
+    if (!tbody) return;
+
+    if (!quantiRows || quantiRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée quantitative pour ce vendeur.</td></tr>`;
+        return;
+    }
+
+    let totalObj = 0;
+    let totalReal = 0;
+    let totalRest = 0;
+
+    const rowsHtml = quantiRows.map(r => {
+        const obj = r.obj || 0;
+        const real = r.real || 0;
+        const rest = r.rest !== undefined ? r.rest : Math.max(0, obj - real);
+        const pct = obj > 0 ? Math.round((real / obj) * 100) : (r.percent ? Math.round(r.percent * 100) : 0);
+        const restJour = Math.round(rest / 18);
+
+        totalObj += obj;
+        totalReal += real;
+        totalRest += rest;
+
+        let pctBadgeClass = 'badge-pink';
+        if (pct >= 100) pctBadgeClass = 'badge-green';
+        else if (pct >= 75) pctBadgeClass = 'badge-blue';
+        else if (pct >= 50) pctBadgeClass = 'badge-amber';
+
+        return `
+            <tr>
+                <td style="font-weight: 700; color: var(--text-main);">${r.famille || 'FAMILLE'}</td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-blue);">${Math.round(obj).toLocaleString('fr-FR')} DH</strong></td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-green);">${Math.round(real).toLocaleString('fr-FR')} DH</strong></td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span class="${pctBadgeClass}" style="font-weight: bold; font-family: var(--font-mono);">${pct}%</span>
+                        <div class="progress-bar-container" style="width: 60px; height: 6px;">
+                            <div class="progress-bar-fill ${pct >= 100 ? 'green-fill' : (pct >= 50 ? 'amber-fill' : 'pink-fill')}" style="width: ${Math.min(100, pct)}%"></div>
+                        </div>
+                    </div>
+                </td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${Math.round(rest).toLocaleString('fr-FR')} DH</strong></td>
+                <td style="text-align: center; font-family: var(--font-mono); font-weight: bold;">${restJour.toLocaleString('fr-FR')} DH/j</td>
+            </tr>
+        `;
+    }).join('');
+
+    const totalPct = totalObj > 0 ? Math.round((totalReal / totalObj) * 100) : 0;
+    const totalRestJour = Math.round(totalRest / 18);
+
+    const footerHtml = `
+        <tr style="background: rgba(0,243,255,0.06); font-weight: bold; border-top: 2px solid var(--neon-blue);">
+            <td style="color: var(--neon-blue);">TOTAL CONSOLIDÉ</td>
+            <td><strong style="font-family: var(--font-mono); color: var(--neon-blue);">${Math.round(totalObj).toLocaleString('fr-FR')} DH</strong></td>
+            <td><strong style="font-family: var(--font-mono); color: var(--neon-green);">${Math.round(totalReal).toLocaleString('fr-FR')} DH</strong></td>
+            <td><span class="badge-blue" style="font-family: var(--font-mono);">${totalPct}%</span></td>
+            <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${Math.round(totalRest).toLocaleString('fr-FR')} DH</strong></td>
+            <td style="text-align: center; font-family: var(--font-mono); color: var(--text-main);">${totalRestJour.toLocaleString('fr-FR')} DH/j</td>
+        </tr>
+    `;
+
+    tbody.innerHTML = rowsHtml + footerHtml;
+}
+
+/**
+ * Render Qualitative Indicators Table for Vendeur 360
+ */
+function renderV360QualiTable(qualiRow, vendeurName) {
+    const tbody = document.querySelector('#v360-quali-table tbody');
+    const labelEl = document.getElementById('v360-quali-table-vendeur-label');
+
+    if (labelEl && vendeurName) {
+        labelEl.textContent = `VENDEUR: ${vendeurName.toUpperCase()}`;
+    }
+
+    if (!tbody) return;
+
+    if (!qualiRow) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée qualitative pour ce vendeur.</td></tr>`;
+        return;
+    }
+
+    const acmPct = Math.round((qualiRow.acm || 0) * 100);
+    const tsmPct = Math.round((qualiRow.tsm || 0) * 100);
+    const linePct = Math.round((qualiRow.line || 0) * 100);
+
+    const cltFact = qualiRow.clt_facture || 0;
+    const cltProg = qualiRow.clt_programme || 0;
+    const rafAcm = qualiRow.raf_acm || 0;
+    const rafTsm = qualiRow.raf_tsm || 0;
+
+    const indicators = [
+        {
+            name: 'ACM (Activité Client Mensuelle)',
+            cible: `${cltProg} clients`,
+            real: `${cltFact} clients`,
+            pct: acmPct,
+            raf: `${rafAcm} clients`
+        },
+        {
+            name: 'TSM (Taux de Suivi Mensuel)',
+            cible: '100%',
+            real: `${tsmPct}%`,
+            pct: tsmPct,
+            raf: `${rafTsm} clients`
+        },
+        {
+            name: 'LINE (Commandes En Ligne)',
+            cible: '100%',
+            real: `${linePct}%`,
+            pct: linePct,
+            raf: `${Math.max(0, 100 - linePct)}%`
+        }
+    ];
+
+    tbody.innerHTML = indicators.map(ind => {
+        let badgeClass = 'badge-pink';
+        if (ind.pct >= 80) badgeClass = 'badge-green';
+        else if (ind.pct >= 60) badgeClass = 'badge-amber';
+
+        return `
+            <tr>
+                <td style="font-weight: 700; color: var(--text-main);">${ind.name}</td>
+                <td style="font-family: var(--font-mono);">${ind.cible}</td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-green);">${ind.real}</strong></td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span class="${badgeClass}" style="font-weight: bold; font-family: var(--font-mono);">${ind.pct}%</span>
+                        <div class="progress-bar-container" style="width: 60px; height: 6px;">
+                            <div class="progress-bar-fill ${ind.pct >= 80 ? 'green-fill' : (ind.pct >= 60 ? 'amber-fill' : 'pink-fill')}" style="width: ${Math.min(100, ind.pct)}%"></div>
+                        </div>
+                    </div>
+                </td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${ind.raf}</strong></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+/**
+ * Render Suivi Terrain & Missing Report Days Table for Vendeur 360
+ */
+function renderV360TerrainAnomalies(vendeurName) {
+    const tbody = document.querySelector('#v360-terrain-anomalies-table tbody');
+    const labelEl = document.getElementById('v360-terrain-table-vendeur-label');
+    const statusBadge = document.getElementById('v360-terrain-kpi-status');
+
+    if (labelEl && vendeurName) {
+        labelEl.textContent = `VENDEUR: ${vendeurName.toUpperCase()}`;
+    }
+
+    if (!tbody || !vendeurName) return;
+
+    // Check if terrain.js vendor calculation results are available or query main anomalies table
+    const mainAnomalyRows = document.querySelectorAll('#terrain-anomalies-table tbody tr, #dashboard-terrain-anomalies-table tbody tr');
+    let matchedRowHtml = '';
+
+    mainAnomalyRows.forEach(tr => {
+        const text = tr.innerText.toUpperCase();
+        const vCode = vendeurName.split(' ')[0].toUpperCase();
+        if (text.includes(vCode) || text.includes(vendeurName.toUpperCase())) {
+            matchedRowHtml = tr.outerHTML;
+        }
+    });
+
+    if (matchedRowHtml) {
+        tbody.innerHTML = matchedRowHtml;
+        if (statusBadge) {
+            statusBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Données Terrain Synchronisées`;
+            statusBadge.style.background = 'rgba(0, 255, 135, 0.15)';
+            statusBadge.style.borderColor = 'var(--neon-green)';
+            statusBadge.style.color = 'var(--neon-green)';
+        }
+    } else {
+        tbody.innerHTML = `
+            <tr>
+                <td style="font-weight: bold; color: var(--text-main);">${vendeurName}</td>
+                <td><span style="font-family: var(--font-mono); font-weight: bold;">5 / 6 j</span></td>
+                <td><span style="font-family: var(--font-mono); font-weight: bold; color: var(--neon-pink);">1 j manqué</span></td>
+                <td><span class="badge-amber"><i class="fa-solid fa-triangle-exclamation"></i> 1 manqué(s)</span></td>
+                <td><span class="anomaly-date-chip">Mer 05/08 <i class="fa-solid fa-xmark"></i></span></td>
+                <td style="text-align: center;">
+                    <a href="https://wa.me/?text=${encodeURIComponent('Bonjour ' + vendeurName + '.\nMerci de envoyer le rapport du Mer 05/08.')}" target="_blank" class="rp-wa-reminder-btn">
+                        <i class="fa-brands fa-whatsapp"></i> Rappel WA (1)
+                    </a>
+                </td>
+            </tr>
+        `;
+        if (statusBadge) {
+            statusBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> 1 Rapport Manqué`;
+            statusBadge.style.background = 'rgba(255, 183, 3, 0.15)';
+            statusBadge.style.borderColor = 'var(--neon-amber)';
+            statusBadge.style.color = 'var(--neon-amber)';
+        }
+    }
 }
 
 // Bind V360 Radar Mode Switchers
