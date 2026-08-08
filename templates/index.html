@@ -1255,25 +1255,28 @@
                 </div>
             </div>
 
-            <!-- DÉTAILS QUANTITATIF & QUALITATIF TABLES ROW -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
-                <!-- DÉTAILS QUANTITATIF TABLE -->
+            <!-- DÉTAILS QUANTITATIF & QUALITATIF TABLES ROW (MATCHING IMAGE 1 & IMAGE 2) -->
+            <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem; margin-top: 1.5rem;">
+                <!-- DÉTAILS QUANTITATIF TABLE (LIKE IMAGE 1) -->
                 <div class="cyber-card table-card" id="v360-quanti-table-card">
                     <div class="card-edge"></div>
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <span class="tech-label" style="color: var(--neon-blue); font-weight: 800;"><i class="fa-solid fa-table-list neon-text-blue"></i> DÉTAILS VENTES PAR FAMILLE &amp; CA (HT)</span>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <span class="tech-label" style="color: var(--neon-blue); font-weight: 800;"><i class="fa-solid fa-list-check neon-text-blue"></i> ANALYSE PAR FAMILLE DE PRODUIT (QUANTITATIF)</span>
                         <span id="v360-quanti-table-vendeur-label" style="font-size: 0.78rem; color: var(--text-sub); font-family: var(--font-mono); font-weight: bold;"></span>
                     </div>
-                    <div class="table-container" style="max-height: 280px; overflow-y: auto;">
+                    <div class="table-container" style="max-height: 380px; overflow-y: auto;">
                         <table class="cyber-table" id="v360-quanti-table">
                             <thead>
                                 <tr>
                                     <th>FAMILLE</th>
-                                    <th>OBJECTIF (DH)</th>
-                                    <th>RÉALISÉ (DH)</th>
-                                    <th>PERFORMANCE %</th>
-                                    <th>RESTE À FAIRE (RAF)</th>
-                                    <th style="text-align: center;">RAF / JOUR</th>
+                                    <th style="text-align: center;">VENDEURS</th>
+                                    <th>RÉALISÉ (HT)</th>
+                                    <th>OBJECTIF (HT)</th>
+                                    <th>% TAUX</th>
+                                    <th>HISTO 2025</th>
+                                    <th>% HISTO</th>
+                                    <th>HISTO 2026</th>
+                                    <th style="text-align: right;">RAF JOUR</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1283,22 +1286,25 @@
                     </div>
                 </div>
 
-                <!-- DÉTAILS QUALITATIF TABLE -->
+                <!-- DÉTAILS QUALITATIF TABLE (LIKE IMAGE 2) -->
                 <div class="cyber-card table-card" id="v360-quali-table-card">
                     <div class="card-edge"></div>
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <span class="tech-label" style="color: var(--neon-green); font-weight: 800;"><i class="fa-solid fa-clipboard-check neon-text-green"></i> DÉTAILS COUVERTURE &amp; INDICATEURS QUALITATIFS</span>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <span class="tech-label" style="color: var(--neon-green); font-weight: 800;"><i class="fa-solid fa-award neon-text-green"></i> PERFORMANCE QUALITATIVE (KPI VISITES/FACTURES)</span>
                         <span id="v360-quali-table-vendeur-label" style="font-size: 0.78rem; color: var(--text-sub); font-family: var(--font-mono); font-weight: bold;"></span>
                     </div>
                     <div class="table-container" style="max-height: 280px; overflow-y: auto;">
                         <table class="cyber-table" id="v360-quali-table">
                             <thead>
                                 <tr>
-                                    <th>INDICATEUR</th>
-                                    <th>VALEUR CIBLE</th>
-                                    <th>RÉALISÉ</th>
-                                    <th>TAUX %</th>
-                                    <th>RESTE (RAF)</th>
+                                    <th>VENDEUR</th>
+                                    <th>CLTS PROGRAMME</th>
+                                    <th>CLTS FACTURE</th>
+                                    <th>ACM</th>
+                                    <th>TSM</th>
+                                    <th>LINE</th>
+                                    <th>RAF TSM</th>
+                                    <th>RAF ACM</th>
                                 </tr>
                             </thead>
                             <tbody>

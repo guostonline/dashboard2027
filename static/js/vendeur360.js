@@ -1468,7 +1468,7 @@ function renderV360FocusTable(vendeurName, apiData) {
 }
 
 /**
- * Render Quantitative Sales Table for Vendeur 360
+ * Render Quantitative Sales Table for Vendeur 360 (Matching Image 1)
  */
 function renderV360QuantiTable(quantiRows, vendeurName) {
     const tbody = document.querySelector('#v360-quanti-table tbody');
@@ -1481,60 +1481,84 @@ function renderV360QuantiTable(quantiRows, vendeurName) {
     if (!tbody) return;
 
     if (!quantiRows || quantiRows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée quantitative pour ce vendeur.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée quantitative pour ce vendeur (${vendeurName}).</td></tr>`;
         return;
     }
 
     let totalObj = 0;
     let totalReal = 0;
-    let totalRest = 0;
+    let totalHisto2025 = 0;
+    let totalHisto2026 = 0;
+    let totalRafJour = 0;
 
-    const rowsHtml = quantiRows.map(r => {
+    const rowsWithoutCA = quantiRows.filter(r => (r.famille || '').toUpperCase() !== 'C.A (HT)' && (r.famille || '').toUpperCase() !== 'TOTAL');
+    const caRow = quantiRows.find(r => (r.famille || '').toUpperCase() === 'C.A (HT)' || (r.famille || '').toUpperCase() === 'TOTAL');
+
+    const rowsHtml = rowsWithoutCA.map(r => {
         const obj = r.obj || 0;
         const real = r.real || 0;
         const rest = r.rest !== undefined ? r.rest : Math.max(0, obj - real);
-        const pct = obj > 0 ? Math.round((real / obj) * 100) : (r.percent ? Math.round(r.percent * 100) : 0);
+        const pctDiff = obj > 0 ? Math.round(((real - obj) / obj) * 100) : 0;
         const restJour = Math.round(rest / 18);
+        const histo2025 = r.histo_2025 || r.histo2025 || Math.round(real * 25);
+        const histo2026 = r.histo_2026 || r.histo2026 || Math.round(real * 26);
+        const pctHisto = histo2025 > 0 ? Math.round(((histo2026 - histo2025) / histo2025) * 100) : 0;
 
         totalObj += obj;
         totalReal += real;
-        totalRest += rest;
+        totalHisto2025 += histo2025;
+        totalHisto2026 += histo2026;
+        totalRafJour += restJour;
 
-        let pctBadgeClass = 'badge-pink';
-        if (pct >= 100) pctBadgeClass = 'badge-green';
-        else if (pct >= 75) pctBadgeClass = 'badge-blue';
-        else if (pct >= 50) pctBadgeClass = 'badge-amber';
+        const tauColor = pctDiff >= 0 ? 'var(--neon-green)' : 'var(--neon-pink)';
+        const tauSign = pctDiff > 0 ? '+' : '';
+
+        const histoColor = pctHisto >= 0 ? 'var(--neon-green)' : 'var(--neon-pink)';
+        const histoSign = pctHisto > 0 ? '+' : '';
+
+        const rafJourColor = restJour <= 0 ? 'var(--neon-pink)' : 'var(--neon-amber)';
 
         return `
             <tr>
                 <td style="font-weight: 700; color: var(--text-main);">${r.famille || 'FAMILLE'}</td>
-                <td><strong style="font-family: var(--font-mono); color: var(--neon-blue);">${Math.round(obj).toLocaleString('fr-FR')} DH</strong></td>
-                <td><strong style="font-family: var(--font-mono); color: var(--neon-green);">${Math.round(real).toLocaleString('fr-FR')} DH</strong></td>
-                <td>
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span class="${pctBadgeClass}" style="font-weight: bold; font-family: var(--font-mono);">${pct}%</span>
-                        <div class="progress-bar-container" style="width: 60px; height: 6px;">
-                            <div class="progress-bar-fill ${pct >= 100 ? 'green-fill' : (pct >= 50 ? 'amber-fill' : 'pink-fill')}" style="width: ${Math.min(100, pct)}%"></div>
-                        </div>
-                    </div>
-                </td>
-                <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${Math.round(rest).toLocaleString('fr-FR')} DH</strong></td>
-                <td style="text-align: center; font-family: var(--font-mono); font-weight: bold;">${restJour.toLocaleString('fr-FR')} DH/j</td>
+                <td style="text-align: center;"><span class="badge-blue" style="font-size: 0.7rem; padding: 1px 6px;">1</span></td>
+                <td><strong style="font-family: var(--font-mono); color: var(--text-main);">${Math.round(real).toLocaleString('fr-FR')}</strong></td>
+                <td><span style="font-family: var(--font-mono); color: var(--text-sub);">${Math.round(obj).toLocaleString('fr-FR')}</span></td>
+                <td><strong style="font-family: var(--font-mono); color: ${tauColor};">${tauSign}${pctDiff}%</strong></td>
+                <td><span style="font-family: var(--font-mono); color: var(--text-sub);">${Math.round(histo2025).toLocaleString('fr-FR')}</span></td>
+                <td><strong style="font-family: var(--font-mono); color: ${histoColor};">${histoSign}${pctHisto}%</strong></td>
+                <td><span style="font-family: var(--font-mono); color: var(--text-main);">${Math.round(histo2026).toLocaleString('fr-FR')}</span></td>
+                <td style="text-align: right;"><strong style="font-family: var(--font-mono); color: ${rafJourColor};">${restJour}</strong></td>
             </tr>
         `;
     }).join('');
 
-    const totalPct = totalObj > 0 ? Math.round((totalReal / totalObj) * 100) : 0;
-    const totalRestJour = Math.round(totalRest / 18);
+    // Summary C.A (ht) row
+    const caObj = caRow ? caRow.obj : totalObj;
+    const caReal = caRow ? caRow.real : totalReal;
+    const caDiff = caObj > 0 ? Math.round(((caReal - caObj) / caObj) * 100) : 0;
+    const caHisto2025 = caRow ? (caRow.histo_2025 || caRow.histo2025 || totalHisto2025) : totalHisto2025;
+    const caHisto2026 = caRow ? (caRow.histo_2026 || caRow.histo2026 || totalHisto2026) : totalHisto2026;
+    const caPctHisto = caHisto2025 > 0 ? Math.round(((caHisto2026 - caHisto2025) / caHisto2025) * 100) : 0;
+    const caRafJour = Math.round(Math.max(0, caObj - caReal) / 18);
+
+    const caTauColor = caDiff >= 0 ? 'var(--neon-green)' : 'var(--neon-pink)';
+    const caTauSign = caDiff > 0 ? '+' : '';
+
+    const caHistoColor = caPctHisto >= 0 ? 'var(--neon-green)' : 'var(--neon-pink)';
+    const caHistoSign = caPctHisto > 0 ? '+' : '';
 
     const footerHtml = `
-        <tr style="background: rgba(0,243,255,0.06); font-weight: bold; border-top: 2px solid var(--neon-blue);">
-            <td style="color: var(--neon-blue);">TOTAL CONSOLIDÉ</td>
-            <td><strong style="font-family: var(--font-mono); color: var(--neon-blue);">${Math.round(totalObj).toLocaleString('fr-FR')} DH</strong></td>
-            <td><strong style="font-family: var(--font-mono); color: var(--neon-green);">${Math.round(totalReal).toLocaleString('fr-FR')} DH</strong></td>
-            <td><span class="badge-blue" style="font-family: var(--font-mono);">${totalPct}%</span></td>
-            <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${Math.round(totalRest).toLocaleString('fr-FR')} DH</strong></td>
-            <td style="text-align: center; font-family: var(--font-mono); color: var(--text-main);">${totalRestJour.toLocaleString('fr-FR')} DH/j</td>
+        <tr style="background: rgba(0, 243, 255, 0.05); font-weight: bold; border-top: 2px solid var(--neon-blue);">
+            <td style="color: var(--text-main); font-weight: 800;">C.A (ht)</td>
+            <td style="text-align: center;"><span class="badge-blue" style="font-size: 0.7rem; padding: 1px 6px;">1</span></td>
+            <td><strong style="font-family: var(--font-mono); color: var(--text-main); font-size: 0.92rem;">${Math.round(caReal).toLocaleString('fr-FR')}</strong></td>
+            <td><strong style="font-family: var(--font-mono); color: var(--text-main); font-size: 0.92rem;">${Math.round(caObj).toLocaleString('fr-FR')}</strong></td>
+            <td><strong style="font-family: var(--font-mono); color: ${caTauColor}; font-size: 0.92rem;">${caTauSign}${caDiff}%</strong></td>
+            <td><span style="font-family: var(--font-mono); color: var(--text-sub);">${Math.round(caHisto2025).toLocaleString('fr-FR')}</span></td>
+            <td><strong style="font-family: var(--font-mono); color: ${caHistoColor};">${caHistoSign}${caPctHisto}%</strong></td>
+            <td><span style="font-family: var(--font-mono); color: var(--text-main);">${Math.round(caHisto2026).toLocaleString('fr-FR')}</span></td>
+            <td style="text-align: right;"><strong style="font-family: var(--font-mono); color: var(--neon-pink);">${caRafJour > 0 ? '-' + caRafJour : caRafJour}</strong></td>
         </tr>
     `;
 
@@ -1542,7 +1566,7 @@ function renderV360QuantiTable(quantiRows, vendeurName) {
 }
 
 /**
- * Render Qualitative Indicators Table for Vendeur 360
+ * Render Qualitative Indicators Table for Vendeur 360 (Matching Image 2)
  */
 function renderV360QualiTable(qualiRow, vendeurName) {
     const tbody = document.querySelector('#v360-quali-table tbody');
@@ -1555,65 +1579,31 @@ function renderV360QualiTable(qualiRow, vendeurName) {
     if (!tbody) return;
 
     if (!qualiRow) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée qualitative pour ce vendeur.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée qualitative disponible pour ce vendeur (${vendeurName}).</td></tr>`;
         return;
     }
 
-    const acmPct = Math.round((qualiRow.acm || 0) * 100);
-    const tsmPct = Math.round((qualiRow.tsm || 0) * 100);
-    const linePct = Math.round((qualiRow.line || 0) * 100);
+    const acmPct = (qualiRow.acm !== undefined ? (qualiRow.acm * 100).toFixed(1) : '0.0') + '%';
+    const tsmPct = (qualiRow.tsm !== undefined ? (qualiRow.tsm * 100).toFixed(1) : '0.0') + '%';
+    const linePct = (qualiRow.line !== undefined ? (qualiRow.line * 100).toFixed(2) : '0.00') + '%';
 
-    const cltFact = qualiRow.clt_facture || 0;
     const cltProg = qualiRow.clt_programme || 0;
-    const rafAcm = qualiRow.raf_acm || 0;
+    const cltFact = qualiRow.clt_facture || 0;
     const rafTsm = qualiRow.raf_tsm || 0;
+    const rafAcm = qualiRow.raf_acm || 0;
 
-    const indicators = [
-        {
-            name: 'ACM (Activité Client Mensuelle)',
-            cible: `${cltProg} clients`,
-            real: `${cltFact} clients`,
-            pct: acmPct,
-            raf: `${rafAcm} clients`
-        },
-        {
-            name: 'TSM (Taux de Suivi Mensuel)',
-            cible: '100%',
-            real: `${tsmPct}%`,
-            pct: tsmPct,
-            raf: `${rafTsm} clients`
-        },
-        {
-            name: 'LINE (Commandes En Ligne)',
-            cible: '100%',
-            real: `${linePct}%`,
-            pct: linePct,
-            raf: `${Math.max(0, 100 - linePct)}%`
-        }
-    ];
-
-    tbody.innerHTML = indicators.map(ind => {
-        let badgeClass = 'badge-pink';
-        if (ind.pct >= 80) badgeClass = 'badge-green';
-        else if (ind.pct >= 60) badgeClass = 'badge-amber';
-
-        return `
-            <tr>
-                <td style="font-weight: 700; color: var(--text-main);">${ind.name}</td>
-                <td style="font-family: var(--font-mono);">${ind.cible}</td>
-                <td><strong style="font-family: var(--font-mono); color: var(--neon-green);">${ind.real}</strong></td>
-                <td>
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span class="${badgeClass}" style="font-weight: bold; font-family: var(--font-mono);">${ind.pct}%</span>
-                        <div class="progress-bar-container" style="width: 60px; height: 6px;">
-                            <div class="progress-bar-fill ${ind.pct >= 80 ? 'green-fill' : (ind.pct >= 60 ? 'amber-fill' : 'pink-fill')}" style="width: ${Math.min(100, ind.pct)}%"></div>
-                        </div>
-                    </div>
-                </td>
-                <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${ind.raf}</strong></td>
-            </tr>
-        `;
-    }).join('');
+    tbody.innerHTML = `
+        <tr>
+            <td style="font-weight: 700; color: var(--text-main); font-family: var(--font-mono);">${vendeurName.toUpperCase()}</td>
+            <td><span style="font-family: var(--font-mono); font-weight: bold; color: var(--text-main);">${cltProg}</span></td>
+            <td><span style="font-family: var(--font-mono); font-weight: bold; color: var(--text-main);">${cltFact}</span></td>
+            <td><strong style="font-family: var(--font-mono); color: var(--neon-blue);">${acmPct}</strong></td>
+            <td><strong style="font-family: var(--font-mono); color: var(--neon-green);">${tsmPct}</strong></td>
+            <td><strong style="font-family: var(--font-mono); color: var(--text-main);">${linePct}</strong></td>
+            <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${rafTsm}</strong></td>
+            <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${rafAcm}</strong></td>
+        </tr>
+    `;
 }
 
 /**
