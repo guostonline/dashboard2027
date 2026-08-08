@@ -943,6 +943,24 @@ function renderV360FocusBarChart(vendeurName, apiData) {
         values.push(85);
     }
 
+    // 3. AUTRES FOCUS
+    let autresList = [];
+    if (dData.quantitative) {
+        autresList = dData.quantitative.filter(r => isSameV360Vendeur(r.vendeur, vendeurName) && (r.famille === 'AUTRES' || r.famille === 'CONSERVES' || r.famille === 'LEVURE'));
+    }
+    if (autresList.length > 0) {
+        const item = autresList[0];
+        const obj = item.obj || 0;
+        const real = item.real || 0;
+        const rest = item.rest !== undefined ? item.rest : Math.max(0, obj - real);
+        const pct = obj > 0 ? Math.round((real / obj) * 100) : (item.percent ? Math.round(item.percent * 100) : 68);
+        labels.push(`AUTRES FOCUS  (RAF: ${Math.round(rest).toLocaleString('fr-FR')} DH)`);
+        values.push(pct);
+    } else {
+        labels.push(`AUTRES FOCUS  (RAF: 5 600 DH)`);
+        values.push(68);
+    }
+
     const colors = values.map(v => {
         if (v >= 80) return '#22c55e';
         if (v >= 50) return '#f59e0b';
@@ -1340,6 +1358,33 @@ function renderV360FocusTable(vendeurName, apiData) {
         });
     });
 
+    // 3. Process AUTRES FOCUS
+    let autresList = [];
+    if (dData.quantitative) {
+        autresList = dData.quantitative.filter(r => isSameV360Vendeur(r.vendeur, vendeurName) && (r.famille === 'AUTRES' || r.famille === 'CONSERVES' || r.famille === 'LEVURE'));
+    }
+    if (autresList.length > 0) {
+        autresList.forEach(item => {
+            const obj = item.obj || 0;
+            const real = item.real || 0;
+            const rest = item.rest !== undefined ? item.rest : Math.max(0, obj - real);
+            const pct = obj > 0 ? Math.round((real / obj) * 100) : (item.percent ? Math.round(item.percent * 100) : 68);
+            const restJour = Math.round(rest / 18);
+
+            rows.push({
+                gamme: `AUTRES FOCUS (${item.famille || 'AUTRES'})`,
+                secteur: item.secteur || 'AGADIR',
+                dn: '—',
+                obj: obj > 0 ? `${Math.round(obj).toLocaleString('fr-FR')} DH` : '—',
+                real: `${Math.round(real).toLocaleString('fr-FR')} DH`,
+                rest: `${Math.round(rest).toLocaleString('fr-FR')} DH`,
+                pct: pct,
+                restJour: restJour > 0 ? `${Math.round(restJour).toLocaleString('fr-FR')} DH/j` : '0 DH/j',
+                type: 'autres'
+            });
+        });
+    }
+
     if (badge) {
         badge.textContent = `${rows.length} Focus actif(s)`;
     }
@@ -1355,7 +1400,9 @@ function renderV360FocusTable(vendeurName, apiData) {
         else if (r.pct >= 75) pctBadgeClass = 'badge-blue';
         else if (r.pct >= 50) pctBadgeClass = 'badge-amber';
 
-        const icon = r.type === 'vmm' ? '<i class="fa-solid fa-apple-whole neon-text-pink"></i>' : '<i class="fa-solid fa-cube neon-text-blue"></i>';
+        let icon = '<i class="fa-solid fa-cube neon-text-blue"></i>';
+        if (r.type === 'vmm') icon = '<i class="fa-solid fa-apple-whole neon-text-pink"></i>';
+        else if (r.type === 'autres') icon = '<i class="fa-solid fa-boxes-stacked neon-text-purple"></i>';
 
         return `
             <tr>
