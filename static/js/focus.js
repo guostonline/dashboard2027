@@ -1223,9 +1223,9 @@
     function renderFocusView() {
         if (!focusData) return;
 
-        const cohort = currentFocusType === 'GLACE' ? focusData.glace : focusData.tomate;
-        let reps = cohort.reps || [];
-        const cdz = cohort.cdz || [];
+        const cohort = (focusData && (currentFocusType === 'GLACE' ? focusData.glace : focusData.tomate)) || { reps: [], cdz: [] };
+        let reps = (cohort && cohort.reps) ? cohort.reps : [];
+        const cdz = (cohort && cohort.cdz) ? cohort.cdz : [];
         
         // Fallback to objectives if rankings are empty
         if (reps.length === 0 && focusData.objectives && focusData.objectives.length > 0) {
@@ -1770,8 +1770,8 @@
         const textColor = isWhiteMode ? '#334155' : '#e2e8f0';
 
         // Choose GLACE or TOMATE data
-        const history = currentFocusType === 'GLACE' ? focusHistoryData.glace : focusHistoryData.tomate;
-        const reps = history.reps || [];
+        const history = (focusHistoryData && (currentFocusType === 'GLACE' ? focusHistoryData.glace : focusHistoryData.tomate)) || { reps: [], cdz: [] };
+        const reps = (history && history.reps) ? history.reps : [];
 
         // 1. Extract and sort unique dates
         const dates = [...new Set(reps.map(r => r.upload_date.substring(0, 10)))].sort();

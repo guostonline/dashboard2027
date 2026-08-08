@@ -113,6 +113,7 @@
                     const som = (data.focus_som_data || []).filter(r => !dVal || r.date === dVal);
                     const setObj = (data.settings || []).find(r => r.date === dVal) || {};
                     const meta = (data.file_metadata || []).find(r => r.date === dVal) || null;
+                    const restDays = setObj.rest_days || 20;
 
                     body = {
                         status: 'success',
@@ -120,8 +121,26 @@
                         qualitative: qual,
                         focus_vmm: vmm,
                         focus_som: som,
-                        rest_days: setObj.rest_days || 20,
+                        rest_days: restDays,
+                        workdays: { total: 24, elapsed: Math.max(0, 24 - restDays), rest: restDays },
                         file_metadata: meta
+                    };
+                } else if (path.includes('/api/focus')) {
+                    const glaceReps = (data.focus_vmm_data || []).map(r => ({ ...r, upload_date: r.date || '2026-06-08' }));
+                    const tomateReps = (data.focus_som_data || []).map(r => ({ ...r, upload_date: r.date || '2026-06-08' }));
+                    const cdzData = data.focus_cdz_rankings || [];
+                    const objData = data.focus_objectives || [];
+                    const focusPayload = {
+                        glace: { reps: glaceReps, cdz: cdzData },
+                        tomate: { reps: tomateReps, cdz: cdzData },
+                        objectives: objData,
+                        workdays: { total: 24, elapsed: 20, rest: 4 },
+                        total_days: 24
+                    };
+                    body = {
+                        status: 'success',
+                        data: focusPayload,
+                        ...focusPayload
                     };
                 } else if (path.includes('/api/fdv')) {
                     body = { status: 'success', fdv: data.fdv || [], data: data.fdv || [] };
