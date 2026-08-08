@@ -190,6 +190,13 @@ def index():
     all_vendeurs = get_all_vendeurs_from_db()
     return render_template("index.html", theme=theme, light_mode=light_mode, all_vendeurs=all_vendeurs)
 
+@app.route("/login")
+def login_page():
+    config = load_config()
+    theme = config.get("theme", "theme-1")
+    light_mode = config.get("light_mode", False)
+    return render_template("login.html", theme=theme, light_mode=light_mode)
+
 @app.route("/details")
 @app.route("/vendeur360")
 def details():
