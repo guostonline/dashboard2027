@@ -12396,6 +12396,10 @@ async function loadClientsData() {
             fetch('/api/clients_full/filters?_=' + Date.now()).then(r => r.json()),
         ]);
 
+        if (listRes.status === 'offline') {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;"><i class="fa-solid fa-cloud" style="font-size: 1.5rem; margin-bottom: 0.5rem; display: block; color: var(--neon-blue);"></i> Mode statique / Démonstration (Netlify)<br><small>Pour les données clients en direct, le serveur Flask local (port 5000) est utilisé.</small></td></tr>`;
+            return;
+        }
         if (listRes.status !== 'success') {
             throw new Error(listRes.message || 'Erreur inconnue');
         }
