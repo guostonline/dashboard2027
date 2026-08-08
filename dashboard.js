@@ -7067,6 +7067,13 @@ function updateDropdownHighlight(items) {
 
 // Cybernetic Toast notification system
 function showToast(message, type = 'info', duration = 0) {
+    if (!message) return;
+    const msgStr = String(message);
+    if (msgStr.includes("Unexpected token") || msgStr.includes("<!DOCTYPE") || msgStr.includes("JSON.parse") || msgStr.includes("Failed to execute 'json'")) {
+        console.warn("Suppressed static API HTML response toast:", msgStr);
+        return;
+    }
+
     // 1. Get or create toast container
     let container = document.getElementById('global-toast-container');
     if (!container) {

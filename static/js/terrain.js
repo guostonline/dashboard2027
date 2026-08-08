@@ -86,7 +86,13 @@ function fetchTerrainData() {
     }
 
     fetch('/api/terrain')
-        .then(res => res.json())
+        .then(res => {
+            const ct = res.headers.get('content-type') || '';
+            if (!res.ok || ct.includes('text/html')) {
+                return { status: 'offline' };
+            }
+            return res.json().catch(() => ({ status: 'offline' }));
+        })
         .then(res => {
             if (res.status === 'success') {
                 terrainRawData = res.data;
@@ -109,6 +115,11 @@ function fetchTerrainData() {
                 
                 // Render view
                 renderTerrainView();
+            } else if (res.status === 'offline') {
+                const tableBody = document.querySelector('#terrain-table tbody');
+                if (tableBody) {
+                    tableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;"><i class="fa-solid fa-cloud" style="font-size: 1.5rem; margin-bottom: 0.5rem; display: block; color: var(--neon-blue);"></i> Mode statique / Démonstration (Netlify)<br><small>Pour les données temps réel en direct, le serveur Flask local (port 5000) est utilisé.</small></td></tr>`;
+                }
             } else {
                 showTerrainError(res.message || "Erreur lors de la récupération des données.");
             }
