@@ -3205,7 +3205,9 @@ function fetchDashboardData() {
                 populateCategoryDropdown();
                 updateDashboard();
                 populateFilters();
-                prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS`;
+                if (prorataLabelEl && dashboardData && dashboardData.workdays) {
+                    prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS`;
+                }
                 const headerElapsedInput = document.getElementById('header-elapsed-days');
                 if (headerElapsedInput && dashboardData && dashboardData.workdays) {
                     headerElapsedInput.value = dashboardData.workdays.elapsed;
@@ -4361,7 +4363,9 @@ function openSettingsModal() {
         return;
     }
     
-    inputRestDays.value = dashboardData.workdays.rest;
+    if (inputRestDays && dashboardData && dashboardData.workdays) {
+        inputRestDays.value = dashboardData.workdays.rest;
+    }
     
     const modalThemeSelect = document.getElementById('modal-theme-select');
     if (modalThemeSelect) {
@@ -4415,8 +4419,8 @@ function openSettingsModal() {
         });
     }
     
-    infoTotalDays.innerText = dashboardData.workdays.total;
-    infoElapsedDays.innerText = dashboardData.workdays.elapsed;
+    if (infoTotalDays && dashboardData && dashboardData.workdays) infoTotalDays.innerText = dashboardData.workdays.total;
+    if (infoElapsedDays && dashboardData && dashboardData.workdays) infoElapsedDays.innerText = dashboardData.workdays.elapsed;
 
     // Populate animations checkbox state
     const configAnimCheckbox = document.getElementById('toggle-animations-config');
@@ -4953,7 +4957,7 @@ function updateDashboard() {
     }
 
     // Compare actual achievement with elapsed time prorata
-    const wDays = dashboardData.workdays;
+    const wDays = (dashboardData && dashboardData.workdays) || { total: 24, elapsed: 20, rest: 4 };
     const elapsedRatio = wDays.elapsed / wDays.total; 
     const elapsedPct = Math.round(elapsedRatio * 100);
     const diff = achievementRate - elapsedPct;
@@ -7709,7 +7713,9 @@ function runTimelapseStep() {
                 updateDashboard();
                 populateFilters();
                 
-                prorataLabelEl.innerText = `TIMELAPSE: ${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} J`;
+                if (prorataLabelEl && dashboardData && dashboardData.workdays) {
+                    prorataLabelEl.innerText = `TIMELAPSE: ${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} J`;
+                }
                 
                 // Move to next index for the next frame
                 timelapseCurrentIndex++;
