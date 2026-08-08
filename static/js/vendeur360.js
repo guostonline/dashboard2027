@@ -208,6 +208,32 @@ async function fetchVendeurQuantiQuali(vendeurName) {
             }));
         }
 
+        // If team mode or empty single-vendor quali, aggregate team qualitative averages
+        if (!quali && apiData.data.qualitative && apiData.data.qualitative.length > 0) {
+            let totalAcm = 0, totalTsm = 0, totalLine = 0;
+            let totalCltProg = 0, totalCltFact = 0, totalRafTsm = 0, totalRafAcm = 0;
+            const count = apiData.data.qualitative.length;
+            apiData.data.qualitative.forEach(r => {
+                totalAcm += (r.acm || 0);
+                totalTsm += (r.tsm || 0);
+                totalLine += (r.line || 0);
+                totalCltProg += (r.clt_programme || 0);
+                totalCltFact += (r.clt_facture || 0);
+                totalRafTsm += (r.raf_tsm || 0);
+                totalRafAcm += (r.raf_acm || 0);
+            });
+            quali = {
+                vendeur: vendeurName || 'CHAKIB EQUIPE',
+                acm: count > 0 ? totalAcm / count : 0,
+                tsm: count > 0 ? totalTsm / count : 0,
+                line: count > 0 ? totalLine / count : 0,
+                clt_programme: totalCltProg,
+                clt_facture: totalCltFact,
+                raf_tsm: totalRafTsm,
+                raf_acm: totalRafAcm
+            };
+        }
+
         // Store on current360Data for theme-toggle re-render
         if (current360Data) {
             current360Data._quanti = quanti;
@@ -602,6 +628,13 @@ function renderV360QuantiChart(quantiRows) {
 
     if (!quantiRows || quantiRows.length === 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.fillStyle = isLight ? '#64748b' : '#94a3b8';
+        ctx.font = 'bold 12px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Chargement ou aucune donnée quantitative', canvas.width / 2, canvas.height / 2);
+        ctx.restore();
         return;
     }
 
@@ -748,6 +781,13 @@ function renderV360QualiChart(qualiRow) {
 
     if (!qualiRow) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.fillStyle = isLight ? '#64748b' : '#94a3b8';
+        ctx.font = 'bold 12px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Chargement ou aucune donnée qualitative', canvas.width / 2, canvas.height / 2);
+        ctx.restore();
         return;
     }
 
