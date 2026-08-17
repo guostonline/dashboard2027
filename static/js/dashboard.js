@@ -15665,9 +15665,18 @@ function renderVisitesTabContent(hasVendorSelected) {
                     const pct = reg > 0 ? Math.min(100, Math.round((vis / reg) * 100)) : 0;
                     const s = t.statistics || {};
                     
+                    const tDate = t.date && t.date !== '-' ? t.date : '';
                     return `
                         <tr>
-                            <td style="font-weight: 600; color: var(--neon-blue);">${t.tournee || 'N/A'}</td>
+                            <td style="white-space: nowrap;">
+                                ${tDate ? `
+                                <div style="font-weight: 700; color: var(--neon-blue); font-size: 0.8rem; line-height: 1.2; margin-bottom: 2px;">
+                                    <i class="fa-regular fa-calendar-days" style="margin-right: 0.35rem;"></i>${tDate}
+                                </div>` : ''}
+                                <div style="font-weight: 600; color: ${tDate ? 'var(--text-main)' : 'var(--neon-blue)'}; font-size: 0.82rem;">
+                                    <i class="fa-solid fa-route" style="color: var(--neon-pink); margin-right: 0.25rem; font-size: 0.75rem;"></i>${t.tournee || 'N/A'}
+                                </div>
+                            </td>
                             <td>${t.secteur || 'N/A'}</td>
                             <td>${t.vendeur || 'N/A'}</td>
                             <td style="text-align: center;">${reg}</td>
@@ -15741,7 +15750,10 @@ function renderVisitesTabContent(hasVendorSelected) {
                             <td>${v.vendeur || 'N/A'}</td>
                             <td style="font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${v.client_code || 'N/A'}</td>
                             <td style="font-weight: 500;">${v.client_nom || 'N/A'}</td>
-                            <td>${v.tournee || 'N/A'}</td>
+                            <td>
+                                ${v.date_visite ? `<div style="font-size: 0.72rem; color: var(--neon-blue); font-family: var(--font-mono); font-weight: 600; line-height: 1.1; margin-bottom: 2px;"><i class="fa-regular fa-calendar-days"></i> ${v.date_visite}</div>` : ''}
+                                <div style="font-weight: 500;">${v.tournee || 'N/A'}</div>
+                            </td>
                             <td style="text-align: center; font-family: var(--font-mono);">${dureeStr}</td>
                             <td style="text-align: center; font-family: var(--font-mono);">${v.distance ? v.distance + ' m' : '--'}</td>
                             <td><span class="badge ${motifClass}">${motif}</span></td>

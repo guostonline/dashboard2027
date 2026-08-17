@@ -1932,7 +1932,10 @@ function renderV360JournalVisits(visitsList, selectedTournee, fallbackVendeur) {
                 <td>${v.vendeur || fallbackVendeur || 'N/A'}</td>
                 <td style="font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${v.client_code || 'N/A'}</td>
                 <td style="font-weight: 500;">${v.client_nom || 'N/A'}</td>
-                <td>${v.tournee || 'N/A'}</td>
+                <td>
+                    ${v.date_visite ? `<div style="font-size: 0.72rem; color: var(--neon-blue); font-family: var(--font-mono); font-weight: 600; line-height: 1.1; margin-bottom: 2px;"><i class="fa-regular fa-calendar-days"></i> ${v.date_visite}</div>` : ''}
+                    <div style="font-weight: 500;">${v.tournee || 'N/A'}</div>
+                </td>
                 <td style="text-align: center; font-family: var(--font-mono);">${dureeStr}</td>
                 <td style="text-align: center; font-family: var(--font-mono);">${v.distance ? v.distance + ' m' : '--'}</td>
                 <td><span class="badge ${motifClass}">${motif}</span></td>
