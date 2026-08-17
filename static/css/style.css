@@ -1180,8 +1180,17 @@ body.light-mode .bg-vignette {
     scrollbar-color: var(--border-color) transparent;
 }
 
+/* EXTEND DASHBOARD TABLES WITHOUT VERTICAL SCROLLBAR */
+#dashboard-view .table-container,
+#dashboard-view .table-card .table-container,
 #vendeurs-scorecard-card,
-#vendeurs-scorecard-card .table-container {
+#vendeurs-scorecard-card .table-container,
+#quanti-table-card,
+#quanti-table-card .table-container,
+#quali-table-card,
+#quali-table-card .table-container,
+#dashboard-terrain-anomalies-card,
+#dashboard-terrain-anomalies-card .table-container {
     max-height: none !important;
     min-height: 0 !important;
     height: auto !important;

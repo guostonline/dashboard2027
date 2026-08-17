@@ -18,7 +18,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=3.3">
+    <link rel="stylesheet" href="/static/css/style.css?v=3.4">
     <!-- Global Safe Fetch Interceptor for Static Netlify Host -->
     <script>
         (function() {
@@ -770,12 +770,12 @@
                 </div>
 
                 <!-- DETAILED DATA TABLES -->
-                <div class="cyber-card table-card" id="quanti-table-card">
+                <div class="cyber-card table-card" id="quanti-table-card" style="max-height: none !important; height: auto !important; overflow: visible !important;">
                     <div class="card-edge"></div>
                     <div class="card-header">
                         <span class="tech-label"><i class="fa-solid fa-list-check"></i> ANALYSE PAR FAMILLE DE PRODUIT (QUANTITATIF)</span>
                     </div>
-                    <div class="table-container">
+                    <div class="table-container" style="max-height: none !important; min-height: 0 !important; height: auto !important; overflow-y: visible !important; overflow-x: auto;">
                         <table class="cyber-table" id="quanti-table">
                             <thead>
                                 <tr>
@@ -798,12 +798,12 @@
                 </div>
 
                 <!-- QUALITATIVE TABLE PANEL -->
-                <div class="cyber-card table-card" id="quali-table-card">
+                <div class="cyber-card table-card" id="quali-table-card" style="max-height: none !important; height: auto !important; overflow: visible !important;">
                     <div class="card-edge"></div>
                     <div class="card-header">
                         <span class="tech-label"><i class="fa-solid fa-award"></i> PERFORMANCE QUALITATIVE (KPI VISITES/FACTURES)</span>
                     </div>
-                    <div class="table-container">
+                    <div class="table-container" style="max-height: none !important; min-height: 0 !important; height: auto !important; overflow-y: visible !important; overflow-x: auto;">
                         <table class="cyber-table" id="quali-table">
                             <thead>
                                 <tr>
@@ -828,7 +828,7 @@
         </div>
 
         <!-- ANOMALIES TERRAIN PANEL ON DASHBOARD -->
-        <div class="cyber-card table-card" id="dashboard-terrain-anomalies-card" style="margin-top: 1.5rem;">
+        <div class="cyber-card table-card" id="dashboard-terrain-anomalies-card" style="margin-top: 1.5rem; max-height: none !important; height: auto !important; overflow: visible !important;">
             <div class="card-edge"></div>
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                 <div style="display: flex; align-items: center; gap: 0.6rem;">
@@ -849,7 +849,7 @@
                 <div><span style="color: var(--text-muted);">Total rapports manqués :</span> <strong id="dashboard-anomalies-kpi-total-missing" style="color: var(--neon-amber);">0</strong></div>
             </div>
 
-            <div class="table-container">
+            <div class="table-container" style="max-height: none !important; min-height: 0 !important; height: auto !important; overflow-y: visible !important; overflow-x: auto;">
                 <table class="cyber-table" id="dashboard-terrain-anomalies-table">
                     <thead>
                         <tr>
