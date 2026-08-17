@@ -437,7 +437,7 @@ function renderV360TourneesTable(tournees, fallbackVendeur) {
 
     tbody.innerHTML = '';
     if (!tournees || tournees.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--text-sub); padding: 2rem;">Aucune tournée enregistrée.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-sub); padding: 2rem;">Aucune tournée enregistrée.</td></tr>`;
         return;
     }
 
@@ -450,14 +450,11 @@ function renderV360TourneesTable(tournees, fallbackVendeur) {
         const ferme = s.magasin_ferme !== undefined ? s.magasin_ferme : (t.magasin_ferme || 0);
         const absent = s.responsable_absent !== undefined ? s.responsable_absent : (t.responsable_absent || 0);
         const stock = s.stock_suffisant !== undefined ? s.stock_suffisant : (t.stock_suffisant || 0);
-        const vName = t.vendeur || fallbackVendeur || 'N/A';
         const tourneeAttr = (t.tournee || '').replace(/"/g, '&quot;');
 
         return `
             <tr>
                 <td style="font-weight: 600; color: var(--neon-blue);">${t.tournee || 'N/A'}</td>
-                <td>${t.secteur || 'N/A'}</td>
-                <td>${vName}</td>
                 <td style="text-align: center;">${reg}</td>
                 <td style="text-align: center; font-weight: bold;">${vis}</td>
                 <td style="text-align: center; color: var(--neon-green); font-weight: bold;">${ok}</td>
@@ -1951,7 +1948,7 @@ async function fetchAndRenderVendeurTournees(vendeurName) {
     if (!vendeurName || !tableBody) return;
 
     try {
-        tableBody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 1.5rem; color: var(--neon-blue);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement des tournées...</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding: 1.5rem; color: var(--neon-blue);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement des tournées...</td></tr>`;
         if (journalTableBody) {
             journalTableBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 1.5rem; color: var(--neon-blue);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement du journal des visites...</td></tr>`;
         }
@@ -2023,7 +2020,7 @@ async function fetchAndRenderVendeurTournees(vendeurName) {
 
     } catch (e) {
         console.error("Error loading v360 tournées table:", e);
-        tableBody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--neon-pink);">Erreur de chargement des tournées.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--neon-pink);">Erreur de chargement des tournées.</td></tr>`;
     }
 }
 
