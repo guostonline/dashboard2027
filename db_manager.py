@@ -41,24 +41,87 @@ def get_dynamic_workdays(date_str):
         "rest": remaining_workdays
     }
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.db")
-UPLOADS_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads.db")
-CV_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clients_vendeurs.db")
+import shutil
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def _is_dir_writable(dpath):
+    try:
+        test_file = os.path.join(dpath, '.test_writable_tmp')
+        with open(test_file, 'w') as f:
+            f.write('1')
+        os.remove(test_file)
+        return True
+    except Exception:
+        return False
+
+# Detect Serverless (Vercel, AWS Lambda, or read-only execution directory)
+IS_SERVERLESS = bool(
+    os.environ.get("VERCEL") or 
+    os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or 
+    os.environ.get("SERVERLESS") or 
+    os.environ.get("USE_TMP_DB") or 
+    not _is_dir_writable(ROOT_DIR)
+)
+
+if IS_SERVERLESS:
+    DB_DIR = os.environ.get("TMPDIR", "/tmp")
+    try:
+        os.makedirs(DB_DIR, exist_ok=True)
+    except Exception:
+        pass
+    
+    # Initialize /tmp database copies from bundled baseline files if not already present
+    for db_file in ["database.db", "uploads.db", "clients_vendeurs.db"]:
+        src_path = os.path.join(ROOT_DIR, db_file)
+        dst_path = os.path.join(DB_DIR, db_file)
+        if os.path.exists(src_path):
+            if not os.path.exists(dst_path) or os.path.getsize(dst_path) == 0:
+                try:
+                    shutil.copyfile(src_path, dst_path)
+                    try:
+                        os.chmod(dst_path, 0o666)
+                    except Exception:
+                        pass
+                    print(f"[DB] Initialized {db_file} in {DB_DIR} from {src_path}", flush=True)
+                except Exception as e:
+                    print(f"[DB] Notice initializing {db_file}: {e}", flush=True)
+else:
+    DB_DIR = ROOT_DIR
+
+DB_PATH = os.environ.get("DB_PATH", os.path.join(DB_DIR, "database.db"))
+UPLOADS_DB_PATH = os.environ.get("UPLOADS_DB_PATH", os.path.join(DB_DIR, "uploads.db"))
+CV_DB_PATH = os.environ.get("CV_DB_PATH", os.path.join(DB_DIR, "clients_vendeurs.db"))
+
+def _configure_connection(conn):
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA busy_timeout = 60000;")
+        conn.execute("PRAGMA temp_store = MEMORY;")
+    except Exception:
+        pass
+    try:
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+    except Exception:
+        try:
+            conn.execute("PRAGMA journal_mode = DELETE;")
+        except Exception:
+            pass
+    return conn
 
 def get_uploads_db_connection():
-    conn = sqlite3.connect(UPLOADS_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    conn = sqlite3.connect(UPLOADS_DB_PATH, timeout=60.0, check_same_thread=False)
+    return _configure_connection(conn)
 
 def get_cv_db_connection():
     """Connection to clients_vendeurs.db (vendeurs, clients, localites, secteurs)."""
-    conn = sqlite3.connect(CV_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    conn = sqlite3.connect(CV_DB_PATH, timeout=60.0, check_same_thread=False)
+    return _configure_connection(conn)
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect(DB_PATH, timeout=60.0, check_same_thread=False)
+    _configure_connection(conn)
     try:
         conn.execute(f"ATTACH DATABASE '{UPLOADS_DB_PATH}' AS uploads_db")
     except Exception:
@@ -259,6 +322,9 @@ def init_uploads_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_visites_db_vendeur ON visites_rapports(vendeur)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_visites_db_date ON visites_rapports(date_visite)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_visites_db_client ON visites_rapports(client_code)")
 
     # 11. Stock
     cursor.execute("""
@@ -324,8 +390,10 @@ def init_uploads_db():
     conn.commit()
 
     # Initial copy of baseline data from database.db to uploads.db if empty
+    main_conn = None
     try:
-        main_conn = sqlite3.connect(DB_PATH)
+        main_conn = sqlite3.connect(DB_PATH, timeout=60.0, check_same_thread=False)
+        _configure_connection(main_conn)
         main_cursor = main_conn.cursor()
 
         # Copy visites_rapports if empty in uploads.db
@@ -357,11 +425,18 @@ def init_uploads_db():
                 cursor.executemany("INSERT INTO clients (id, code, name, secteur_id, localite_id) VALUES (?, ?, ?, ?, ?)", rows)
 
         conn.commit()
-        main_conn.close()
     except Exception as e:
         print(f"Baseline copy to uploads.db notice: {e}")
-
-    conn.close()
+    finally:
+        if main_conn:
+            try:
+                main_conn.close()
+            except Exception:
+                pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # Mapping Secteur -> Vendeur SOM / Vendeur VMM
@@ -1306,11 +1381,11 @@ def get_workdays_info(rest_days, date_str=None):
             elapsed = dynamic_days["elapsed"]
             rest = dynamic_days["rest"]
             
-            # Respect manual override if it is not the default fallback (20) and differs from dynamic calculation
+            # Respect manual override if it is not the default fallback (15) and differs from dynamic calculation
             if rest_days is not None:
                 try:
                     custom_rest = int(rest_days)
-                    if custom_rest != 20 and custom_rest != rest:
+                    if custom_rest != 15 and custom_rest != rest:
                         rest = custom_rest
                         elapsed = max(0, total - rest)
                 except ValueError:
@@ -2759,13 +2834,24 @@ def get_focus_data(upload_date, agence='AGADIR'):
     """, (upload_date, agence))
     cdz_rows = [dict(r) for r in cursor.fetchall()]
     
-    # 3. Fetch objectives
+    # 3. Fetch objectives and fdv mapping
     cursor.execute("""
         SELECT focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc
         FROM focus_objectives
     """)
     objectives_rows = [dict(o) for o in cursor.fetchall()]
+
+    cursor.execute("SELECT vendeur, secteur, role, cdz FROM fdv")
+    fdv_rows = [dict(f) for f in cursor.fetchall()]
     conn.close()
+
+    fdv_by_code = {}
+    for f in fdv_rows:
+        v = f.get('vendeur', '')
+        if v:
+            c = v.split()[0].upper()
+            fdv_by_code[c] = f
+            fdv_by_code[v.strip().upper()] = f
     
     # Organize objectives by focus_type and vendeur code
     objectives_by_type_code = {}
@@ -2778,8 +2864,9 @@ def get_focus_data(upload_date, agence='AGADIR'):
         if ft not in objectives_by_type_code:
             objectives_by_type_code[ft] = {}
         objectives_by_type_code[ft][code] = obj
+        objectives_by_type_code[ft][v.strip().upper()] = obj
         
-    # Merge rankings with objectives
+    # Merge rankings with objectives and database table info
     glace_reps = []
     tomate_reps = []
     
@@ -2787,12 +2874,33 @@ def get_focus_data(upload_date, agence='AGADIR'):
         ft = r['focus_type']
         rep = r['representative']
         code = rep.split()[0].upper() if rep else ""
+        rep_upper = rep.strip().upper() if rep else ""
         
-        # Match objective
-        obj = objectives_by_type_code.get(ft, {}).get(code)
+        # Match objective and fdv
+        obj = objectives_by_type_code.get(ft, {}).get(code) or objectives_by_type_code.get(ft, {}).get(rep_upper)
+        fdv_item = fdv_by_code.get(code) or fdv_by_code.get(rep_upper)
         
         # Copy details
         merged = dict(r)
+
+        # Get official representative and secteur from database table (focus_objectives / fdv)
+        if obj and obj.get('vendeur'):
+            merged['representative'] = obj['vendeur']
+        elif fdv_item and fdv_item.get('vendeur'):
+            merged['representative'] = fdv_item['vendeur']
+
+        if obj and obj.get('secteur'):
+            merged['secteur'] = obj['secteur']
+        elif fdv_item and fdv_item.get('secteur'):
+            sec = fdv_item['secteur']
+            role = fdv_item.get('role', '')
+            if role and not sec.upper().endswith(role.upper()):
+                sec = f"{sec} {role}"
+            merged['secteur'] = sec
+
+        if fdv_item and fdv_item.get('cdz'):
+            merged['cdz'] = fdv_item['cdz']
+
         if ft == 'GLACE':
             merged['obj_ttc'] = obj['ttc'] if obj else 0.0
             merged['obj_ht'] = obj['glace_ht'] if obj else 0.0
@@ -2856,7 +2964,18 @@ def get_focus_history(agence='AGADIR'):
         FROM focus_objectives
     """)
     objectives_rows = [dict(o) for o in cursor.fetchall()]
+
+    cursor.execute("SELECT vendeur, secteur, role, cdz FROM fdv")
+    fdv_rows = [dict(f) for f in cursor.fetchall()]
     conn.close()
+
+    fdv_by_code = {}
+    for f in fdv_rows:
+        v = f.get('vendeur', '')
+        if v:
+            c = v.split()[0].upper()
+            fdv_by_code[c] = f
+            fdv_by_code[v.strip().upper()] = f
     
     # Organize objectives by focus_type and vendeur code
     objectives_by_type_code = {}
@@ -2869,6 +2988,7 @@ def get_focus_history(agence='AGADIR'):
         if ft not in objectives_by_type_code:
             objectives_by_type_code[ft] = {}
         objectives_by_type_code[ft][code] = obj
+        objectives_by_type_code[ft][v.strip().upper()] = obj
         
     # Merge rankings with objectives
     glace_reps = []
@@ -2878,12 +2998,33 @@ def get_focus_history(agence='AGADIR'):
         ft = r['focus_type']
         rep = r['representative']
         code = rep.split()[0].upper() if rep else ""
+        rep_upper = rep.strip().upper() if rep else ""
         
-        # Match objective
-        obj = objectives_by_type_code.get(ft, {}).get(code)
+        # Match objective and fdv
+        obj = objectives_by_type_code.get(ft, {}).get(code) or objectives_by_type_code.get(ft, {}).get(rep_upper)
+        fdv_item = fdv_by_code.get(code) or fdv_by_code.get(rep_upper)
         
         # Copy details
         merged = dict(r)
+
+        # Get official representative and secteur from database table (focus_objectives / fdv)
+        if obj and obj.get('vendeur'):
+            merged['representative'] = obj['vendeur']
+        elif fdv_item and fdv_item.get('vendeur'):
+            merged['representative'] = fdv_item['vendeur']
+
+        if obj and obj.get('secteur'):
+            merged['secteur'] = obj['secteur']
+        elif fdv_item and fdv_item.get('secteur'):
+            sec = fdv_item['secteur']
+            role = fdv_item.get('role', '')
+            if role and not sec.upper().endswith(role.upper()):
+                sec = f"{sec} {role}"
+            merged['secteur'] = sec
+
+        if fdv_item and fdv_item.get('cdz'):
+            merged['cdz'] = fdv_item['cdz']
+
         if ft == 'GLACE':
             merged['obj_ttc'] = obj['ttc'] if obj else 0.0
             merged['obj_ht'] = obj['glace_ht'] if obj else 0.0
@@ -3294,16 +3435,113 @@ def toggle_subtask_completed(subsub_id, completed):
         conn.close()
 
 
-def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, records):
-    """Save raw visit report details to separate uploads.db database, clearing previous uploaded visit data."""
+def resolve_vendeur_full_name(vendeur_code_or_filename):
+    """Extract vendor code from filename/string and resolve seller full name from fdv or cv.vendeurs."""
+    if not vendeur_code_or_filename:
+        return "NON SPÉCIFIÉ"
+
+    clean_str = str(vendeur_code_or_filename).split('.')[0].strip()
+    vcode = clean_str.split()[0].strip().upper() if clean_str else ""
+
+    if not vcode:
+        return clean_str
+
+    conn = get_db_connection()
+    try:
+        conn.execute(f"ATTACH DATABASE '{CV_DB_PATH}' AS cv")
+    except Exception:
+        pass
+
+    cursor = conn.cursor()
+
+    # 1. Search in fdv table
+    try:
+        row = cursor.execute(
+            "SELECT vendeur FROM fdv WHERE UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ? LIMIT 1",
+            (f"{vcode} %", f"{vcode}%")
+        ).fetchone()
+        if row and row[0]:
+            conn.close()
+            return str(row[0]).strip()
+    except Exception:
+        pass
+
+    # 2. Search in cv.vendeurs table
+    try:
+        row = cursor.execute(
+            "SELECT vendeur FROM cv.vendeurs WHERE UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ? LIMIT 1",
+            (f"{vcode} %", f"{vcode}%")
+        ).fetchone()
+        if row and row[0]:
+            conn.close()
+            return str(row[0]).strip()
+    except Exception:
+        pass
+
+    # 3. Search in cv.clients table
+    try:
+        row = cursor.execute(
+            "SELECT vendeur_som FROM cv.clients WHERE UPPER(vendeur_som) LIKE ? LIMIT 1",
+            (f"{vcode} %",)
+        ).fetchone()
+        if row and row[0]:
+            conn.close()
+            return str(row[0]).strip()
+    except Exception:
+        pass
+
+    conn.close()
+    return clean_str
+
+
+def clear_all_visites_rapports():
+    """Delete all records from visites_rapports table in both uploads.db and database.db."""
+    try:
+        conn = get_uploads_db_connection()
+        conn.execute("DELETE FROM visites_rapports")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error clearing visites_rapports in uploads.db: {e}", flush=True)
+
+    try:
+        db_conn = get_db_connection()
+        db_conn.execute("DELETE FROM visites_rapports")
+        db_conn.commit()
+        db_conn.close()
+    except Exception as e:
+        print(f"Error clearing visites_rapports in database.db: {e}", flush=True)
+
+
+def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, records, clear_all=False):
+    """Save raw visit report details to database.db & uploads.db, resolving seller full name from fdv database and tournee from clients."""
+    if clear_all:
+        clear_all_visites_rapports()
+
+    resolved_vendeur = resolve_vendeur_full_name(vendeur or file_name)
+    vcode = file_name.split('.')[0].split()[0].strip().upper()
+
+    # Pre-load client mapping for instant tournée / secteur resolution
+    client_map = {}
+    try:
+        cv_conn = get_cv_db_connection()
+        for r in cv_conn.cursor().execute("SELECT c.code, l.name, s.name FROM clients c LEFT JOIN localites l ON c.localite_id = l.id LEFT JOIN secteurs s ON c.secteur_id = s.id"):
+            c_code_k = (r[0] or "").strip().upper()
+            if c_code_k:
+                client_map[c_code_k] = (r[1] or "", r[2] or "")
+        cv_conn.close()
+    except Exception as ex:
+        print(f"Warning reading clients map in save_visites_rapport: {ex}", flush=True)
+
     conn = get_uploads_db_connection()
     cursor = conn.cursor()
     try:
-        # Clear previous uploaded visits in separate uploads database
-        cursor.execute("DELETE FROM visites_rapports")
-        cursor.execute("DELETE FROM sqlite_sequence WHERE name='visites_rapports'")
+        if not clear_all:
+            # Clear previous uploaded visits for this specific file/seller in uploads.db
+            cursor.execute("DELETE FROM visites_rapports WHERE file_name = ? OR UPPER(vendeur) LIKE ?", (file_name, f"{vcode}%"))
         
-        # Insert new records into uploads.db
+        # Prepare batch insert rows with resolved tournee & agence
+        insert_rows = []
         for r in records:
             r_date = r.get("date") or date_visite
             dist_str = str(r.get("distance", "0")).replace("m", "").replace(" ", "").strip()
@@ -3311,17 +3549,18 @@ def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, recor
                 dist = int(dist_str)
             except:
                 dist = 0
-                
-            cursor.execute("""
-                INSERT INTO visites_rapports
-                (file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+            
+            c_code_val = (r.get("code") or "").strip().upper()
+            c_info = client_map.get(c_code_val)
+            row_tournee = tournee or (c_info[0] if c_info and c_info[0] else "") or "Tournée non spécifiée"
+            row_agence = agence or (c_info[1] if c_info and c_info[1] else "") or "Secteur non spécifié"
+
+            insert_rows.append((
                 file_name,
-                vendeur,
+                resolved_vendeur,
                 r_date,
-                tournee,
-                agence,
+                row_tournee,
+                row_agence,
                 r.get("code", ""),
                 r.get("name", ""),
                 r.get("time", ""),
@@ -3330,34 +3569,32 @@ def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, recor
                 r.get("note", "")
             ))
             
+        cursor.executemany("""
+            INSERT INTO visites_rapports
+            (file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, insert_rows)
         conn.commit()
 
         # Also sync to database.db for backwards compatibility
         try:
             db_conn = get_db_connection()
             db_cursor = db_conn.cursor()
-            db_cursor.execute("DELETE FROM visites_rapports")
-            db_cursor.execute("DELETE FROM sqlite_sequence WHERE name='visites_rapports'")
-            for r in records:
-                r_date = r.get("date") or date_visite
-                dist_str = str(r.get("distance", "0")).replace("m", "").replace(" ", "").strip()
-                try:
-                    dist = int(dist_str)
-                except:
-                    dist = 0
-                db_cursor.execute("""
-                    INSERT INTO visites_rapports
-                    (file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (file_name, vendeur, r_date, tournee, agence, r.get("code", ""), r.get("name", ""), r.get("time", ""), dist, r.get("motif", ""), r.get("note", "")))
+            if not clear_all:
+                db_cursor.execute("DELETE FROM visites_rapports WHERE file_name = ? OR UPPER(vendeur) LIKE ?", (file_name, f"{vcode}%"))
+            db_cursor.executemany("""
+                INSERT INTO visites_rapports
+                (file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, insert_rows)
             db_conn.commit()
             db_conn.close()
         except Exception as sync_e:
-            print(f"Sync to database.db notice: {sync_e}")
+            print(f"Sync to database.db notice: {sync_e}", flush=True)
 
         return True
     except Exception as e:
-        print(f"Error saving visits rapport to uploads.db: {e}")
+        print(f"Error saving visits rapport to db: {e}", flush=True)
         return False
     finally:
         conn.close()
@@ -3623,7 +3860,116 @@ def parse_visit_time_diff(h_start_str, h_end_str):
         return 0.0
 
 
+def import_all_secteurs_visites_rapports(save_tournee=False, clear_existing=True):
+    """Import all visit report Excel files from 'All Secteurs' folder into visites_rapports table file by file without tournee."""
+    import glob
+    import pandas as pd
+
+    if clear_existing:
+        clear_all_visites_rapports()
+
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "All Secteurs")
+    if not os.path.exists(folder):
+        return {"status": "error", "message": f"Dossier All Secteurs non trouvé ({folder})"}
+
+    files = sorted(glob.glob(os.path.join(folder, "*.xlsx")))
+    if not files:
+        return {"status": "error", "message": "Aucun fichier Excel trouvé dans le dossier All Secteurs"}
+
+    total_records = 0
+    file_summary = []
+
+    for fpath in files:
+        fname = os.path.basename(fpath)
+        if fname.startswith("~$"):
+            continue
+
+        try:
+            df_raw = pd.read_excel(fpath, sheet_name=None)
+            sheet_name = list(df_raw.keys())[0]
+            for k in df_raw.keys():
+                if "rapport" in k.lower() or "visite" in k.lower():
+                    sheet_name = k
+                    break
+
+            df_sheet = df_raw[sheet_name]
+            date_tournee = "2026-07-01"
+            if len(df_sheet) > 4 and len(df_sheet.columns) > 21:
+                val = df_sheet.iloc[4, 21]
+                if pd.notna(val):
+                    date_tournee = str(val).split(' ')[0]
+
+            df_data = pd.read_excel(fpath, sheet_name=sheet_name, skiprows=13)
+            if df_data.empty:
+                continue
+
+            df_data.columns = [str(val).strip() if pd.notna(val) else f"col{i}" for i, val in enumerate(df_data.iloc[0])]
+            df_data = df_data.iloc[1:]
+
+            client_cols = [c for c in df_data.columns if str(c).lower() == "client"]
+            if not client_cols:
+                continue
+            client_col = client_cols[0]
+            df_data = df_data.dropna(subset=[client_col])
+
+            date_col = [c for c in df_data.columns if "date" in str(c).lower()]
+            date_col = date_col[0] if date_col else ("col11" if "col11" in df_data.columns else None)
+
+            df_data = df_data.rename(columns={'Heure Dbut': 'Heure Début', 'Heure Fin ': 'Heure Fin'})
+            h_dep = 'Heure Début' if 'Heure Début' in df_data.columns else ('col13' if 'col13' in df_data.columns else None)
+            h_fin = 'Heure Fin' if 'Heure Fin' in df_data.columns else ('col14' if 'col14' in df_data.columns else None)
+            dist_col = 'Distance' if 'Distance' in df_data.columns else ('col18' if 'col18' in df_data.columns else None)
+            motif_col = 'Motif' if 'Motif' in df_data.columns else ('col19' if 'col19' in df_data.columns else None)
+            note_col = 'Note' if 'Note' in df_data.columns else ('col24' if 'col24' in df_data.columns else None)
+            nom_col = 'Nom' if 'Nom' in df_data.columns else ('col4' if 'col4' in df_data.columns else None)
+
+            vendeur_full = resolve_vendeur_full_name(fname)
+            records = []
+
+            for _, row in df_data.iterrows():
+                c_code = str(row[client_col]).strip()
+                c_name = str(row[nom_col]).strip() if nom_col and pd.notna(row[nom_col]) else "N/A"
+                c_date = date_tournee
+                if date_col and pd.notna(row[date_col]):
+                    raw_d = str(row[date_col]).strip()
+                    if raw_d and raw_d.lower() not in ("nan", "none", "null", "nat"):
+                        c_date = raw_d.split(' ')[0].strip()
+                c_h_dep = str(row[h_dep]).strip() if h_dep and pd.notna(row[h_dep]) else ""
+                c_h_fin = str(row[h_fin]).strip() if h_fin and pd.notna(row[h_fin]) else ""
+                c_time = f"{c_h_dep} - {c_h_fin}" if c_h_dep or c_h_fin else "N/A"
+                dist_str = str(row[dist_col]).split('.')[0].strip() if dist_col and pd.notna(row[dist_col]) else "0"
+                motif_val = str(row[motif_col]).strip() if motif_col and pd.notna(row[motif_col]) else "OK"
+                note_val = str(row[note_col]).strip() if note_col and pd.notna(row[note_col]) else ""
+
+                records.append({
+                    "code": c_code,
+                    "name": c_name,
+                    "date": c_date,
+                    "time": c_time,
+                    "distance": dist_str,
+                    "motif": motif_val,
+                    "note": note_val
+                })
+
+            tournee_val = "" if not save_tournee else ""
+            ok = save_visites_rapport(fname, vendeur_full, date_tournee, tournee_val, "", records)
+            if ok:
+                total_records += len(records)
+                file_summary.append({"file": fname, "vendeur": vendeur_full, "records": len(records)})
+        except Exception as e:
+            print(f"Error importing {fname}: {e}")
+
+    return {
+        "status": "success",
+        "message": f"Importation de {len(file_summary)} fichiers terminée avec succès ({total_records:,} enregistrements de visites)",
+        "total_files": len(file_summary),
+        "total_records": total_records,
+        "details": file_summary
+    }
+
+
 def import_all_secteurs_tournees():
+
     """Import all visit reports from All Secteurs folder into vendeur_tournees_visits table."""
     import glob
     import openpyxl
@@ -3787,39 +4133,204 @@ def import_all_secteurs_tournees():
 
 
 def get_vendeur_tournees_summary(vendeur_identifier):
-    """Retrieve structured tournées summary & visit KPIs for a given seller or CDZ team."""
+    """Retrieve structured tournées summary & visit KPIs for a given seller.
+    If no specific seller is requested, retrieves data ONLY for the first vendeur.
+    Ultra-fast cross-referencing of visites_rapports with clients_vendeurs.db.
+    """
+    search_term = (vendeur_identifier or '').strip()
+
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    search_term = (vendeur_identifier or '').strip()
-    
-    # If search_term is CDZ name or ALL, fetch team sellers
-    is_cdz = "CHAKIB" in search_term.upper() or search_term.upper() in ["ALL", "TOUT", "GLOBAL"]
-    
-    if is_cdz:
-        team_sellers = [
-            "D48", "D86", "E14", "F78", "J78", "K91", "T89", "T96", "E60", "K60",
-            "IBACH MOHAMED", "ACHAOUI AZIZ", "BOUMDIANE MOHAMED", "GHOUSMI MOURAD",
-            "LASRI EL HOUCINE", "BAIZ MOHAMED", "AKNOUN MOHAMED", "EL HADI BOUBAKER",
-            "BOUALLALI FARID", "ELHAOUZI RACHID"
-        ]
-        placeholders = ",".join(["?"] * len(team_sellers))
-        query = f"""
-            SELECT * FROM vendeur_tournees_visits
-            WHERE vendeur_code IN ({placeholders}) OR vendeur_name IN ({placeholders})
-            ORDER BY date DESC, tournee ASC, heure_debut ASC
-        """
-        rows = cursor.execute(query, team_sellers + team_sellers).fetchall()
-    else:
-        query = """
-            SELECT * FROM vendeur_tournees_visits
-            WHERE UPPER(vendeur_code) LIKE ? OR UPPER(vendeur_name) LIKE ?
-            ORDER BY date DESC, tournee ASC, heure_debut ASC
-        """
-        pattern = f"%{search_term.upper()}%"
-        rows = cursor.execute(query, (pattern, pattern)).fetchall()
+    # If no seller is provided or generic ALL, automatically target ONLY the first vendeur
+    if not search_term or search_term.upper() in ["ALL", "TOUT", "GLOBAL", "UNDEFINED", "NULL", "DEFAULT"]:
+        cursor.execute("SELECT DISTINCT vendeur FROM visites_rapports WHERE vendeur IS NOT NULL AND vendeur != '' ORDER BY vendeur ASC LIMIT 1")
+        first_vr = cursor.fetchone()
+        if first_vr and first_vr[0]:
+            search_term = first_vr[0]
+        else:
+            cursor.execute("SELECT DISTINCT vendeur FROM fdv WHERE vendeur IS NOT NULL AND vendeur != '' ORDER BY vendeur ASC LIMIT 1")
+            first_fdv = cursor.fetchone()
+            if first_fdv and first_fdv[0]:
+                search_term = first_fdv[0]
 
-    conn.close()
+    parts = search_term.split()
+    vcode = parts[0].upper() if parts else search_term.upper()
+
+    # 1. Load client mapping {code: (tournee_name, secteur_name, vendeur_som, vendeur_vmm)}
+    client_map = {}
+    try:
+        cv_conn = get_cv_db_connection()
+        cv_cursor = cv_conn.cursor()
+        cv_cursor.execute("""
+            SELECT c.code, l.name AS tournee, s.name AS secteur, c.vendeur_som, c.vendeur_vmm
+            FROM clients c
+            LEFT JOIN localites l ON c.localite_id = l.id
+            LEFT JOIN secteurs s ON c.secteur_id = s.id
+        """)
+        for r in cv_cursor.fetchall():
+            code = (r["code"] or "").strip().upper()
+            if code:
+                client_map[code] = (r["tournee"] or "", r["secteur"] or "", r["vendeur_som"] or "", r["vendeur_vmm"] or "")
+        cv_conn.close()
+    except Exception as ex:
+        print(f"Warning loading clients map: {ex}", flush=True)
+
+    rows = []
+
+    # 2. Query visites_rapports for this specific seller ONLY
+    try:
+        cursor.execute("""
+            SELECT id, file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note
+            FROM visites_rapports
+            WHERE UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ?
+            ORDER BY date_visite DESC, id ASC
+        """, (f"{vcode}%", f"%{search_term.upper()}%"))
+
+        cols = [col[0] for col in cursor.description]
+        vr_raw = [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+        for r in vr_raw:
+            c_code_clean = (r.get('client_code') or '').strip().upper()
+            c_info = client_map.get(c_code_clean)
+
+            real_tournee = (c_info[0] if c_info and c_info[0] else None) or r.get('tournee') or 'Tournée non spécifiée'
+            real_secteur = (c_info[1] if c_info and c_info[1] else None) or r.get('agence') or 'Secteur non spécifié'
+            v_raw = r.get('vendeur') or (c_info[2] if c_info else '') or (c_info[3] if c_info else '') or ''
+
+            h_str = str(r.get('heure') or '').strip()
+            if ' - ' in h_str:
+                h_debut, h_fin = [x.strip() for x in h_str.split(' - ', 1)]
+            else:
+                h_debut, h_fin = h_str, ''
+
+            m = str(r.get('motif') or 'OK').strip()
+            fact_status = 'AVEC FACTURE' if m.upper() == 'OK' else 'SANS FACTURE'
+
+            rows.append({
+                'date': r.get('date_visite') or '',
+                'tournee': real_tournee,
+                'secteur': real_secteur,
+                'vendeur_code': v_raw.split()[0] if v_raw else '',
+                'vendeur_name': v_raw,
+                'heure_debut': h_debut,
+                'heure_fin': h_fin,
+                'duree_minutes': parse_visit_time_diff(h_debut, h_fin),
+                'motif': m,
+                'note': r.get('note') or '',
+                'facture_status': fact_status,
+                'distance': r.get('distance') or '',
+                'client_code': r.get('client_code') or '',
+                'client_name': r.get('client_nom') or ''
+            })
+    except Exception as ex:
+        import traceback
+        print(f"Error reading visites_rapports in get_vendeur_tournees_summary: {ex}", flush=True)
+        traceback.print_exc()
+
+    # 3. Fallback to vendeur_tournees_visits if no rows from visites_rapports
+    if not rows:
+        try:
+            if is_cdz:
+                query = "SELECT * FROM vendeur_tournees_visits ORDER BY date DESC, tournee ASC, heure_debut ASC"
+                cursor.execute(query)
+            else:
+                query = """
+                    SELECT * FROM vendeur_tournees_visits
+                    WHERE UPPER(vendeur_code) LIKE ? OR UPPER(vendeur_name) LIKE ?
+                    ORDER BY date DESC, tournee ASC, heure_debut ASC
+                """
+                pattern = f"%{search_term.upper()}%"
+                cursor.execute(query, (pattern, pattern))
+
+            cols = [col[0] for col in cursor.description]
+            vt_raw = [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+            for r in vt_raw:
+                rows.append({
+                    'date': r.get('date') or '',
+                    'tournee': r.get('tournee') or '',
+                    'secteur': '',
+                    'vendeur_code': r.get('vendeur_code') or '',
+                    'vendeur_name': r.get('vendeur_name') or '',
+                    'heure_debut': r.get('heure_debut') or '',
+                    'heure_fin': r.get('heure_fin') or '',
+                    'duree_minutes': r.get('duree_minutes') or 0,
+                    'motif': str(r.get('motif') or 'OK').strip(),
+                    'note': r.get('note') or '',
+                    'facture_status': r.get('facture_status') or '',
+                    'distance': r.get('distance') or '',
+                    'client_code': r.get('client_code') or '',
+                    'client_name': r.get('client_name') or ''
+                })
+        except Exception as ex:
+            import traceback
+            print(f"Error reading vendeur_tournees_visits: {ex}", flush=True)
+
+    # 4. Fallback: If no visit records exist for this specific seller in visites_rapports,
+    # load assigned tournées from clients_vendeurs.db with 0 visits conducted
+    if not rows and not is_cdz:
+        try:
+            cv_conn = get_cv_db_connection()
+            cv_cursor = cv_conn.cursor()
+            cv_cursor.execute("""
+                SELECT l.name AS tournee, s.name AS secteur, COUNT(c.id) AS total_clients
+                FROM clients c
+                LEFT JOIN localites l ON l.id = c.localite_id
+                LEFT JOIN secteurs s ON s.id = c.secteur_id
+                WHERE (UPPER(c.vendeur_som) LIKE ? OR UPPER(c.vendeur_vmm) LIKE ?
+                    OR UPPER(c.vendeur_som) LIKE ? OR UPPER(c.vendeur_vmm) LIKE ?)
+                  AND l.name IS NOT NULL
+                GROUP BY l.name, s.name
+                ORDER BY total_clients DESC
+            """, (f"{vcode}%", f"{vcode}%", f"%{search_term.upper()}%", f"%{search_term.upper()}%"))
+
+            assigned_tournees = []
+            for r in cv_cursor.fetchall():
+                assigned_tournees.append({
+                    "date": "-",
+                    "tournee": r["tournee"],
+                    "secteur": r["secteur"],
+                    "vendeur_code": vcode,
+                    "vendeur_name": search_term,
+                    "heure_debut": "-",
+                    "heure_fin": "-",
+                    "total_clients_enregistres": r["total_clients"],
+                    "total_visites": 0,
+                    "visites_ok": 0,
+                    "visites_sans_ok": 0,
+                    "magasin_ferme": 0,
+                    "stock_suffisant": 0,
+                    "responsable_absent": 0,
+                    "anomalies_avec_facture": 0,
+                    "big_facture": 0,
+                    "small_facture": 0,
+                    "billing_rate": 0.0,
+                    "duree_totale_minutes": 0,
+                    "visites_list": []
+                })
+            cv_conn.close()
+            conn.close()
+            return {
+                "vendeur": search_term,
+                "total_tournees": len(assigned_tournees),
+                "total_visites": 0,
+                "visites_ok": 0,
+                "visites_sans_ok": 0,
+                "anomalies_avec_facture": 0,
+                "big_facture": 0,
+                "small_facture": 0,
+                "billing_rate": 0.0,
+                "motifs_summary": {},
+                "tournees": assigned_tournees
+            }
+        except Exception as ex:
+            print(f"Error querying assigned localites for {search_term}: {ex}", flush=True)
+
+    try:
+        conn.close()
+    except Exception:
+        pass
 
     if not rows:
         return {
@@ -3838,7 +4349,7 @@ def get_vendeur_tournees_summary(vendeur_identifier):
 
     tournees_dict = {}
     motifs_summary = {}
-    
+
     total_visites = 0
     visites_ok = 0
     visites_sans_ok = 0
@@ -3847,11 +4358,12 @@ def get_vendeur_tournees_summary(vendeur_identifier):
     small_facture = 0
 
     for r in rows:
-        key = f"{r['date']}||{r['tournee']}"
+        key = r['date'] or 'Date inconnue'
         if key not in tournees_dict:
             tournees_dict[key] = {
                 "date": r['date'],
-                "tournee": r['tournee'],
+                "tournee": r.get('tournee') or '',
+                "secteur": r.get('secteur') or '',
                 "vendeur_code": r['vendeur_code'],
                 "vendeur_name": r['vendeur_name'],
                 "heure_debut": r['heure_debut'],
@@ -3859,10 +4371,15 @@ def get_vendeur_tournees_summary(vendeur_identifier):
                 "total_visites": 0,
                 "visites_ok": 0,
                 "visites_sans_ok": 0,
+                "magasin_ferme": 0,
+                "stock_suffisant": 0,
+                "responsable_absent": 0,
                 "anomalies_avec_facture": 0,
                 "big_facture": 0,
                 "small_facture": 0,
                 "motifs": {},
+                "tournees_counts": {},
+                "secteurs_counts": {},
                 "visites_list": []
             }
 
@@ -3870,17 +4387,32 @@ def get_vendeur_tournees_summary(vendeur_identifier):
         t["total_visites"] += 1
         total_visites += 1
 
-        if r['heure_debut'] and (not t["heure_debut"] or r['heure_debut'] < t["heure_debut"]):
+        t_name = r.get('tournee')
+        if t_name and t_name != 'Tournée non spécifiée':
+            t["tournees_counts"][t_name] = t["tournees_counts"].get(t_name, 0) + 1
+        s_name = r.get('secteur')
+        if s_name and s_name != 'Secteur non spécifié':
+            t["secteurs_counts"][s_name] = t["secteurs_counts"].get(s_name, 0) + 1
+
+        if r['heure_debut'] and (not t["heure_debut"] or t["heure_debut"] == '-' or r['heure_debut'] < t["heure_debut"]):
             t["heure_debut"] = r['heure_debut']
-        if r['heure_fin'] and (not t["heure_fin"] or r['heure_fin'] > t["heure_fin"]):
+        if r['heure_fin'] and (not t["heure_fin"] or t["heure_fin"] == '-' or r['heure_fin'] > t["heure_fin"]):
             t["heure_fin"] = r['heure_fin']
 
         m = (r['motif'] or 'OK').strip()
+        m_upper = m.upper()
         motifs_summary[m] = motifs_summary.get(m, 0) + 1
         t["motifs"][m] = t["motifs"].get(m, 0) + 1
 
+        if 'FERME' in m_upper or 'FERMÉ' in m_upper:
+            t["magasin_ferme"] += 1
+        elif 'STOCK' in m_upper or 'SUFISANT' in m_upper or 'SUFFISANT' in m_upper:
+            t["stock_suffisant"] += 1
+        elif 'RESPONSABLE' in m_upper or 'ABSENT' in m_upper:
+            t["responsable_absent"] += 1
+
         status = r['facture_status'] or ''
-        if m.upper() == 'OK' or 'AVEC FACTURE' in status:
+        if m_upper == 'OK' or 'AVEC FACTURE' in status:
             t["visites_ok"] += 1
             visites_ok += 1
         else:
@@ -3900,6 +4432,8 @@ def get_vendeur_tournees_summary(vendeur_identifier):
         t["visites_list"].append({
             "client_code": r['client_code'],
             "client_name": r['client_name'],
+            "tournee": r.get('tournee') or '',
+            "secteur": r.get('secteur') or '',
             "heure_debut": r['heure_debut'],
             "heure_fin": r['heure_fin'],
             "duree_minutes": r['duree_minutes'],
@@ -3910,6 +4444,19 @@ def get_vendeur_tournees_summary(vendeur_identifier):
 
     tournees_list = []
     for t in tournees_dict.values():
+        if t.get("tournees_counts"):
+            top_tournee = sorted(t["tournees_counts"].items(), key=lambda x: x[1], reverse=True)[0][0]
+            t["tournee"] = top_tournee
+        elif not t.get("tournee") or t["tournee"] == t.get("date"):
+            t["tournee"] = "Tournée standard"
+
+        if t.get("secteurs_counts"):
+            top_secteur = sorted(t["secteurs_counts"].items(), key=lambda x: x[1], reverse=True)[0][0]
+            t["secteur"] = top_secteur
+
+        t.pop("tournees_counts", None)
+        t.pop("secteurs_counts", None)
+
         t["billing_rate"] = round((t["visites_ok"] / t["total_visites"] * 100), 1) if t["total_visites"] > 0 else 0.0
         t["duree_totale_minutes"] = parse_visit_time_diff(t["heure_debut"], t["heure_fin"])
         tournees_list.append(t)

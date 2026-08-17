@@ -1259,6 +1259,30 @@
             reps.forEach((r, idx) => r.rank = idx + 1);
         }
 
+        // Synchronize representatives and secteurs with database objectives
+        if (focusData && focusData.objectives && focusData.objectives.length > 0) {
+            const getCode = (str) => (str || '').trim().split(/\s+/)[0].toUpperCase();
+            const targetType = currentFocusType === 'GLACE' ? 'GLACE' : 'TOMATE_FRITO';
+            const objMap = {};
+            focusData.objectives.filter(o => o.focus_type === targetType).forEach(o => {
+                if (o.vendeur) {
+                    const c = getCode(o.vendeur);
+                    if (c) objMap[c] = o;
+                    objMap[o.vendeur.trim().toUpperCase()] = o;
+                }
+            });
+
+            reps.forEach(r => {
+                const c = getCode(r.representative);
+                const obj = objMap[c] || objMap[(r.representative || '').trim().toUpperCase()];
+                if (obj) {
+                    if (obj.secteur) r.secteur = obj.secteur;
+                    if (obj.vendeur) r.representative = obj.vendeur;
+                    if (obj.cdz) r.cdz = obj.cdz;
+                }
+            });
+        }
+
         // Filter based on global category-select
         const globalCategorySelect = document.getElementById('category-select');
         const selectedCategory = globalCategorySelect ? globalCategorySelect.value : 'All';
@@ -1276,8 +1300,40 @@
                 });
             }
         }
+
+        // Populate Vendeur filter select dropdown from all eligible category sellers
+        const vendeurFilter = document.getElementById('focus-vendeur-filter');
+        if (vendeurFilter) {
+            const prevSelected = selectedVendeurFilter;
+            vendeurFilter.innerHTML = '<option value="">-- TOUS LES VENDEURS --</option>';
+            
+            const uniqueRepNames = new Map();
+            reps.forEach(r => {
+                const code = r.representative.split(' ')[0];
+                if (!uniqueRepNames.has(code)) {
+                    uniqueRepNames.set(code, r.representative);
+                }
+            });
+
+            const sortedEntries = Array.from(uniqueRepNames.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+            sortedEntries.forEach(([code, repName]) => {
+                const opt = document.createElement('option');
+                opt.value = code;
+                opt.innerText = repName;
+                vendeurFilter.appendChild(opt);
+            });
+            
+            const hasOption = Array.from(vendeurFilter.options).some(o => o.value === prevSelected);
+            if (prevSelected && hasOption) {
+                vendeurFilter.value = prevSelected;
+                selectedVendeurFilter = prevSelected;
+            } else {
+                vendeurFilter.value = '';
+                selectedVendeurFilter = '';
+            }
+        }
         
-        // Filter representatives based on vendedor selection
+        // Filter representatives based on vendeur selection
         if (selectedVendeurFilter) {
             reps = reps.filter(r => r.representative.startsWith(selectedVendeurFilter));
         }
@@ -1342,34 +1398,6 @@
                 joursRestEl.innerText = '—';
                 joursRestSub.innerText = 'données non disponibles';
                 if (joursProgress) joursProgress.style.width = '0%';
-            }
-        }
-
-
-        const vendeurFilter = document.getElementById('focus-vendeur-filter');
-        if (vendeurFilter) {
-            // Keep track of currently selected filter
-            const prevSelected = selectedVendeurFilter;
-            
-            vendeurFilter.innerHTML = '<option value="">-- TOUS LES VENDEURS --</option>';
-            
-            // Extract sorted unique representatives
-            const sortedReps = [...reps].sort((a, b) => a.representative.localeCompare(b.representative));
-            sortedReps.forEach(r => {
-                const opt = document.createElement('option');
-                opt.value = r.representative.split(' ')[0]; // Store the seller code (like K60) as option value
-                opt.innerText = r.representative;
-                vendeurFilter.appendChild(opt);
-            });
-            
-            // Restore previous selection if still exists in options
-            const hasOption = Array.from(vendeurFilter.options).some(o => o.value === prevSelected);
-            if (prevSelected && hasOption) {
-                vendeurFilter.value = prevSelected;
-                selectedVendeurFilter = prevSelected;
-            } else {
-                vendeurFilter.value = '';
-                selectedVendeurFilter = '';
             }
         }
 

@@ -6294,5 +6294,23 @@ body.light-mode #terrain-chart-card .card-header {
     border-bottom: 1px solid #e2e8f0;
 }
 
+#v360-tournees-table th,
+#v360-tournees-table td {
+    white-space: nowrap !important;
+}
+
+.v360-tournee-name {
+    color: var(--text-main, #e2e8f0);
+    font-weight: 800;
+}
+
+body.light-mode .v360-tournee-name,
+[data-theme="light"] .v360-tournee-name {
+    color: #0f172a !important;
+    font-weight: 800 !important;
+}
+
+
+
 
 

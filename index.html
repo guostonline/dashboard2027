@@ -32,12 +32,11 @@
                 if (realmLoadingPromise) return realmLoadingPromise;
                 realmLoadingPromise = (async () => {
                     try {
-                        const r = await originalFetch('/realm_data.json?v=' + Date.now());
-                        if (r.ok) {
-                            realmDataCache = await r.json();
+                        const r = await originalFetch('/realm_data.json?v=' + Date.now()).catch(() => null);
+                        if (r && r.ok) {
+                            realmDataCache = await r.json().catch(() => null);
                         }
                     } catch (e) {
-                        console.warn('Failed to load realm_data.json for static Netlify mode', e);
                     }
                     return realmDataCache;
                 })();
@@ -254,7 +253,7 @@
             </div>
             
             <nav class="sidebar-nav">
-                <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' and active_tab != 'anomalis' and active_tab != 'anomalies' and active_tab != 'tasks' and active_tab != 'engagement' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
+                <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' and active_tab != 'anomalis' and active_tab != 'anomalies' and active_tab != 'tasks' and active_tab != 'engagement' and active_tab != 'visites' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
                 <a href="/details" class="nav-item {% if active_tab == 'details' and active_sub_tab != 'vendeur360' %}active{% endif %}" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
                 <a href="/vendeur360" class="nav-item {% if active_tab == 'details' and active_sub_tab == 'vendeur360' %}active{% endif %}" id="nav-vendeur-360" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'details' %}display: none;{% endif %}"><i class="fa-solid fa-id-card neon-text-blue"></i> <span>Vendeur</span></a>
                 <a href="/clients" class="nav-item {% if active_tab == 'clients' and active_sub_tab != 'facturation' %}active{% endif %}" id="nav-clients"><i class="fa-solid fa-address-book"></i> <span>Client</span></a>
@@ -262,6 +261,7 @@
                 <a href="/clients?view=afacturer" class="nav-item {% if active_tab == 'clients' and active_sub_tab == 'afacturer' %}active{% endif %}" id="nav-clients-afacturer" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'clients' %}display: none;{% endif %}"><i class="fa-solid fa-file-invoice-dollar"></i> <span>Client à facturer</span></a>
                 <a href="/fdv" class="nav-item {% if active_tab == 'fdv' %}active{% endif %}" id="nav-fdv"><i class="fa-solid fa-people-group"></i> <span>FDV</span></a>
                 <a href="/terrain" class="nav-item {% if active_tab == 'terrain' %}active{% endif %}" id="nav-terrain"><i class="fa-solid fa-file-invoice-dollar"></i> <span>Suivi Terrain</span></a>
+                <a href="/visites" class="nav-item {% if active_tab == 'visites' %}active{% endif %}" id="nav-visites"><i class="fa-solid fa-route neon-text-blue"></i> <span>Visites</span></a>
                 <a href="/focus" class="nav-item {% if active_tab == 'focus' %}active{% endif %}" id="nav-focus"><i class="fa-solid fa-bullseye"></i> <span>Focus</span></a>
                 <a href="/rapport" class="nav-item {% if active_tab == 'rapport' %}active{% endif %}" id="nav-rapport"><i class="fa-solid fa-brain"></i> <span>Rapport</span></a>
                 <a href="/stock" class="nav-item {% if active_tab == 'stock' and active_sub_tab != 'favorites' and active_sub_tab != 'favorit' %}active{% endif %}" id="nav-stock"><i class="fa-solid fa-boxes-stacked"></i> <span>Stock</span></a>
@@ -406,10 +406,10 @@
                 </div>
                 <span id="timelapse-progress-text" class="tech-label-mini" style="display: none; font-size: 0.65rem; color: var(--neon-green); font-family: var(--font-mono); margin-left: 0.2rem; white-space: nowrap;" title="Jour actuel / Total"></span>
             </div>
-            <!-- Header Jours Travaillés Input -->
+            <!-- Header Jours Reste Input -->
             <div class="header-workdays-input-wrapper" style="display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--border-color); padding: 0.25rem 0.5rem; border-radius: 4px; background: rgba(0, 0, 0, 0.25); height: 38px;">
-                <span class="tech-label" style="font-size: 0.72rem; color: var(--text-muted); font-weight: bold; white-space: nowrap; text-transform: uppercase;"><i class="fa-solid fa-calendar-day neon-text-blue"></i> Jours Travaillés</span>
-                <input type="number" id="header-elapsed-days" min="0" max="31" class="cyber-input" style="width: 55px; height: 26px; padding: 0 0.25rem; font-size: 0.85rem; font-family: var(--font-mono); text-align: center; border-color: var(--neon-blue); background: rgba(0,0,0,0.5); color: #fff; margin: 0; border-radius: 3px;" title="Nombre de jours travaillés écoulés">
+                <span class="tech-label" style="font-size: 0.72rem; color: var(--text-muted); font-weight: bold; white-space: nowrap; text-transform: uppercase;"><i class="fa-solid fa-hourglass-half neon-text-blue"></i> JOURS RESTE</span>
+                <input type="number" id="header-elapsed-days" min="0" max="31" value="15" class="cyber-input" style="width: 55px; height: 26px; padding: 0 0.25rem; font-size: 0.85rem; font-family: var(--font-mono); text-align: center; border-color: var(--neon-blue); background: rgba(0,0,0,0.5); color: #fff; margin: 0; border-radius: 3px;" title="Nombre de jours restants">
             </div>
             <!-- Header HT/TTC Toggler -->
             <div class="header-tax-toggle-wrapper" style="display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--border-color); padding: 0.25rem 0.5rem; border-radius: 4px; background: rgba(0, 0, 0, 0.25); height: 38px;">
@@ -442,7 +442,7 @@
         </div>
     </header>
 
-    <main class="dashboard-container" id="main-dashboard-container" style="{% if active_tab == 'details' or active_tab == 'clients' or active_tab == 'fdv' or active_tab == 'terrain' or active_tab == 'focus' or active_tab == 'rapport' or active_tab == 'stock' or active_tab == 'anomalis' or active_tab == 'tasks' or active_tab == 'engagement' %}display: none;{% endif %}; position: relative; z-index: 10;">
+    <main class="dashboard-container" id="main-dashboard-container" style="{% if active_tab == 'details' or active_tab == 'clients' or active_tab == 'fdv' or active_tab == 'terrain' or active_tab == 'focus' or active_tab == 'rapport' or active_tab == 'stock' or active_tab == 'anomalis' or active_tab == 'tasks' or active_tab == 'engagement' or active_tab == 'visites' %}display: none;{% endif %}; position: relative; z-index: 10;">
         <!-- TOP SUMMARY CARDS -->
         <section class="summary-section" id="summary-section">
             <div class="cyber-card summary-card glow-blue">
@@ -1107,51 +1107,51 @@
                 </div>
                 <div class="cyber-card glow-amber">
                     <div class="card-edge"></div>
-                    <span class="summary-label">ANOMALIES & DISTANCE (>100m)</span>
+                    <span class="summary-label">ANOMALIES &amp; DISTANCE (&gt;100m)</span>
                     <h2 id="v360-kpi-anomalies" class="summary-value neon-text-amber">0</h2>
                     <span class="summary-sub">Visites hors zone</span>
                 </div>
             </div>
 
-            <!-- MAIN DASHBOARD CONTENT GRID -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.5rem;">
-                <!-- LEFT: TOURNÉES BREAKDOWN TABLE -->
-                <div class="cyber-card" style="grid-column: span 1 / -1;">
-                    <div class="card-edge"></div>
-                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
-                        <span class="tech-label"><i class="fa-solid fa-route neon-text-blue"></i> TOURNÉES & TAUX DE FACTURATION (ANALYSE TOURNÉES SECTEURS)</span>
-                        <div id="v360-tournees-kpis-ribbon" style="display: flex; gap: 0.6rem; flex-wrap: wrap; font-size: 0.75rem;">
-                            <!-- Dynamic KPI mini badges inserted via JS -->
-                        </div>
-                    </div>
-                    <!-- MOTIFS BREAKDOWN BADGES -->
-                    <div id="v360-motifs-bar" style="display: flex; gap: 0.4rem; padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.15); border-radius: 4px; overflow-x: auto; font-size: 0.72rem; margin-bottom: 0.6rem;">
-                        <!-- Motifs badges inserted via JS -->
-                    </div>
-                    <div style="overflow-x: auto; max-height: 380px;">
-                        <table class="cyber-table" id="v360-tournees-table">
-                            <thead>
-                                <tr>
-                                    <th>DATE &amp; TOURNÉE</th>
-                                    <th>H. DÉBUT</th>
-                                    <th>H. FIN</th>
-                                    <th>DURÉE</th>
-                                    <th>TOTAL VISITES</th>
-                                    <th>AVEC FACTURE</th>
-                                    <th>SANS FACTURE</th>
-                                    <th>ANOMALIES</th>
-                                    <th>BIG / SMALL FACT.</th>
-                                    <th>TAUX %</th>
-                                    <th>DÉTAILS</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                            </tbody>
-                        </table>
+            <!-- TOURNÉES & TAUX DE FACTURATION (FULL WIDTH CARD) -->
+            <div class="cyber-card" style="width: 100%; margin-top: 1.5rem; margin-bottom: 1.5rem;">
+                <div class="card-edge"></div>
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <span class="tech-label"><i class="fa-solid fa-route neon-text-blue"></i> TOURNÉES &amp; TAUX DE FACTURATION (ANALYSE TOURNÉES SECTEURS)</span>
+                    <div id="v360-tournees-kpis-ribbon" style="display: flex; gap: 0.6rem; flex-wrap: wrap; font-size: 0.75rem;">
+                        <!-- Dynamic KPI mini badges inserted via JS -->
                     </div>
                 </div>
+                <!-- MOTIFS BREAKDOWN BADGES -->
+                <div id="v360-motifs-bar" style="display: flex; gap: 0.4rem; padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.15); border-radius: 4px; overflow-x: auto; font-size: 0.72rem; margin-bottom: 0.6rem;">
+                    <!-- Motifs badges inserted via JS -->
+                </div>
+                <div style="overflow-x: auto; width: 100%; max-height: 420px;">
+                    <table class="cyber-table" id="v360-tournees-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th style="white-space: nowrap;">DATE / TOURNÉE</th>
+                                <th style="white-space: nowrap;">H. DÉBUT</th>
+                                <th style="white-space: nowrap;">H. FIN</th>
+                                <th style="white-space: nowrap;">DURÉE</th>
+                                <th style="white-space: nowrap;">TOTAL VISITES</th>
+                                <th style="white-space: nowrap; color: var(--neon-green);">TOTAL OK</th>
+                                <th style="white-space: nowrap; color: var(--neon-pink);">MAGASIN FERMÉ</th>
+                                <th style="white-space: nowrap; color: var(--neon-blue);">STOCK SUFFISANT</th>
+                                <th style="white-space: nowrap; color: var(--neon-amber);">RESP. ABSENT</th>
+                                <th style="white-space: nowrap;">TAUX %</th>
+                                <th style="white-space: nowrap;">DÉTAILS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
-                <!-- RIGHT: VENDEUR SCORE RADAR / BAR CHART -->
+            <!-- PERFORMANCE CHARTS ROW -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                <!-- VENDEUR SCORE RADAR / BAR CHART -->
                 <div class="cyber-card" id="v360-radar-card">
                     <div class="card-edge"></div>
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -1244,7 +1244,7 @@
                                 <th>OBJECTIF</th>
                                 <th>RÉALISÉ (DH)</th>
                                 <th>RESTE À FAIRE (RAF)</th>
-                                <th>PERFORMANCE %</th>
+                                <th>ÉCART %</th>
                                 <th style="text-align: center;">RAF / JOUR</th>
                             </tr>
                         </thead>
@@ -3786,6 +3786,185 @@
         </section>
     </main>
 
+    <!-- VISITES VIEW CONTAINER -->
+    <main class="dashboard-container" id="visites-container" style="{% if active_tab != 'visites' %}display: none;{% endif %}; position: relative; z-index: 10;">
+        <!-- TOP SECTION & ACTIONS -->
+        <section class="summary-section" id="visites-summary-section">
+            <div class="summary-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 1rem;">
+                <div class="summary-title">
+                    <h2><i class="fa-solid fa-route neon-text-blue" style="margin-right: 0.5rem;"></i> GESTION &amp; ANALYSE DES VISITES TERRAIN</h2>
+                    <p class="summary-subtitle" style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono);">
+                        Suivi en temps réel des tournées, analyse des motifs de visite, détection d'anomalies et comparaison de rapports Excel
+                    </p>
+                </div>
+                <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+                    <button type="button" class="cyber-btn" id="visites-tab-import-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); height: 38px;">
+                        <i class="fa-solid fa-file-excel"></i> IMPORT RAPPORT EXCEL
+                    </button>
+                    <button type="button" class="cyber-btn" id="visites-tab-compare-btn" style="border-color: var(--neon-pink); color: var(--neon-pink); height: 38px;">
+                        <i class="fa-solid fa-code-compare"></i> COMPARER PASSAGES
+                    </button>
+                    <button type="button" class="cyber-btn-secondary" id="visites-tab-refresh-btn" style="height: 38px;">
+                        <i class="fa-solid fa-rotate-right"></i> ACTUALISER
+                    </button>
+                </div>
+            </div>
+
+            <!-- VISITES SUMMARY CARDS -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1.25rem; width: 100%;">
+                <div class="cyber-card summary-card glow-blue" style="padding: 0.85rem 1rem;">
+                    <div class="card-edge"></div>
+                    <div class="summary-content">
+                        <span class="summary-label" style="font-size: 0.7rem;"><i class="fa-solid fa-route"></i> TOTAL VISITES</span>
+                        <h3 class="summary-value neon-text-blue" id="visites-kpi-total" style="margin: 0.25rem 0 0 0; font-size: 1.5rem;">0</h3>
+                        <span class="summary-sub" id="visites-kpi-total-sub">-- visites analysées</span>
+                    </div>
+                </div>
+                
+                <div class="cyber-card summary-card glow-green" style="padding: 0.85rem 1rem;">
+                    <div class="card-edge"></div>
+                    <div class="summary-content">
+                        <span class="summary-label" style="font-size: 0.7rem; color: var(--neon-green);"><i class="fa-solid fa-circle-check"></i> CONFORMES / OK</span>
+                        <h3 class="summary-value neon-text-green" id="visites-kpi-ok" style="margin: 0.25rem 0 0 0; font-size: 1.5rem;">0</h3>
+                        <span class="summary-sub" id="visites-kpi-ok-sub">0% taux de succès</span>
+                    </div>
+                </div>
+                
+                <div class="cyber-card summary-card glow-amber" style="padding: 0.85rem 1rem;">
+                    <div class="card-edge"></div>
+                    <div class="summary-content">
+                        <span class="summary-label" style="font-size: 0.7rem; color: var(--neon-amber);"><i class="fa-solid fa-store-slash"></i> FERMÉS &amp; ABSENTS</span>
+                        <h3 class="summary-value" id="visites-kpi-fermes" style="margin: 0.25rem 0 0 0; font-size: 1.5rem; color: var(--neon-amber);">0</h3>
+                        <span class="summary-sub" id="visites-kpi-fermes-sub">Magasins non servis</span>
+                    </div>
+                </div>
+                
+                <div class="cyber-card summary-card glow-pink" style="padding: 0.85rem 1rem;">
+                    <div class="card-edge"></div>
+                    <div class="summary-content">
+                        <span class="summary-label" style="font-size: 0.7rem; color: #ff4d4d;"><i class="fa-solid fa-triangle-exclamation"></i> ANOMALIES DÉTECTÉES</span>
+                        <h3 class="summary-value" id="visites-kpi-anomalies" style="margin: 0.25rem 0 0 0; font-size: 1.5rem; color: #ff4d4d;">0</h3>
+                        <span class="summary-sub" id="visites-kpi-anomalies-sub">Durée / Heure / Multiple</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- FILTERS & SUB-TABS -->
+        <section class="cyber-card table-card" style="margin-top: 1.5rem;">
+            <div class="card-edge"></div>
+            
+            <!-- Filters Bar -->
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background: rgba(0, 0, 0, 0.25); border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 1rem;">
+                
+                <!-- Subtab Navigation -->
+                <div class="sub-tab-group" style="display: flex; gap: 0.5rem;">
+                    <button type="button" class="cyber-btn active" id="visites-subtab-tournees" style="font-size: 0.82rem; padding: 0.4rem 1rem;">
+                        <i class="fa-solid fa-map-location-dot"></i> SYNTHÈSE PAR TOURNÉE
+                    </button>
+                    <button type="button" class="cyber-btn" id="visites-subtab-journal" style="font-size: 0.82rem; padding: 0.4rem 1rem;">
+                        <i class="fa-solid fa-list-ul"></i> JOURNAL DES VISITES
+                    </button>
+                </div>
+                
+                <!-- Dropdown Selectors -->
+                <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-user"></i> VENDEUR :</span>
+                        <select id="visites-vendeur-filter" class="cyber-select" style="width: 220px; font-size: 0.78rem; height: 32px; border-color: var(--neon-blue);">
+                            <option value="">-- CHOISIR UN VENDEUR --</option>
+                            <option value="D48 IBACH MOHAMED">D48 IBACH MOHAMED</option>
+                            <option value="D86 ACHAOUI AZIZ">D86 ACHAOUI AZIZ</option>
+                            <option value="E14 BOUMDIANE MOHAMED">E14 BOUMDIANE MOHAMED</option>
+                            <option value="F78 GHOUSMI MOURAD">F78 GHOUSMI MOURAD</option>
+                            <option value="H38 AFIF OUTMAN">H38 AFIF OUTMAN</option>
+                            <option value="J78 LASRI EL HOUCINE">J78 LASRI EL HOUCINE</option>
+                            <option value="K60 ELHAOUZI RACHID">K60 ELHAOUZI RACHID</option>
+                            <option value="K91 BAIZ MOHAMED">K91 BAIZ MOHAMED</option>
+                            <option value="T89 AKNOUN MOHAMED">T89 AKNOUN MOHAMED</option>
+                            <option value="T96 EL HADI BOUBAKER">T96 EL HADI BOUBAKER</option>
+                        </select>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span class="tech-label" style="margin: 0; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-calendar-day"></i> DATE :</span>
+                        <select id="visites-date-filter" class="cyber-select" style="min-width: 220px; max-width: 380px; width: auto; font-size: 0.78rem; height: 32px; border-color: var(--neon-blue);">
+                            <option value="All">TOUTES LES DATES</option>
+                        </select>
+                    </div>
+
+                    <div class="search-input-wrapper" style="position: relative; width: 200px; margin: 0;">
+                        <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.8rem;"></i>
+                        <input type="text" id="visites-search-input" placeholder="Rechercher..." autocomplete="off" style="font-size: 0.8rem; height: 32px; padding-left: 2.25rem; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-main); outline: none;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW 1: SYNTHESE PAR TOURNEE -->
+            <div id="visites-view-tournees" style="padding: 1.25rem;">
+                <div class="table-container" style="max-height: 600px; overflow-y: auto;">
+                    <table class="cyber-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>TOURNÉE / LOCALITÉ</th>
+                                <th>SECTEUR</th>
+                                <th>VENDEUR</th>
+                                <th style="text-align: center;">CLIENTS ENREGISTRÉS</th>
+                                <th style="text-align: center;">CLIENTS VISITÉS</th>
+                                <th style="text-align: center; color: var(--neon-green);">MOTIF OK</th>
+                                <th style="text-align: center; color: var(--neon-amber);">FERMÉ</th>
+                                <th style="text-align: center; color: #ff9966;">ABSENT</th>
+                                <th style="text-align: center; color: var(--neon-blue);">STOCK SUFF.</th>
+                                <th style="text-align: center;">COUVERTURE %</th>
+                            </tr>
+                        </thead>
+                        <tbody id="visites-tournees-tbody">
+                            <!-- Dynamic rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- VIEW 2: JOURNAL DES VISITES -->
+            <div id="visites-view-journal" style="display: none; padding: 1.25rem;">
+                <div class="table-container" style="max-height: 600px; overflow-y: auto;">
+                    <table class="cyber-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>HEURE DÉBUT</th>
+                                <th>HEURE FIN</th>
+                                <th>VENDEUR</th>
+                                <th>CODE CLIENT</th>
+                                <th>NOM DU CLIENT</th>
+                                <th>TOURNÉE</th>
+                                <th style="text-align: center;">DURÉE</th>
+                                <th style="text-align: center;">DISTANCE</th>
+                                <th>MOTIF / RÉSULTAT</th>
+                                <th style="text-align: center;">ANOMALIE</th>
+                            </tr>
+                        </thead>
+                        <tbody id="visites-journal-tbody">
+                            <!-- Dynamic rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- LOADING INDICATOR -->
+            <div id="visites-loading" style="display: none; text-align: center; padding: 3rem 0;">
+                <div class="cyber-spinner" style="margin: 0 auto 1rem;"></div>
+                <span class="tech-label neon-text-blue">CHARGEMENT DES DONNÉES DE VISITE...</span>
+            </div>
+            
+            <!-- EMPTY INDICATOR -->
+            <div id="visites-empty" style="display: none; text-align: center; padding: 3rem 0;">
+                <i class="fa-solid fa-route" style="font-size: 3rem; color: var(--text-muted); margin-bottom: 1rem;"></i>
+                <h3 style="color: var(--text-main);">Aucune donnée de visite trouvée</h3>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">Importez un rapport de visites Excel (ex: 6.xlsx) pour afficher les données.</p>
+            </div>
+        </section>
+    </main>
+
     <!-- PDF Generation Overlay -->
     <div id="pdf-overlay" class="pdf-overlay" style="display:none;">
         <div class="pdf-overlay-card">
@@ -4758,27 +4937,47 @@
 
     <!-- ===== VISITES UPLOAD MODAL ===== -->
     <div class="modal-backdrop" id="visites-upload-modal">
-        <div class="cyber-modal" style="max-width: 500px; width: 95%;">
+        <div class="cyber-modal" style="max-width: 580px; width: 95%;">
             <div class="modal-header">
-                <h3><i class="fa-solid fa-cloud-arrow-up neon-text-blue"></i> ANALYSER UN RAPPORT VISITES</h3>
+                <h3><i class="fa-solid fa-cloud-arrow-up neon-text-blue"></i> IMPORTER & ENREGISTRER UN RAPPORT VISITES</h3>
                 <button class="close-btn" id="close-visites-upload-modal">&times;</button>
             </div>
-            <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
-                <div class="upload-dropzone" id="visites-dropzone" style="border: 2px dashed var(--border-color); border-radius: 6px; padding: 2rem; text-align: center; cursor: pointer; background: rgba(0,0,0,0.2); transition: border-color 0.25s, background-color 0.25s;">
-                    <i class="fa-solid fa-file-excel" style="font-size: 2.5rem; color: var(--neon-blue); margin-bottom: 1rem;"></i>
+            <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+                <div class="upload-dropzone" id="visites-dropzone" style="border: 2px dashed var(--border-color); border-radius: 6px; padding: 1.75rem 1.5rem; text-align: center; cursor: pointer; background: rgba(0,0,0,0.2); transition: border-color 0.25s, background-color 0.25s;">
+                    <i class="fa-solid fa-file-excel" style="font-size: 2.5rem; color: var(--neon-blue); margin-bottom: 0.75rem;"></i>
                     <p style="margin: 0; color: var(--text-main); font-weight: bold;">Glissez-déposez un ou plusieurs fichiers Excel du rapport</p>
                     <p style="margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.8rem;">Ou cliquez pour parcourir les fichiers (.xlsx, .xls)</p>
                     <input type="file" id="visites-file-input" accept=".xlsx, .xls" style="display: none;" multiple>
                 </div>
-                <div id="visites-file-info" style="display: none; align-items: center; gap: 0.5rem; padding: 0.50rem 0.75rem; background: rgba(0,242,254,0.08); border: 1px solid var(--neon-blue); border-radius: 4px; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-main);">
-                    <i class="fa-solid fa-check-circle" style="color: var(--neon-green);"></i>
-                    <span id="visites-file-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Fichier : </span>
-                    <button id="visites-file-clear" class="cyber-btn-text" style="color: var(--neon-pink); text-transform: uppercase;">Retirer</button>
+
+                <div id="visites-file-info" style="display: none; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.75rem; background: rgba(0,242,254,0.08); border: 1px solid var(--neon-blue); border-radius: 4px; font-size: 0.8rem; color: var(--text-main);">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+                        <i class="fa-solid fa-check-circle" style="color: var(--neon-green);"></i>
+                        <span id="visites-file-name" style="font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Fichiers sélectionnés</span>
+                    </div>
+                    <button id="visites-file-clear" class="cyber-btn-text" style="color: var(--neon-pink); text-transform: uppercase; font-size: 0.75rem; cursor: pointer;">Retirer tout</button>
                 </div>
+
+                <!-- PREVIEW LIST OF DETECTED SELLERS AND FILES -->
+                <div id="visites-preview-loading" style="display: none; text-align: center; padding: 1rem; color: var(--neon-blue); font-size: 0.82rem;">
+                    <i class="fa-solid fa-spinner fa-spin"></i> Détection des vendeurs et analyse des fichiers...
+                </div>
+                <div id="visites-files-preview-list" style="display: none; flex-direction: column; gap: 0.5rem; max-height: 240px; overflow-y: auto; padding: 0.25rem;">
+                    <!-- Dynamic preview table populated via JS -->
+                </div>
+
+                <div style="font-size: 0.75rem; color: var(--neon-amber); display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.5rem; background: rgba(255,170,0,0.08); border-radius: 4px; border: 1px solid rgba(255,170,0,0.25);">
+                    <i class="fa-solid fa-circle-info"></i> L'enregistrement supprimera toutes les entrées de la table "visites_rapports" et enregistrera ces nouvelles données.
+                </div>
+
+                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                    <input type="checkbox" id="visites-ignore-tournee-check" checked style="accent-color: var(--neon-blue);">
+                    Ignorer la tournée du fichier (Résoudre automatiquement via les clients)
+                </label>
             </div>
             <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
                 <button class="cyber-btn-secondary" id="cancel-visites-upload">ANNULER</button>
-                <button class="cyber-btn" id="submit-visites-upload" style="border-color: var(--neon-blue); color: var(--neon-blue);"><i class="fa-solid fa-circle-check"></i> ANALYSER</button>
+                <button class="cyber-btn" id="submit-visites-upload" style="border-color: var(--neon-green); color: var(--neon-green); font-weight: bold;"><i class="fa-solid fa-floppy-disk"></i> SAVE</button>
             </div>
         </div>
     </div>
@@ -5074,8 +5273,8 @@
 
 
     <!-- Custom Script JS -->
-    <script src="/static/js/vendeur360.js?v=35.0"></script>
-    <script src="/static/js/dashboard.js?v=35.0"></script>
+    <script src="/static/js/vendeur360.js?v=35.4"></script>
+    <script src="/static/js/dashboard.js?v=36.1"></script>
     <script src="/static/js/fdv.js?v=5.0"></script>
     <script src="/static/js/bg-anim.js?v=5.0"></script>
     <script src="/static/js/terrain.js?v=5.1"></script>

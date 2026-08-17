@@ -17,6 +17,10 @@ ENV/
 !*.db
 !*.sqlite
 !realm_data.json
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
 
 # Cache and temporary files
 excel/temp_*
@@ -44,3 +48,5 @@ Downloads/
 *.xlsx
 
 
+
+.vercel

@@ -1,20 +1,46 @@
 import os
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 import json
-from flask import Flask, jsonify, request, render_template, redirect
+from flask import Flask, jsonify, request, render_template, redirect, send_from_directory
 from data_processor import ExcelProcessor, get_categorie
 import pandas as pd
 import datetime
 from generate_report import generate_report
 import db_manager
-db_manager.init_db()
-if os.path.exists("acm.xlsx"):
-    try:
+try:
+    db_manager.init_db()
+    if os.path.exists("acm.xlsx"):
         db_manager.import_acm_file("acm.xlsx")
-    except Exception as e:
-        print(f"Warning: Auto-import of acm.xlsx failed: {e}")
+except Exception as e:
+    print(f"Notice on init: {e}")
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app = Flask(
+    __name__,
+    static_folder=os.path.join(BASE_DIR, 'static'),
+    static_url_path='/static',
+    template_folder=os.path.join(BASE_DIR, 'templates')
+)
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    return send_from_directory(os.path.join(BASE_DIR, 'static'), filename)
+
+@app.route('/logo.png')
+def serve_logo_root():
+    if os.path.exists(os.path.join(BASE_DIR, 'static', 'logo.png')):
+        return send_from_directory(os.path.join(BASE_DIR, 'static'), 'logo.png')
+    return send_from_directory(BASE_DIR, 'logo.png')
+
+@app.route('/bg_anim.png')
+def serve_bg_anim_root():
+    return send_from_directory(BASE_DIR, 'bg_anim.png')
+
+@app.route('/favicon.ico')
+def serve_favicon():
+    return serve_logo_root()
 
 @app.after_request
 def add_header(response):
@@ -24,38 +50,62 @@ def add_header(response):
     return response
 
 # Ensure directories exist
-os.makedirs("templates", exist_ok=True)
-os.makedirs("static/css", exist_ok=True)
-os.makedirs("static/js", exist_ok=True)
+try:
+    os.makedirs("templates", exist_ok=True)
+    os.makedirs("static/css", exist_ok=True)
+    os.makedirs("static/js", exist_ok=True)
+except Exception:
+    pass
 
-CONFIG_PATH = "config.json"
+if getattr(db_manager, 'IS_SERVERLESS', False):
+    CONFIG_PATH = os.path.join(getattr(db_manager, 'DB_DIR', '/tmp'), "config.json")
+    _src_cfg = os.path.join(BASE_DIR, "config.json")
+    if os.path.exists(_src_cfg) and not os.path.exists(CONFIG_PATH):
+        try:
+            shutil.copyfile(_src_cfg, CONFIG_PATH)
+            try:
+                os.chmod(CONFIG_PATH, 0o666)
+            except Exception:
+                pass
+        except Exception:
+            pass
+else:
+    CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+
+EXCEL_DIR = os.path.join(getattr(db_manager, 'DB_DIR', BASE_DIR), "excel")
+try:
+    os.makedirs(EXCEL_DIR, exist_ok=True)
+except Exception:
+    pass
 
 def load_config():
     defaults = {
-        "rest_days": 20,
+        "rest_days": 15,
         "exclude_families": [],
         "theme": "theme-1",
         "light_mode": True,
         "excluded_dates": [],
         "google_sheet_url": ""
     }
-    if os.path.exists(CONFIG_PATH):
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                # Ensure all default keys exist
-                for k, v in defaults.items():
-                    if k not in config:
-                        config[k] = v
-                return config
-        except Exception:
-            pass
-    return defaults
+    if not os.path.exists(CONFIG_PATH):
+        save_config(defaults)
+        return defaults
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            # Ensure all default keys exist
+            for k, v in defaults.items():
+                if k not in data:
+                    data[k] = v
+            return data
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        return defaults
 
 def save_config(config):
     try:
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
+            json.dump(config, f, indent=4)
         return True
     except Exception as e:
         print(f"Error saving config: {e}")
@@ -63,17 +113,20 @@ def save_config(config):
 
 def get_processor():
     config = load_config()
-    rest_days = int(config.get("rest_days", 20))
+    rest_days = int(config.get("rest_days", 15))
     exclude_families = config.get("exclude_families", [])
     return ExcelProcessor(rest_days=rest_days, exclude_families=exclude_families)
 
 
 def process_and_save_suivi(date, file_content, force_extract_rest_days=False):
-    temp_in = f"excel/temp_upload_{date}.xlsx"
-    temp_out = f"excel/temp_finale_{date}.xlsx"
+    temp_in = os.path.join(EXCEL_DIR, f"temp_upload_{date}.xlsx")
+    temp_out = os.path.join(EXCEL_DIR, f"temp_finale_{date}.xlsx")
     
     # Save file content temporarily to run openpyxl/pandas
-    os.makedirs("excel", exist_ok=True)
+    try:
+        os.makedirs(EXCEL_DIR, exist_ok=True)
+    except Exception:
+        pass
     with open(temp_in, "wb") as f:
         f.write(file_content)
         
@@ -230,6 +283,17 @@ def api_import_all_secteurs():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route("/api/visites/import-all-secteurs", methods=["POST", "GET"])
+def api_import_all_secteurs_visites():
+    try:
+        res = db_manager.import_all_secteurs_visites_rapports(save_tournee=False)
+        return jsonify(res)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/clients")
 def clients():
     config = load_config()
@@ -263,9 +327,16 @@ def anomalis_page():
     light_mode = config.get("light_mode", False)
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="anomalies")
 
+@app.route("/visites")
+def visites_page():
+    config = load_config()
+    theme = config.get("theme", "theme-1")
+    light_mode = config.get("light_mode", False)
+    return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="visites")
+
 @app.route("/api/anomalies/analysis", methods=["GET"])
 def api_anomalies_analysis():
-    """Analyze all visits from visites_rapports against 4 strict anomaly rules:
+    """Analyze visits from visites_rapports against 4 strict anomaly rules:
     1. Durée < 3 min (Red)
     2. Multiple visits to same client on same date (Orange)
     3. First visit > 08:40:00 (Dark Red)
@@ -281,16 +352,39 @@ def api_anomalies_analysis():
         conn = db_manager.get_db_connection()
         cursor = conn.cursor()
 
-        cursor.execute("""
+        # Fast DISTINCT queries for dropdown filters
+        cursor.execute("SELECT DISTINCT vendeur FROM visites_rapports WHERE vendeur IS NOT NULL AND vendeur != '' ORDER BY vendeur ASC")
+        all_vendeurs = [r[0] for r in cursor.fetchall() if r[0]]
+
+        cursor.execute("SELECT DISTINCT date_visite FROM visites_rapports WHERE date_visite IS NOT NULL AND date_visite != '' ORDER BY date_visite DESC")
+        all_dates = [r[0] for r in cursor.fetchall() if r[0]]
+
+        # Build SQL filter clauses to avoid scanning entire DB in Python
+        where_clauses = ["date_visite IS NOT NULL AND date_visite != ''"]
+        params = []
+
+        if vendeur_filter and vendeur_filter != "All":
+            vcode = vendeur_filter.split(" ")[0].strip().upper()
+            clean_name = vendeur_filter.strip().upper()
+            where_clauses.append("(UPPER(TRIM(vendeur)) = ? OR UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ?)")
+            params.extend([clean_name, f"{vcode} %", f"{vcode}%"])
+
+        if date_filter and date_filter != "All":
+            where_clauses.append("(date_visite = ? OR date_visite LIKE ?)")
+            params.extend([date_filter, f"%{date_filter}%"])
+
+        where_str = " WHERE " + " AND ".join(where_clauses)
+
+        cursor.execute(f"""
             SELECT id, file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note
             FROM visites_rapports
-            WHERE date_visite IS NOT NULL
+            {where_str}
             ORDER BY date_visite DESC, vendeur ASC, heure ASC, id ASC
-        """)
+        """, params)
         rows = cursor.fetchall()
 
         # Fallback to vendeur_tournees_visits if visites_rapports is empty
-        if not rows:
+        if not rows and not params:
             cursor.execute("""
                 SELECT id, '' as file_name, vendeur_name as vendeur, date as date_visite, tournee, '' as agence,
                        client_code, client_name as client_nom,
@@ -303,15 +397,10 @@ def api_anomalies_analysis():
 
         conn.close()
 
-        vendeurs_set = set()
-        dates_set = set()
-
         groups = defaultdict(list)
         for r in rows:
             v = (r['vendeur'] or '').strip()
             d = (r['date_visite'] or '').strip()
-            if v: vendeurs_set.add(v)
-            if d: dates_set.add(d)
             groups[(v, d)].append(dict(r))
 
         analyzed_visites = []
@@ -358,21 +447,17 @@ def api_anomalies_analysis():
                 motif_str = (visit.get('motif') or '').strip().upper()
                 is_closed_motif = any(m in motif_str for m in ['FERM', 'ABSENT', 'NON VISITE', 'NON VISITÉ'])
 
-                # Rule 1: Durée < 3 min (180 seconds) -> RED (Seulement si le magasin est OUVERT! Si fermé, durée < 3min est normale)
                 is_less_3min = (dur_sec < 180) if not is_closed_motif else False
 
-                # Rule 2: Pour chaque client fermé/absent, vérifier s'il a au moins 2 visites. Si < 2 visites => ANOMALIE "1 Visite"!
                 total_client_visites = client_counts[c_code.upper()] if c_code else 1
                 is_closed_not_revisited = (is_closed_motif and total_client_visites < 2)
                 is_multiple = (total_client_visites >= 2) if c_code else False
 
-                # Rule 3: Première visite de la journée > 08:40 -> DARK RED
                 is_first = (idx == 0)
                 is_first_late = False
                 if is_first and h_start and h_start > '08:40:00':
                     is_first_late = True
 
-                # Rule 4: Dernière visite de la journée < 14:45 -> DARK RED
                 is_last = (idx == total_v - 1)
                 is_last_early = False
                 if is_last and h_end and h_end < '14:45:00':
@@ -412,27 +497,21 @@ def api_anomalies_analysis():
                     "anomalies": anom_list
                 }
 
-                # Apply filters if set
-                match_vendeur = (vendeur_filter == "All" or vendeur_filter.upper() in vendeur.upper() or vendeur.upper() in vendeur_filter.upper())
-                match_date = (date_filter == "All" or date_filter == date_visite)
+                analyzed_visites.append(item)
+                stats['total_visites'] += 1
+                if is_less_3min: stats['count_less_3min'] += 1
+                if is_closed_not_revisited or is_multiple: stats['count_multiple'] += 1
+                if is_first_late: stats['count_first_late'] += 1
+                if is_last_early: stats['count_last_early'] += 1
+                if has_anom: stats['total_anomalies'] += 1
 
-                if match_vendeur and match_date:
-                    analyzed_visites.append(item)
-                    stats['total_visites'] += 1
-                    if is_less_3min: stats['count_less_3min'] += 1
-                    if is_closed_not_revisited or is_multiple: stats['count_multiple'] += 1
-                    if is_first_late: stats['count_first_late'] += 1
-                    if is_last_early: stats['count_last_early'] += 1
-                    if has_anom: stats['total_anomalies'] += 1
-
-        # Sort so visits WITH anomalies appear at the top of the list!
         analyzed_visites.sort(key=lambda x: (not x['has_anomaly'], x['heure_debut']))
 
         return jsonify({
             "status": "success",
             "stats": stats,
-            "vendeurs": sorted(list(vendeurs_set)),
-            "dates": sorted(list(dates_set), reverse=True),
+            "vendeurs": all_vendeurs,
+            "dates": all_dates,
             "visites": analyzed_visites
         })
     except Exception as e:
@@ -583,16 +662,16 @@ def api_vendeur_raf():
         latest_date_row = cursor.fetchone()
         if not latest_date_row:
             conn.close()
-            return jsonify({"status": "success", "vendeur": vendeur, "raf_total": 0, "raf_jour": 0, "rest_days": 20, "ca": {"obj_mois": 0, "real": 0, "raf": 0, "raf_jour": 0}, "familles": {}})
+            return jsonify({"status": "success", "vendeur": vendeur, "raf_total": 0, "raf_jour": 0, "rest_days": 15, "ca": {"obj_mois": 0, "real": 0, "raf": 0, "raf_jour": 0}, "familles": {}})
             
         latest_date = latest_date_row[0]
         
         # Get rest_days for latest_date
         cursor.execute("SELECT rest_days FROM settings WHERE date = ?", (latest_date,))
         setting_row = cursor.fetchone()
-        rest_days = setting_row[0] if (setting_row and setting_row[0] is not None) else 20
+        rest_days = setting_row[0] if (setting_row and setting_row[0] is not None) else 15
         if rest_days <= 0:
-            rest_days = 20
+            rest_days = 15
 
         # Query quantitative rows for vendeur
         v_code = vendeur.split()[0].upper() if vendeur else ""
@@ -610,22 +689,26 @@ def api_vendeur_raf():
             fam = r.get("famille", "")
             fam_upper = fam.upper()
             real = float(r.get("real") or 0)
-            obj_mois = float(r.get("obj_mois") or r.get("obj") or 0)
-            raf = float(r.get("raf") or max(0, obj_mois - real))
-            raf_jour = round(raf / rest_days, 2) if rest_days > 0 else 0
+            obj_partiel = float(r.get("obj") or 0)
+            obj_mois = float(r.get("obj_mois") or 0)
+            if obj_mois == 0 and obj_partiel > 0:
+                obj_mois = round(obj_partiel * (24.0 / 10.0))
+            
+            raf_total_ttc = (obj_mois - real) * 1.2
+            raf_jour = round(raf_total_ttc / rest_days) if rest_days > 0 else round(raf_total_ttc)
 
             if "C.A" in fam_upper or "CA" in fam_upper:
                 ca_info = {
                     "obj_mois": obj_mois,
                     "real": real,
-                    "raf": raf,
+                    "raf": raf_total_ttc,
                     "raf_jour": raf_jour
                 }
             else:
                 familles_info[fam] = {
                     "obj_mois": obj_mois,
                     "real": real,
-                    "raf": raf,
+                    "raf": raf_total_ttc,
                     "raf_jour": raf_jour
                 }
 
@@ -637,7 +720,7 @@ def api_vendeur_raf():
                 "obj_mois": sum_obj,
                 "real": sum_real,
                 "raf": sum_raf,
-                "raf_jour": round(sum_raf / rest_days, 2) if rest_days > 0 else 0
+                "raf_jour": round(sum_raf / rest_days) if rest_days > 0 else round(sum_raf)
             }
 
         return jsonify({
@@ -924,8 +1007,11 @@ def send_whatsapp_image():
             
         img_bytes = base64.b64decode(image_data_b64)
         
-        os.makedirs("excel", exist_ok=True)
-        img_path = os.path.abspath("excel/temp_wa_card.png")
+        try:
+            os.makedirs(EXCEL_DIR, exist_ok=True)
+        except Exception:
+            pass
+        img_path = os.path.join(EXCEL_DIR, "temp_wa_card.png")
         
         with open(img_path, "wb") as f:
             f.write(img_bytes)
@@ -959,11 +1045,11 @@ def send_bulk_whatsapp():
         if not vendeurs:
             return jsonify({"status": "error", "message": "Liste de vendeurs requise."}), 400
             
-        # Use app root dir as the working directory so the task script finds database.db
-        app_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        os.makedirs(os.path.join(app_dir, "excel"), exist_ok=True)
-        task_file_path = os.path.join(app_dir, f"excel/bulk_task_{int(time.time())}.json")
+        try:
+            os.makedirs(EXCEL_DIR, exist_ok=True)
+        except Exception:
+            pass
+        task_file_path = os.path.join(EXCEL_DIR, f"bulk_task_{int(time.time())}.json")
         
         with open(task_file_path, "w", encoding="utf-8") as f:
             json.dump({
@@ -991,6 +1077,200 @@ def send_bulk_whatsapp():
         import traceback
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/clients/preview_visite_files", methods=["POST"])
+def preview_visite_files_endpoint():
+    """Extract vendedor code, name, total tournées and visit count for each uploaded file before user confirms saving."""
+    try:
+        import io
+        import openpyxl
+        files = request.files.getlist("files") or request.files.getlist("file")
+        if not files:
+            return jsonify({"status": "error", "message": "Aucun fichier fourni."}), 400
+
+        # Load client to tournee mapping for resolving tournées from client codes
+        client_tournee_map = {}
+        try:
+            cv_conn = db_manager.get_cv_db_connection()
+            for r in cv_conn.cursor().execute("SELECT c.code, l.name FROM clients c LEFT JOIN localites l ON c.localite_id = l.id"):
+                if r[0] and r[1]:
+                    client_tournee_map[str(r[0]).strip().upper()] = str(r[1]).strip()
+            cv_conn.close()
+        except Exception:
+            pass
+
+        preview_list = []
+        vendeur_summary = {}
+
+        for file in files:
+            fname = file.filename
+            if not fname or not fname.endswith(('.xlsx', '.xls')) or fname.startswith('~$'):
+                continue
+
+            file_stream = io.BytesIO(file.read())
+            try:
+                wb = openpyxl.load_workbook(file_stream, read_only=True, data_only=True)
+                sheet_name = wb.sheetnames[0]
+                for s in wb.sheetnames:
+                    if "rapport" in s.lower() or "visite" in s.lower():
+                        sheet_name = s
+                        break
+                ws = wb[sheet_name]
+
+                v_code = ""
+                v_name = ""
+                agence = ""
+                date_tournee = ""
+                tournee_header = ""
+                row_count = 0
+                file_tournees = set()
+
+                for i, row in enumerate(ws.iter_rows(values_only=True)):
+                    if i < 14:
+                        for c_idx, val in enumerate(row):
+                            if val is None:
+                                continue
+                            val_str = str(val).strip()
+                            if "vendeur" in val_str.lower():
+                                for offset in [1, 2, 3, 4, 5, 6]:
+                                    if c_idx + offset < len(row) and row[c_idx + offset]:
+                                        cand = str(row[c_idx + offset]).strip()
+                                        if cand:
+                                            if not v_code:
+                                                v_code = cand
+                                            elif not v_name and cand != v_code:
+                                                v_name = cand
+                            if "agence" in val_str.lower():
+                                for offset in [1, 2, 3]:
+                                    if c_idx + offset < len(row) and row[c_idx + offset]:
+                                        agence = str(row[c_idx + offset]).strip()
+                                        break
+                            if "date" in val_str.lower() and "tourn" in val_str.lower():
+                                for offset in [1, 2, 3, 4, 5]:
+                                    if c_idx + offset < len(row) and row[c_idx + offset]:
+                                        date_tournee = str(row[c_idx + offset]).split()[0]
+                                        break
+                            if val_str.lower() in ("tournée", "tournee"):
+                                for offset in [1, 2, 3, 4, 5]:
+                                    if c_idx + offset < len(row) and row[c_idx + offset]:
+                                        tournee_header = str(row[c_idx + offset]).strip()
+                                        if tournee_header:
+                                            file_tournees.add(tournee_header)
+                                        break
+                    else:
+                        if len(row) > 1 and row[1] is not None and str(row[1]).strip() != "":
+                            row_count += 1
+                            c_code = str(row[1]).strip().upper()
+                            if c_code in client_tournee_map:
+                                file_tournees.add(client_tournee_map[c_code])
+
+                wb.close()
+
+                resolved = None
+                if v_code:
+                    resolved_cand = db_manager.resolve_vendeur_full_name(v_code)
+                    if resolved_cand and resolved_cand != "NON SPÉCIFIÉ" and len(resolved_cand.split()) > 1:
+                        resolved = resolved_cand
+
+                if not resolved:
+                    resolved_fname = db_manager.resolve_vendeur_full_name(fname)
+                    if resolved_fname and resolved_fname != "NON SPÉCIFIÉ" and len(resolved_fname.split()) > 1:
+                        resolved = resolved_fname
+
+                if not resolved and v_code and v_name:
+                    resolved = f"{v_code} {v_name}".strip()
+                elif not resolved and v_name:
+                    resolved = v_name
+
+                final_full = resolved if (resolved and resolved != "NON SPÉCIFIÉ") else (f"{v_code} {v_name}".strip() or fname.split('.')[0])
+                parts = final_full.split(' ', 1)
+                final_code = v_code or parts[0]
+                final_clean_name = parts[1] if len(parts) > 1 else final_full
+
+                # Group by vendeur
+                v_key = final_full
+                if v_key not in vendeur_summary:
+                    vendeur_summary[v_key] = {
+                        "vendeur_code": final_code,
+                        "vendeur_name": final_clean_name,
+                        "vendeur_full": final_full,
+                        "tournees": set(),
+                        "total_visites": 0,
+                        "files_count": 0,
+                        "dates": set()
+                    }
+
+                vendeur_summary[v_key]["total_visites"] += row_count
+                vendeur_summary[v_key]["files_count"] += 1
+                if date_tournee:
+                    vendeur_summary[v_key]["dates"].add(date_tournee)
+                for t in file_tournees:
+                    if t and t != "-":
+                        vendeur_summary[v_key]["tournees"].add(t)
+
+                preview_list.append({
+                    "file_name": fname,
+                    "vendeur_code": final_code,
+                    "vendeur_name": final_clean_name,
+                    "vendeur_full": final_full,
+                    "date": date_tournee or "-",
+                    "tournee": tournee_header or (list(file_tournees)[0] if file_tournees else "-"),
+                    "agence": agence or "AGADIR",
+                    "total_visites": row_count
+                })
+            except Exception as f_err:
+                resolved = db_manager.resolve_vendeur_full_name(fname)
+                parts = resolved.split(' ', 1) if resolved else [fname.split('.')[0], "Vendeur"]
+                f_code = parts[0]
+                f_name = parts[1] if len(parts) > 1 else f_code
+                
+                if resolved not in vendeur_summary:
+                    vendeur_summary[resolved] = {
+                        "vendeur_code": f_code,
+                        "vendeur_name": f_name,
+                        "vendeur_full": resolved,
+                        "tournees": set(),
+                        "total_visites": 0,
+                        "files_count": 0,
+                        "dates": set()
+                    }
+                vendeur_summary[resolved]["files_count"] += 1
+
+                preview_list.append({
+                    "file_name": fname,
+                    "vendeur_code": f_code,
+                    "vendeur_name": f_name,
+                    "vendeur_full": resolved,
+                    "date": "-",
+                    "tournee": "-",
+                    "agence": "AGADIR",
+                    "total_visites": 0
+                })
+
+        vendeurs_list = []
+        for k, v in vendeur_summary.items():
+            t_count = len(v["tournees"]) if v["tournees"] else max(1, v["files_count"])
+            vendeurs_list.append({
+                "vendeur_code": v["vendeur_code"],
+                "vendeur_name": v["vendeur_name"],
+                "vendeur_full": v["vendeur_full"],
+                "total_tournees": t_count,
+                "tournees_list": sorted(list(v["tournees"])),
+                "total_visites": v["total_visites"],
+                "files_count": v["files_count"],
+                "dates": sorted(list(v["dates"]))
+            })
+
+        return jsonify({
+            "status": "success",
+            "files": preview_list,
+            "vendeurs": vendeurs_list
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @app.route("/api/clients/analyse_visites", methods=["POST"])
 def analyse_visites_endpoint():
@@ -1073,7 +1353,9 @@ def analyse_visites_endpoint():
             if pd.notna(val):
                 vendeur_name = str(val).strip()
                 
-        vendeur = f"{vendeur_code} {vendeur_name}".strip() or "N/A"
+        # Resolve seller full name from fdv database or filename (e.g. K91.xlsx -> K91 BAIZ MOHAMED)
+        resolved_seller = db_manager.resolve_vendeur_full_name(file.filename)
+        vendeur = resolved_seller if resolved_seller and resolved_seller != "NON SPÉCIFIÉ" else f"{vendeur_code} {vendeur_name}".strip() or "N/A"
         
         date_tournee = "N/A"
         if len(df_sheet_raw) > 4 and len(df_sheet_raw.columns) > 21:
@@ -1231,9 +1513,11 @@ def enregistrer_visites_endpoint():
         clients_no_ok = data.get("clients_no_ok", [])
         
         file_name = metadata.get("file_name", "upload.xlsx")
-        vendeur = metadata.get("vendeur")
+        vendeur = db_manager.resolve_vendeur_full_name(metadata.get("vendeur") or file_name)
         date_tournee = metadata.get("date")
-        tournee = metadata.get("tournee")
+        ignore_tournee = data.get("ignore_tournee", True)
+        clear_existing = data.get("clear_existing", True)
+        tournee = "" if ignore_tournee else metadata.get("tournee", "")
         agence = metadata.get("agence")
         
         if not vendeur or not date_tournee:
@@ -1248,7 +1532,8 @@ def enregistrer_visites_endpoint():
             date_tournee,
             tournee,
             agence,
-            all_records
+            all_records,
+            clear_all=clear_existing
         )
         
         return jsonify({
@@ -1259,6 +1544,117 @@ def enregistrer_visites_endpoint():
         import traceback
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/visites/upload-laptop-files", methods=["POST"])
+def upload_laptop_visites_files():
+    """Upload multiple Excel visit files directly from user's laptop and save file-by-file into visites_rapports without tournee."""
+    try:
+        import io
+        files = request.files.getlist("files") or request.files.getlist("file")
+        if not files or len(files) == 0 or (len(files) == 1 and files[0].filename == ""):
+            return jsonify({"status": "error", "message": "Aucun fichier Excel sélectionné."}), 400
+
+        ignore_tournee = request.form.get("ignore_tournee", "true").lower() in ("true", "1", "yes")
+
+        # Clear existing visit reports before saving new uploaded batch
+        db_manager.clear_all_visites_rapports()
+
+        total_saved_records = 0
+        imported_files = []
+
+        for file in files:
+            fname = file.filename
+            if not fname or not fname.endswith(('.xlsx', '.xls')) or fname.startswith('~$'):
+                continue
+
+            file_content = file.read()
+            file_stream = io.BytesIO(file_content)
+
+            df_raw = pd.read_excel(file_stream, sheet_name=None)
+            sheet_name = list(df_raw.keys())[0]
+            for k in df_raw.keys():
+                if "rapport" in k.lower() or "visite" in k.lower():
+                    sheet_name = k
+                    break
+
+            df_sheet = df_raw[sheet_name]
+            date_tournee = "2026-07-01"
+            if len(df_sheet) > 4 and len(df_sheet.columns) > 21:
+                val = df_sheet.iloc[4, 21]
+                if pd.notna(val):
+                    date_tournee = str(val).split(' ')[0]
+
+            file_stream.seek(0)
+            df_data = pd.read_excel(file_stream, sheet_name=sheet_name, skiprows=13)
+            if df_data.empty:
+                continue
+
+            df_data.columns = [str(val).strip() if pd.notna(val) else f"col{i}" for i, val in enumerate(df_data.iloc[0])]
+            df_data = df_data.iloc[1:]
+
+            client_cols = [c for c in df_data.columns if str(c).lower() == "client"]
+            if not client_cols:
+                continue
+            client_col = client_cols[0]
+            df_data = df_data.dropna(subset=[client_col])
+
+            date_col = [c for c in df_data.columns if "date" in str(c).lower()]
+            date_col = date_col[0] if date_col else ("col11" if "col11" in df_data.columns else None)
+
+            df_data = df_data.rename(columns={'Heure Dbut': 'Heure Début', 'Heure Fin ': 'Heure Fin'})
+            h_dep = 'Heure Début' if 'Heure Début' in df_data.columns else ('col13' if 'col13' in df_data.columns else None)
+            h_fin = 'Heure Fin' if 'Heure Fin' in df_data.columns else ('col14' if 'col14' in df_data.columns else None)
+            dist_col = 'Distance' if 'Distance' in df_data.columns else ('col18' if 'col18' in df_data.columns else None)
+            motif_col = 'Motif' if 'Motif' in df_data.columns else ('col19' if 'col19' in df_data.columns else None)
+            note_col = 'Note' if 'Note' in df_data.columns else ('col24' if 'col24' in df_data.columns else None)
+            nom_col = 'Nom' if 'Nom' in df_data.columns else ('col4' if 'col4' in df_data.columns else None)
+
+            vendeur_full = db_manager.resolve_vendeur_full_name(fname)
+            records = []
+
+            for _, row in df_data.iterrows():
+                c_code = str(row[client_col]).strip()
+                c_name = str(row[nom_col]).strip() if nom_col and pd.notna(row[nom_col]) else "N/A"
+                c_date = date_tournee
+                if date_col and pd.notna(row[date_col]):
+                    raw_d = str(row[date_col]).strip()
+                    if raw_d and raw_d.lower() not in ("nan", "none", "null", "nat"):
+                        c_date = raw_d.split(' ')[0].strip()
+                c_h_dep = str(row[h_dep]).strip() if h_dep and pd.notna(row[h_dep]) else ""
+                c_h_fin = str(row[h_fin]).strip() if h_fin and pd.notna(row[h_fin]) else ""
+                c_time = f"{c_h_dep} - {c_h_fin}" if c_h_dep or c_h_fin else "N/A"
+                dist_str = str(row[dist_col]).split('.')[0].strip() if dist_col and pd.notna(row[dist_col]) else "0"
+                motif_val = str(row[motif_col]).strip() if motif_col and pd.notna(row[motif_col]) else "OK"
+                note_val = str(row[note_col]).strip() if note_col and pd.notna(row[note_col]) else ""
+
+                records.append({
+                    "code": c_code,
+                    "name": c_name,
+                    "date": c_date,
+                    "time": c_time,
+                    "distance": dist_str,
+                    "motif": motif_val,
+                    "note": note_val
+                })
+
+            tournee_val = "" if ignore_tournee else ""
+            ok = db_manager.save_visites_rapport(fname, vendeur_full, date_tournee, tournee_val, "", records)
+            if ok:
+                total_saved_records += len(records)
+                imported_files.append({"file_name": fname, "vendeur": vendeur_full, "records": len(records)})
+
+        return jsonify({
+            "status": "success",
+            "message": f"Importation réussie : {len(imported_files)} fichier(s) traité(s) ({total_saved_records:,} visites enregistrées)",
+            "imported_files": imported_files,
+            "total_records": total_saved_records
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": f"Erreur lors de l'importation : {str(e)}"}), 500
+
 
 
 @app.route("/api/clients/import_acm", methods=["POST"])
@@ -1805,7 +2201,166 @@ def get_vendeur_tournees():
     except Exception as e:
         import traceback
         traceback.print_exc()
+
+@app.route("/api/visites/filters", methods=["GET"])
+def api_visites_filters():
+    """Retrieve distinct vendeurs from FDV table for Chakib Elfil team only and dates strictly from visites_rapports database table."""
+    try:
+        vendeur_filter = request.args.get("vendeur", "").strip()
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. Fetch exclusively from FDV table for Chakib Elfil team
+        cursor.execute("SELECT DISTINCT vendeur FROM fdv WHERE vendeur IS NOT NULL AND vendeur != '' AND UPPER(cdz) LIKE '%CHAKIB%' ORDER BY vendeur ASC")
+        chakib_vendeurs = [r[0].strip() for r in cursor.fetchall() if r[0] and r[0].strip()]
+        
+        # Fallback if empty
+        if not chakib_vendeurs:
+            cursor.execute("SELECT DISTINCT vendeur FROM fdv WHERE vendeur IS NOT NULL AND vendeur != '' ORDER BY vendeur ASC")
+            chakib_vendeurs = [r[0].strip() for r in cursor.fetchall() if r[0] and r[0].strip()]
+        
+        # 2. Fetch distinct dates and their primary tournee strictly from visites_rapports
+        if vendeur_filter and vendeur_filter != "All":
+            vcode = vendeur_filter.split(" ", 1)[0].strip().upper()
+            cursor.execute("""
+                SELECT date_visite, tournee, COUNT(*) as cnt
+                FROM visites_rapports 
+                WHERE date_visite IS NOT NULL AND date_visite != '' AND date_visite != '-'
+                  AND (UPPER(TRIM(vendeur)) = ? OR UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ?)
+                GROUP BY date_visite, tournee
+                ORDER BY date_visite DESC, cnt DESC
+            """, (vendeur_filter.upper(), f"{vcode} %", f"{vcode}%"))
+        else:
+            cursor.execute("""
+                SELECT date_visite, tournee, COUNT(*) as cnt
+                FROM visites_rapports 
+                WHERE date_visite IS NOT NULL AND date_visite != '' AND date_visite != '-'
+                GROUP BY date_visite, tournee
+                ORDER BY date_visite DESC, cnt DESC
+            """)
+
+        date_tournee_map = {}
+        for r in cursor.fetchall():
+            d_val = r[0].strip() if r[0] else ''
+            t_val = r[1].strip() if r[1] else ''
+            if d_val and d_val not in date_tournee_map:
+                date_tournee_map[d_val] = t_val
+
+        dates = []
+        for d, t in date_tournee_map.items():
+            dates.append({
+                "date": d,
+                "tournee": t,
+                "label": f"{d} - {t}" if t else d
+            })
+
+        conn.close()
+        
+        return jsonify({"status": "success", "vendeurs": chakib_vendeurs, "dates": dates})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e), "vendeurs": [], "dates": []})
+
+
+@app.route("/api/visites/tournee-stats", methods=["GET"])
+def get_visites_tournee_stats():
+    """Retrieve visit statistics per tournée by matching visites_rapports with clients_vendeurs.db.
+    Filters by selected vendeur and date_visite (day).
+    For each client_code, looks up secteur, tourné, and vendeur in clients_vendeurs.db.
+    Returns breakdown statistics per tourné: total clients, magasin fermé, ok, responsable absent, stock suffisant.
+    """
+    try:
+        vendeur_raw = request.args.get("vendeur", "").strip()
+        date_val    = request.args.get("date", "").strip() or request.args.get("date_visite", "").strip()
+
+        conn = db_manager.get_db_connection()
+        try:
+            conn.execute(f"ATTACH DATABASE '{db_manager.CV_DB_PATH}' AS cv")
+        except Exception:
+            pass
+
+        cursor = conn.cursor()
+        vcode = vendeur_raw.split(" ", 1)[0].strip().upper() if vendeur_raw else ""
+
+        params = []
+        where_clauses = []
+
+        if vendeur_raw:
+            vcode = vendeur_raw.split(" ", 1)[0].strip().upper()
+            clean_name = vendeur_raw.strip().upper()
+            where_clauses.append("(UPPER(TRIM(vr.vendeur)) = ? OR UPPER(vr.vendeur) LIKE ? OR UPPER(vr.vendeur) LIKE ?)")
+            params.extend([clean_name, f"{vcode} %", f"{vcode}%"])
+
+        if date_val:
+            where_clauses.append("(vr.date_visite = ? OR vr.date_visite LIKE ?)")
+            params.extend([date_val, f"%{date_val}%"])
+
+        where_str = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+        query = f"""
+        SELECT 
+            COALESCE(vr.tournee, 'Tournée non spécifiée') AS tournee_name,
+            COALESCE(vr.agence, 'Secteur non spécifié') AS secteur_name,
+            vr.vendeur AS cv_vendeur,
+            COUNT(DISTINCT vr.client_code) AS total_visites,
+            SUM(CASE WHEN UPPER(TRIM(vr.motif)) = 'OK' THEN 1 ELSE 0 END) AS ok_count,
+            SUM(CASE WHEN UPPER(TRIM(vr.motif)) LIKE '%FERME%' OR UPPER(TRIM(vr.motif)) LIKE '%FERMÉ%' THEN 1 ELSE 0 END) AS magasin_ferme_count,
+            SUM(CASE WHEN UPPER(TRIM(vr.motif)) LIKE '%RESPONSABLE%' OR UPPER(TRIM(vr.motif)) LIKE '%ABSENT%' THEN 1 ELSE 0 END) AS responsable_absent_count,
+            SUM(CASE WHEN UPPER(TRIM(vr.motif)) LIKE '%STOCK%' OR UPPER(TRIM(vr.motif)) LIKE '%SUFISANT%' OR UPPER(TRIM(vr.motif)) LIKE '%SUFFISANT%' THEN 1 ELSE 0 END) AS stock_suffisant_count,
+            SUM(CASE WHEN UPPER(TRIM(vr.motif)) NOT IN ('OK') 
+                     AND UPPER(TRIM(vr.motif)) NOT LIKE '%FERME%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%FERMÉ%'
+                     AND UPPER(TRIM(vr.motif)) NOT LIKE '%RESPONSABLE%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%ABSENT%'
+                     AND UPPER(TRIM(vr.motif)) NOT LIKE '%STOCK%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%SUFISANT%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%SUFFISANT%'
+                THEN 1 ELSE 0 END) AS autres_count
+        FROM visites_rapports vr
+        {where_str}
+        GROUP BY tournee_name
+        ORDER BY total_visites DESC
+        """
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        registered_map = {}
+        try:
+            reg_rows = cursor.execute("SELECT l.name, COUNT(c.id) FROM cv.clients c JOIN cv.localites l ON c.localite_id = l.id GROUP BY l.name").fetchall()
+            registered_map = {r[0]: r[1] for r in reg_rows if r[0]}
+        except Exception:
+            pass
+
+        results = []
+        for r in rows:
+            t_name = r["tournee_name"]
+            total_registered = registered_map.get(t_name, 0)
+
+            results.append({
+                "tournee": t_name,
+                "secteur": r["secteur_name"],
+                "vendeur": r["cv_vendeur"],
+                "total_clients_enregistres": total_registered,
+                "total_clients_visites": r["total_visites"],
+                "statistics": {
+                    "ok": r["ok_count"],
+                    "magasin_ferme": r["magasin_ferme_count"],
+                    "responsable_absent": r["responsable_absent_count"],
+                    "stock_suffisant": r["stock_suffisant_count"],
+                    "autres": r["autres_count"]
+                }
+            })
+
+        conn.close()
+
+        return jsonify({
+            "status": "success",
+            "vendeur": vendeur_raw,
+            "date": date_val,
+            "total_tournees": len(results),
+            "tournees": results
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 @app.route("/api/afacturer/clients", methods=["GET"])
@@ -2978,11 +3533,13 @@ def sync_to_google_sheet(date):
             service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=body).execute()
             
         # Get all rows for date from database
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT act_code, site, soc, fournisseur, gamme, famille, produit, designation, statut, stk_qte, source FROM stock WHERE date = ? AND act_code = 'AG_AGDR'", (date,))
-        db_rows = cursor.fetchall()
-        conn.close()
+        conn = db_manager.get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT act_code, site, soc, fournisseur, gamme, famille, produit, designation, statut, stk_qte, source FROM stock WHERE date = ? AND act_code = 'AG_AGDR'", (date,))
+            db_rows = cursor.fetchall()
+        finally:
+            conn.close()
         
         # Build payload
         headers = ['ACT CODE', 'Site', 'SOC', 'Fournisseur', 'GAMME', 'FAMILLE', 'Produit', 'DESIGNATION', 'Statut', 'STK QTE', 'Source']
@@ -3816,6 +4373,16 @@ def get_vendeurs_list():
                     combined_vendeurs.append(cdz_name)
                     
         vendeurs_list = sorted(list(set(combined_vendeurs)))
+
+        vendeur_arg = request.args.get("vendeur")
+        if vendeur_arg and vendeur_arg.strip() and vendeur_arg.lower() not in ("all", "none", "null"):
+            v_clean = vendeur_arg.strip().upper()
+            single_list = [v for v in vendeurs_list if v_clean == v.upper()]
+            if not single_list:
+                single_list = [v for v in vendeurs_list if v_clean in v.upper() or v.upper() in v_clean]
+            if single_list:
+                vendeurs_list = single_list
+
         return jsonify({"status": "success", "vendeurs": vendeurs_list})
     except Exception as e:
         import traceback
@@ -5011,11 +5578,7 @@ def clean_sector_name(sec):
 
 def save_focus_data_all(date_str, reps, cdzs):
     """Save rankings and calculate/populate focus_som_data and focus_vmm_data tables."""
-    # 1. Save rankings
-    db_manager.save_focus_rankings(date_str, reps)
-    db_manager.save_focus_cdz_rankings(date_str, cdzs)
-    
-    # 2. Populate focus_som_data and focus_vmm_data
+    # 2. Populate focus_som_data and focus_vmm_data with official database objectives
     conn = db_manager.get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc FROM focus_objectives")
@@ -5023,7 +5586,7 @@ def save_focus_data_all(date_str, reps, cdzs):
     
     cursor.execute("SELECT rest_days FROM settings WHERE date = ?", (date_str,))
     settings_row = cursor.fetchone()
-    rest_days = settings_row[0] if settings_row else 20
+    rest_days = settings_row[0] if settings_row else 15
     conn.close()
 
     objectives_by_type_code = {}
@@ -5037,10 +5600,44 @@ def save_focus_data_all(date_str, reps, cdzs):
             objectives_by_type_code[ft] = {}
         objectives_by_type_code[ft][code] = obj
 
+    # Deduplicate reps per focus_type & code by preferring the row matching official database sector
+    cleaned_reps = []
+    reps_by_ft_code = {}
+    for r in reps:
+        ft = r['focus_type']
+        rep = r.get('representative', '')
+        code = rep.split()[0].upper() if rep else ""
+        key = (ft, code)
+        if key not in reps_by_ft_code:
+            reps_by_ft_code[key] = []
+        reps_by_ft_code[key].append(r)
+
+    for (ft, code), row_list in reps_by_ft_code.items():
+        if len(row_list) == 1:
+            cleaned_reps.append(row_list[0])
+        else:
+            obj = objectives_by_type_code.get(ft, {}).get(code)
+            official_sec = (obj.get('secteur') or '').strip().upper() if obj else ""
+            
+            # Prefer row matching official sector name
+            matched_row = next((r for r in row_list if (r.get('secteur') or '').strip().upper() == official_sec), None)
+            if not matched_row and official_sec:
+                matched_row = next((r for r in row_list if clean_sector_name(r.get('secteur', '')).upper() in official_sec or official_sec in clean_sector_name(r.get('secteur', '')).upper()), None)
+            
+            if not matched_row:
+                # Prefer row with best rank or non -100%
+                matched_row = sorted(row_list, key=lambda x: (x.get('rank', 999), -abs(x.get('deviation', 0))))[0]
+            
+            cleaned_reps.append(matched_row)
+
+    # 1. Save rankings with cleaned / deduplicated rows
+    db_manager.save_focus_rankings(date_str, cleaned_reps)
+    db_manager.save_focus_cdz_rankings(date_str, cdzs)
+
     focus_som_list = []
     focus_vmm_list = []
 
-    for r in reps:
+    for r in cleaned_reps:
         ft = r['focus_type']
         rep = r['representative']
         code = rep.split()[0].upper() if rep else ""
@@ -5050,6 +5647,7 @@ def save_focus_data_all(date_str, reps, cdzs):
         percent_val = 1.0 + dev
         
         secteur_name = obj['secteur'] if (obj and obj.get('secteur')) else clean_sector_name(r['secteur'])
+        vendeur_name = obj['vendeur'] if (obj and obj.get('vendeur')) else rep
         
         if ft == 'GLACE':
             ttc_val = obj['ttc'] if obj else 0.0
@@ -5059,7 +5657,7 @@ def save_focus_data_all(date_str, reps, cdzs):
             rest_jour_val = round(rest_val / rest_days, 2) if rest_days > 0 else 0.0
             
             focus_som_list.append({
-                "vendeur": rep,
+                "vendeur": vendeur_name,
                 "secteur": secteur_name,
                 "glace_ht": glace_ht_val,
                 "ttc": ttc_val,
@@ -5109,8 +5707,11 @@ def inspect_focus_rankings():
         if file.filename == "":
             return jsonify({"status": "error", "message": "Nom de fichier vide."}), 400
             
-        temp_path = "excel/temp_inspect_rankings.xlsx"
-        os.makedirs("excel", exist_ok=True)
+        temp_path = os.path.join(EXCEL_DIR, "temp_inspect_rankings.xlsx")
+        try:
+            os.makedirs(EXCEL_DIR, exist_ok=True)
+        except Exception:
+            pass
         file.save(temp_path)
         
         try:
@@ -5210,8 +5811,11 @@ def upload_focus_rankings():
         if file.filename == "":
             return jsonify({"status": "error", "message": "Nom de fichier vide."}), 400
             
-        temp_path = "excel/temp_focus_upload.xlsx"
-        os.makedirs("excel", exist_ok=True)
+        temp_path = os.path.join(EXCEL_DIR, "temp_focus_upload.xlsx")
+        try:
+            os.makedirs(EXCEL_DIR, exist_ok=True)
+        except Exception:
+            pass
         file.save(temp_path)
         
         date_param = request.form.get("date", "").strip() or None
@@ -5262,8 +5866,11 @@ def parse_focus_sheet_names():
         if file.filename == "":
             return jsonify({"status": "error", "message": "Nom de fichier vide."}), 400
             
-        temp_path = "excel/temp_parse_names.xlsx"
-        os.makedirs("excel", exist_ok=True)
+        temp_path = os.path.join(EXCEL_DIR, "temp_parse_names.xlsx")
+        try:
+            os.makedirs(EXCEL_DIR, exist_ok=True)
+        except Exception:
+            pass
         file.save(temp_path)
         
         som_name = "GLACE"
@@ -5307,8 +5914,11 @@ def upload_focus_objectives():
         if file.filename == "":
             return jsonify({"status": "error", "message": "Nom de fichier vide."}), 400
             
-        temp_path = "excel/temp_focus_obj_upload.xlsx"
-        os.makedirs("excel", exist_ok=True)
+        temp_path = os.path.join(EXCEL_DIR, "temp_focus_obj_upload.xlsx")
+        try:
+            os.makedirs(EXCEL_DIR, exist_ok=True)
+        except Exception:
+            pass
         file.save(temp_path)
         
         records, som_product, vmm_product, ai_summary = analyze_and_import_focus_excel(temp_path)
@@ -5386,7 +5996,7 @@ def get_focus_data_api():
         cursor = conn.cursor()
         cursor.execute("SELECT rest_days FROM settings WHERE date = ?", (upload_date,))
         row = cursor.fetchone()
-        rest_days = row[0] if row else 20
+        rest_days = row[0] if row else 15
         conn.close()
         
         workdays_info = db_manager.get_workdays_info(rest_days)

@@ -41,6 +41,17 @@ def generate_export():
         FROM vendeur_tournees_visits
     """).fetchall()
 
+    if not vt_rows:
+        vr_rows = cursor.execute("""
+            SELECT client_code, client_nom, tournee, vendeur
+            FROM visites_rapports
+        """).fetchall()
+        vt_rows = []
+        for r in vr_rows:
+            v_raw = str(r[3] or '').strip()
+            v_code = v_raw.split()[0] if v_raw else ''
+            vt_rows.append((r[0], r[1], r[2], v_code, v_raw))
+
     for r in vt_rows:
         code = str(r[0]).strip().upper()
         c_name = str(r[1]).strip()

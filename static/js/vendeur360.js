@@ -137,6 +137,7 @@ async function prefillVendeurs360Dropdown(forceReloadData = false) {
             if (forceReloadData || !current360Data) {
                 current360Data = data;
                 renderVendeur360View(data);
+                fetchAndRenderVendeurTournees(targetVal);
             }
         }
     } catch (e) {
@@ -646,7 +647,7 @@ function renderV360RadarChart(breakdown, targetMode) {
 }
 
 /**
- * Render Quantitative horizontal bar chart: % Realization per famille
+ * Render Quantitative horizontal bar chart: % Realization & Deviation per famille
  */
 function renderV360QuantiChart(quantiRows) {
     const canvas = document.getElementById('v360-quanti-chart');
@@ -677,7 +678,7 @@ function renderV360QuantiChart(quantiRows) {
     const textSub = isLight ? '#334155' : '#94a3b8';
     const gridColor = isLight ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.08)';
 
-    const rowsWithoutCA = quantiRows.filter(r => (r.famille || '').toUpperCase() !== 'C.A (HT)' && (r.famille || '').toUpperCase() !== 'TOTAL');
+    const rowsWithoutCA = quantiRows.filter(r => (r.famille || '').toUpperCase() !== 'C.A (HT)' && (r.famille || '').toUpperCase() !== 'TOTAL' && (r.famille || '').toUpperCase() !== 'C.A (TTC)');
     const displayRows = rowsWithoutCA.length > 0 ? rowsWithoutCA : quantiRows;
 
     const labels = displayRows.map(r => r.famille || 'FAMILLE');
@@ -689,10 +690,18 @@ function renderV360QuantiChart(quantiRows) {
         return 0;
     });
 
-    const colors = values.map(v => {
-        if (v >= 100) return '#00ff87'; // Bright Green
-        if (v >= 75) return '#00d4ff';  // Neon Blue
-        if (v >= 50) return '#ffb703';  // Amber
+    const devValues = displayRows.map(r => {
+        const obj = r.obj || 0;
+        const real = r.real || 0;
+        if (obj > 0) return Math.round(((real - obj) / obj) * 100);
+        if (r.percent !== undefined && r.percent !== null) return Math.round((r.percent - 1) * 100);
+        return 0;
+    });
+
+    const colors = devValues.map(dev => {
+        if (dev >= 0) return '#00ff87'; // Bright Green (e.g. +3%)
+        if (dev >= -20) return '#00d4ff';  // Neon Blue (e.g. -3%)
+        if (dev >= -50) return '#ffb703';  // Amber (e.g. -49%)
         return '#ff0055';               // Pink
     });
 
@@ -708,7 +717,7 @@ function renderV360QuantiChart(quantiRows) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Taux de Réalisation (%)',
+                label: 'Écart de Réalisation (%)',
                 data: values,
                 backgroundColor: colors,
                 borderRadius: 4,
@@ -724,7 +733,11 @@ function renderV360QuantiChart(quantiRows) {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: ctx => ` Réalisation: ${ctx.parsed.x}%`
+                        label: ctx => {
+                            const dev = devValues[ctx.dataIndex];
+                            const sign = dev > 0 ? '+' : '';
+                            return ` Écart: ${sign}${dev}% (Taux: ${values[ctx.dataIndex]}%)`;
+                        }
                     }
                 },
                 datalabels: { display: false }
@@ -762,11 +775,14 @@ function renderV360QuantiChart(quantiRows) {
                         const meta = chart.getDatasetMeta(0);
                         const bar = meta.data[i];
                         if (!bar) return;
+                        const dev = devValues[i];
+                        const sign = dev > 0 ? '+' : '';
+                        const devText = `${sign}${dev}%`;
                         ctx.fillStyle = isLight ? '#0f172a' : '#e2e8f0';
                         ctx.font = 'bold 11px JetBrains Mono, monospace';
                         ctx.textAlign = 'left';
                         ctx.textBaseline = 'middle';
-                        ctx.fillText(`${val}%`, bar.x + 6, bar.y);
+                        ctx.fillText(devText, bar.x + 6, bar.y);
                     });
                     ctx.restore();
                 }
@@ -964,11 +980,131 @@ function drawPartialVerticalLine(chart, isLight) {
 }
 
 let v360FocusBarChartInstance = null;
+let v360FocusDataCache = null;
 
 /**
- * Render Focus Horizontal Bar Chart (matching Image 1 with Partial Line)
+ * Fetch official Focus Tab data if not already cached
  */
-function renderV360FocusBarChart(vendeurName, apiData) {
+async function fetchV360FocusDataIfNeeded() {
+    if (window.focusData && (window.focusData.glace || window.focusData.tomate || window.focusData.objectives)) {
+        return window.focusData;
+    }
+    if (v360FocusDataCache) {
+        return v360FocusDataCache;
+    }
+    try {
+        const res = await fetch('/api/focus/data?agence=AGADIR');
+        const json = await res.json();
+        if (json.status === 'success') {
+            v360FocusDataCache = json.data;
+            if (json.workdays && !window.focusWorkdays) {
+                window.focusWorkdays = json.workdays;
+            }
+            if (json.focus_names) {
+                window.focusNames = Object.assign(window.focusNames || {}, json.focus_names);
+            }
+            return v360FocusDataCache;
+        }
+    } catch (e) {
+        console.error("Error fetching focus data for Vendeur 360:", e);
+    }
+    return null;
+}
+
+/**
+ * Extract authentic focus items for this vendor matching Focus Tab logic exactly
+ */
+function extractVendeurFocusList(vendeurName, fData, taxMode) {
+    if (!vendeurName || !fData) return [];
+
+    const fNames = window.focusNames || { GLACE: "GLACE (SOM)", TOMATE_FRITO: "TOMATE FRITO (VMM)" };
+    const restDays = (window.focusWorkdays && window.focusWorkdays.rest !== undefined) ? window.focusWorkdays.rest : ((window.dashboardData && window.dashboardData.workdays) ? window.dashboardData.workdays.rest : 18);
+    const items = [];
+
+    // Helper to find representative in a cohort
+    const findRepInCohort = (cohortList) => {
+        if (!cohortList || !Array.isArray(cohortList)) return null;
+        return cohortList.find(r => isSameV360Vendeur(r.representative || r.vendeur, vendeurName));
+    };
+
+    // 1. Check GLACE (SOM)
+    const glaceReps = (fData.glace && fData.glace.reps) ? fData.glace.reps : [];
+    const gRep = findRepInCohort(glaceReps);
+    if (gRep) {
+        const targetObj = taxMode === 'HT' ? (gRep.obj_ht > 0 ? gRep.obj_ht : (gRep.obj_ttc ? gRep.obj_ttc / 1.2 : 0)) : (gRep.obj_ttc > 0 ? gRep.obj_ttc : (gRep.obj_ht ? gRep.obj_ht * 1.2 : (gRep.glace_ht ? gRep.glace_ht * 1.2 : 0)));
+        const targetReal = taxMode === 'HT' ? (gRep.realised_ttc ? gRep.realised_ttc / 1.2 : (gRep.realise ? gRep.realise / 1.2 : 0)) : (gRep.realised_ttc || gRep.realise || 0);
+        const raf = Math.max(0, targetObj - targetReal);
+        const pct = targetObj > 0 ? Math.round((targetReal / targetObj) * 100) : (gRep.deviation !== undefined ? Math.max(0, Math.round((1 + gRep.deviation) * 100)) : 0);
+        const restJour = restDays > 0 ? (raf / restDays) : 0;
+
+        items.push({
+            gamme: fNames.GLACE || 'GLACE (SOM)',
+            secteur: gRep.secteur || 'AGADIR',
+            obj: targetObj,
+            real: targetReal,
+            raf: raf,
+            pct: pct,
+            restJour: restJour,
+            dn: '—',
+            type: 'som'
+        });
+    }
+
+    // 2. Check TOMATE FRITO (VMM)
+    const tomateReps = (fData.tomate && fData.tomate.reps) ? fData.tomate.reps : [];
+    const tRep = findRepInCohort(tomateReps);
+    if (tRep) {
+        const targetObj = taxMode === 'HT' ? (tRep.obj_ht > 0 ? tRep.obj_ht : (tRep.obj_ttc ? tRep.obj_ttc / 1.2 : (tRep.obj_juin || tRep.obj_acm || 0))) : (tRep.obj_ttc > 0 ? tRep.obj_ttc : (tRep.obj_ht ? tRep.obj_ht * 1.2 : (tRep.obj_juin ? tRep.obj_juin * 1.2 : (tRep.obj_acm ? tRep.obj_acm * 1.2 : 0))));
+        const targetReal = taxMode === 'HT' ? (tRep.realised_ttc ? tRep.realised_ttc / 1.2 : (tRep.realise ? tRep.realise / 1.2 : 0)) : (tRep.realised_ttc || tRep.realise || 0);
+        const raf = Math.max(0, targetObj - targetReal);
+        const pct = targetObj > 0 ? Math.round((targetReal / targetObj) * 100) : (tRep.deviation !== undefined ? Math.max(0, Math.round((1 + tRep.deviation) * 100)) : 0);
+        const restJour = restDays > 0 ? (raf / restDays) : 0;
+        const clients = tRep.nb_clients || tRep.number_client || 0;
+
+        items.push({
+            gamme: fNames.TOMATE_FRITO || 'TOMATE FRITO (VMM)',
+            secteur: tRep.secteur || 'AGADIR',
+            obj: targetObj,
+            real: targetReal,
+            raf: raf,
+            pct: pct,
+            restJour: restJour,
+            dn: clients > 0 ? `${clients} clts` : '—',
+            type: 'vmm'
+        });
+    }
+
+    // 3. Fallback to objectives table if not present in ranking reps
+    if (items.length === 0 && fData.objectives && Array.isArray(fData.objectives)) {
+        const vObjs = fData.objectives.filter(o => isSameV360Vendeur(o.vendeur, vendeurName));
+        vObjs.forEach(o => {
+            const isGlace = o.focus_type === 'GLACE';
+            const targetObj = taxMode === 'HT' ? (isGlace ? (o.glace_ht || (o.ttc ? o.ttc / 1.2 : 0)) : (o.obj_juin || o.obj_acm || (o.ttc ? o.ttc / 1.2 : 0))) : (o.ttc || (isGlace ? (o.glace_ht ? o.glace_ht * 1.2 : 0) : (o.obj_juin ? o.obj_juin * 1.2 : (o.obj_acm ? o.obj_acm * 1.2 : 0))));
+            const raf = targetObj;
+            const restJour = restDays > 0 ? (raf / restDays) : 0;
+            const clients = o.number_client || 0;
+
+            items.push({
+                gamme: isGlace ? (fNames.GLACE || 'GLACE (SOM)') : (fNames.TOMATE_FRITO || 'TOMATE FRITO (VMM)'),
+                secteur: o.secteur || 'AGADIR',
+                obj: targetObj,
+                real: 0,
+                raf: raf,
+                pct: 0,
+                restJour: restJour,
+                dn: clients > 0 ? `${clients} clts` : '—',
+                type: isGlace ? 'som' : 'vmm'
+            });
+        });
+    }
+
+    return items;
+}
+
+/**
+ * Render Focus Horizontal Bar Chart (fetching true Focus Tab data)
+ */
+async function renderV360FocusBarChart(vendeurName, apiData) {
     const canvas = document.getElementById('v360-focus-bar-chart');
     if (!canvas || typeof Chart === 'undefined') return;
     const ctx = canvas.getContext('2d');
@@ -995,72 +1131,45 @@ function renderV360FocusBarChart(vendeurName, apiData) {
         labelEl.textContent = ` - ${vendeurName.toUpperCase()}`;
     }
 
+    // Get real focus data from Focus Tab API
+    const fData = await fetchV360FocusDataIfNeeded();
+    const taxMode = localStorage.getItem('taxMode') || 'TTC';
+    const focusItems = extractVendeurFocusList(vendeurName, fData, taxMode);
 
-
-    let vmmList = [];
-    let somList = [];
-
-    const dData = apiData || window.rawDashboardData || window.dashboardData || {};
-    if (dData.focus_vmm) {
-        vmmList = dData.focus_vmm.filter(r => isSameV360Vendeur(r.vendeur, vendeurName));
-    }
-    if (dData.focus_som) {
-        somList = dData.focus_som.filter(r => isSameV360Vendeur(r.vendeur, vendeurName));
+    if (focusItems.length === 0) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.fillStyle = textSub;
+        ctx.font = '13px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Aucun focus assigné à ce vendeur (${vendeurName})`, canvas.width / 2, canvas.height / 2);
+        ctx.restore();
+        return;
     }
 
     const labels = [];
     const values = [];
 
-    // 1. VMM (Tomate Frito)
-    if (vmmList.length > 0) {
-        const item = vmmList[0];
-        const obj = item.obj_juin || item.obj_acm || item.objectif || 0;
-        const real = item.realise || item.real || 0;
-        const rest = item.rest !== undefined ? item.rest : Math.max(0, obj - real);
-        const pct = obj > 0 ? Math.round((real / obj) * 100) : (item.percent ? Math.round(item.percent * 100) : 45);
-        labels.push(`TOMATE FRITO (VMM)  (RAF: ${Math.round(rest).toLocaleString('fr-FR')} DH)`);
-        values.push(pct);
-    } else {
-        labels.push(`TOMATE FRITO (VMM)  (RAF: 12 400 DH)`);
-        values.push(42);
+    // Get partial ratio for bar color calculation
+    let elapsed = 6, total = 24;
+    if (window.focusWorkdays) {
+        elapsed = window.focusWorkdays.elapsed || 6;
+        total = window.focusWorkdays.total || 24;
+    } else if (window.rawDashboardData && window.rawDashboardData.workdays) {
+        elapsed = window.rawDashboardData.workdays.elapsed || 6;
+        total = window.rawDashboardData.workdays.total || 24;
     }
+    const targetPct = total > 0 ? Math.round((elapsed / total) * 100) : 25;
 
-    // 2. SOM (Glace)
-    if (somList.length > 0) {
-        const item = somList[0];
-        const obj = item.glace_ht || item.ttc || item.objectif || 0;
-        const real = item.realise || item.real || 0;
-        const rest = item.rest !== undefined ? item.rest : Math.max(0, obj - real);
-        const pct = obj > 0 ? Math.round((real / obj) * 100) : (item.percent ? Math.round(item.percent * 100) : 85);
-        labels.push(`GLACE (SOM)  (RAF: ${Math.round(rest).toLocaleString('fr-FR')} DH)`);
-        values.push(pct);
-    } else {
-        labels.push(`GLACE (SOM)  (RAF: 3 800 DH)`);
-        values.push(85);
-    }
-
-    // 3. AUTRES FOCUS
-    let autresList = [];
-    if (dData.quantitative) {
-        autresList = dData.quantitative.filter(r => isSameV360Vendeur(r.vendeur, vendeurName) && (r.famille === 'AUTRES' || r.famille === 'CONSERVES' || r.famille === 'LEVURE'));
-    }
-    if (autresList.length > 0) {
-        const item = autresList[0];
-        const obj = item.obj || 0;
-        const real = item.real || 0;
-        const rest = item.rest !== undefined ? item.rest : Math.max(0, obj - real);
-        const pct = obj > 0 ? Math.round((real / obj) * 100) : (item.percent ? Math.round(item.percent * 100) : 68);
-        labels.push(`AUTRES FOCUS  (RAF: ${Math.round(rest).toLocaleString('fr-FR')} DH)`);
-        values.push(pct);
-    } else {
-        labels.push(`AUTRES FOCUS  (RAF: 5 600 DH)`);
-        values.push(68);
-    }
+    focusItems.forEach(item => {
+        labels.push(`${item.gamme}  (RAF: ${Math.round(item.raf).toLocaleString('fr-FR')} DH)`);
+        values.push(item.pct);
+    });
 
     const colors = values.map(v => {
-        if (v >= 80) return '#22c55e';
-        if (v >= 50) return '#f59e0b';
-        return '#ef4444';
+        if (v >= targetPct) return '#22c55e'; // Green if reaching/exceeding prorata
+        if (v >= targetPct * 0.7) return '#f59e0b'; // Amber
+        return '#ef4444'; // Red
     });
 
     v360FocusBarChartInstance = new Chart(ctx, {
@@ -1073,7 +1182,7 @@ function renderV360FocusBarChart(vendeurName, apiData) {
                 backgroundColor: colors,
                 borderRadius: 6,
                 borderSkipped: false,
-                barThickness: 32
+                barThickness: Math.min(36, Math.max(26, Math.floor(120 / focusItems.length)))
             }]
         },
         options: {
@@ -1091,7 +1200,7 @@ function renderV360FocusBarChart(vendeurName, apiData) {
             scales: {
                 x: {
                     min: 0,
-                    max: 120,
+                    suggestedMax: 120,
                     grid: { color: gridColor },
                     border: { display: false },
                     ticks: {
@@ -1247,6 +1356,9 @@ async function renderV360FocusDailyChart(vendeurName) {
             const data = await res.json();
             if (data.status === 'success') {
                 v360FocusHistoryCache = data.data;
+                if (data.focus_names) {
+                    window.focusNames = Object.assign(window.focusNames || {}, data.focus_names);
+                }
             }
         } catch (e) {
             console.error("Error fetching focus trend for Vendeur 360:", e);
@@ -1254,6 +1366,9 @@ async function renderV360FocusDailyChart(vendeurName) {
     }
 
     if (!v360FocusHistoryCache) return;
+
+    const somName = (window.focusNames && (window.focusNames.GLACE || window.focusNames.SOM)) || 'GLACE';
+    const vmmName = (window.focusNames && (window.focusNames.TOMATE_FRITO || window.focusNames.VMM)) || 'TOMATE FRITO';
 
     const vendeurCode = vendeurName.split(' ')[0].toUpperCase();
     
@@ -1313,7 +1428,7 @@ async function renderV360FocusDailyChart(vendeurName) {
     // SOM dataset
     if (somPoints.some(p => p !== null)) {
         datasets.push({
-            label: 'Focus SOM (Glace %)',
+            label: `Focus SOM (${somName} %)`,
             data: somPoints,
             borderColor: '#00d4ff',
             backgroundColor: 'rgba(0, 212, 255, 0.12)',
@@ -1328,7 +1443,7 @@ async function renderV360FocusDailyChart(vendeurName) {
     // VMM dataset
     if (vmmPoints.some(p => p !== null)) {
         datasets.push({
-            label: 'Focus VMM (Tomate %)',
+            label: `Focus VMM (${vmmName} %)`,
             data: vmmPoints,
             borderColor: '#ff2d55',
             backgroundColor: 'rgba(255, 45, 85, 0.12)',
@@ -1396,7 +1511,10 @@ async function renderV360FocusDailyChart(vendeurName) {
 /**
  * Render Performance Focus Table for Vendeur 360
  */
-function renderV360FocusTable(vendeurName, apiData) {
+/**
+ * Render Performance Focus Table for Vendeur 360 (matching Focus Tab exactly)
+ */
+async function renderV360FocusTable(vendeurName, apiData) {
     const tbody = document.querySelector('#v360-focus-table tbody');
     const badge = document.getElementById('v360-focus-badge');
     const vendorLabel = document.getElementById('v360-focus-table-vendeur-label');
@@ -1407,138 +1525,49 @@ function renderV360FocusTable(vendeurName, apiData) {
 
     if (!tbody || !vendeurName) return;
 
-
-
-    let vmmList = [];
-    let somList = [];
-
-    const dData = apiData || window.rawDashboardData || window.dashboardData || {};
-    if (dData.focus_vmm) {
-        vmmList = dData.focus_vmm.filter(r => isSameV360Vendeur(r.vendeur, vendeurName));
-    }
-    if (dData.focus_som) {
-        somList = dData.focus_som.filter(r => isSameV360Vendeur(r.vendeur, vendeurName));
-    }
-
-    // Fallback if empty in date data: check focusHistoryData
-    if (vmmList.length === 0 && somList.length === 0 && window.focusHistoryData) {
-        const fh = window.focusHistoryData;
-        if (fh.glace && fh.glace.reps) {
-            somList = fh.glace.reps.filter(r => isSameV360Vendeur(r.representative || r.vendeur, vendeurName));
-        }
-        if (fh.tomate && fh.tomate.reps) {
-            vmmList = fh.tomate.reps.filter(r => isSameV360Vendeur(r.representative || r.vendeur, vendeurName));
-        }
-    }
-
-    const rows = [];
-
-    // 1. Process VMM (Tomate Frito)
-    vmmList.forEach(item => {
-        const obj = item.obj_juin || item.obj_acm || item.objectif || 0;
-        const real = item.realise || item.real || 0;
-        const rest = item.rest !== undefined ? item.rest : Math.max(0, obj - real);
-        const pct = obj > 0 ? Math.round((real / obj) * 100) : (item.percent ? Math.round(item.percent * 100) : 0);
-        const restJour = item.rest_jour !== undefined ? item.rest_jour : 0;
-        const clients = item.nb_clients || item.dn_fin_mai || 0;
-
-        rows.push({
-            gamme: 'TOMATE FRITO (VMM)',
-            secteur: item.secteur || 'AGADIR',
-            dn: clients > 0 ? `${clients} clts` : '—',
-            obj: obj > 0 ? `${Math.round(obj).toLocaleString('fr-FR')} DH` : '—',
-            real: `${Math.round(real).toLocaleString('fr-FR')} DH`,
-            rest: `${Math.round(rest).toLocaleString('fr-FR')} DH`,
-            pct: pct,
-            restJour: restJour > 0 ? `${Math.round(restJour).toLocaleString('fr-FR')} DH/j` : '0 DH/j',
-            type: 'vmm'
-        });
-    });
-
-    // 2. Process SOM (Glace)
-    somList.forEach(item => {
-        const obj = item.glace_ht || item.ttc || item.objectif || 0;
-        const real = item.realise || item.real || 0;
-        const rest = item.rest !== undefined ? item.rest : Math.max(0, obj - real);
-        const pct = obj > 0 ? Math.round((real / obj) * 100) : (item.percent ? Math.round(item.percent * 100) : 0);
-        const restJour = item.rest_jour !== undefined ? item.rest_jour : 0;
-
-        rows.push({
-            gamme: 'GLACE (SOM)',
-            secteur: item.secteur || 'AGADIR',
-            dn: '—',
-            obj: obj > 0 ? `${Math.round(obj).toLocaleString('fr-FR')} DH` : '—',
-            real: `${Math.round(real).toLocaleString('fr-FR')} DH`,
-            rest: `${Math.round(rest).toLocaleString('fr-FR')} DH`,
-            pct: pct,
-            restJour: restJour > 0 ? `${Math.round(restJour).toLocaleString('fr-FR')} DH/j` : '0 DH/j',
-            type: 'som'
-        });
-    });
-
-    // 3. Process AUTRES FOCUS
-    let autresList = [];
-    if (dData.quantitative) {
-        autresList = dData.quantitative.filter(r => isSameV360Vendeur(r.vendeur, vendeurName) && (r.famille === 'AUTRES' || r.famille === 'CONSERVES' || r.famille === 'LEVURE'));
-    }
-    if (autresList.length > 0) {
-        autresList.forEach(item => {
-            const obj = item.obj || 0;
-            const real = item.real || 0;
-            const rest = item.rest !== undefined ? item.rest : Math.max(0, obj - real);
-            const pct = obj > 0 ? Math.round((real / obj) * 100) : (item.percent ? Math.round(item.percent * 100) : 68);
-            const restJour = Math.round(rest / 18);
-
-            rows.push({
-                gamme: `AUTRES FOCUS (${item.famille || 'AUTRES'})`,
-                secteur: item.secteur || 'AGADIR',
-                dn: '—',
-                obj: obj > 0 ? `${Math.round(obj).toLocaleString('fr-FR')} DH` : '—',
-                real: `${Math.round(real).toLocaleString('fr-FR')} DH`,
-                rest: `${Math.round(rest).toLocaleString('fr-FR')} DH`,
-                pct: pct,
-                restJour: restJour > 0 ? `${Math.round(restJour).toLocaleString('fr-FR')} DH/j` : '0 DH/j',
-                type: 'autres'
-            });
-        });
-    }
+    const fData = await fetchV360FocusDataIfNeeded();
+    const taxMode = localStorage.getItem('taxMode') || 'TTC';
+    const focusItems = extractVendeurFocusList(vendeurName, fData, taxMode);
 
     if (badge) {
-        badge.textContent = `${rows.length} Focus actif(s)`;
+        badge.textContent = `${focusItems.length} Focus actif(s)`;
     }
 
-    if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée Focus disponible pour ce vendeur (${vendeurName}).</td></tr>`;
+    if (focusItems.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucun focus configuré pour ce vendeur (${vendeurName}) dans l'onglet Focus.</td></tr>`;
         return;
     }
 
-    tbody.innerHTML = rows.map(r => {
+    tbody.innerHTML = focusItems.map(r => {
+        const diff = r.pct - 100;
+        const diffFormatted = (diff > 0 ? '+' : '') + diff + '%';
+
         let pctBadgeClass = 'badge-pink';
-        if (r.pct >= 100) pctBadgeClass = 'badge-green';
-        else if (r.pct >= 75) pctBadgeClass = 'badge-blue';
-        else if (r.pct >= 50) pctBadgeClass = 'badge-amber';
+        if (diff >= 0) pctBadgeClass = 'badge-green';
+        else if (diff >= -25) pctBadgeClass = 'badge-blue';
+        else if (diff >= -50) pctBadgeClass = 'badge-amber';
 
         let icon = '<i class="fa-solid fa-cube neon-text-blue"></i>';
-        if (r.type === 'vmm') icon = '<i class="fa-solid fa-apple-whole neon-text-pink"></i>';
-        else if (r.type === 'autres') icon = '<i class="fa-solid fa-boxes-stacked neon-text-purple"></i>';
+        if (r.type === 'vmm') icon = '<i class="fa-solid fa-pepper-hot neon-text-pink"></i>';
+        else if (r.type === 'som') icon = '<i class="fa-solid fa-ice-cream neon-text-blue"></i>';
 
         return `
             <tr>
                 <td style="font-weight: 700; color: var(--text-main);">${icon} ${r.gamme}</td>
                 <td><span class="badge-blue" style="font-size: 0.72rem;">${r.secteur}</span></td>
                 <td><span style="font-family: var(--font-mono);">${r.dn}</span></td>
-                <td><strong style="font-family: var(--font-mono); color: var(--neon-blue);">${r.obj}</strong></td>
-                <td><strong style="font-family: var(--font-mono); color: var(--neon-green);">${r.real}</strong></td>
-                <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${r.rest}</strong></td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-blue);">${Math.round(r.obj).toLocaleString('fr-FR')} DH</strong></td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-green);">${Math.round(r.real).toLocaleString('fr-FR')} DH</strong></td>
+                <td><strong style="font-family: var(--font-mono); color: var(--neon-amber);">${Math.round(r.raf).toLocaleString('fr-FR')} DH</strong></td>
                 <td>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span class="${pctBadgeClass}" style="font-weight: bold; font-family: var(--font-mono);">${r.pct}%</span>
+                        <span class="${pctBadgeClass}" style="font-weight: bold; font-family: var(--font-mono); min-width: 52px; text-align: center;">${diffFormatted}</span>
                         <div class="progress-bar-container" style="width: 60px; height: 6px;">
-                            <div class="progress-bar-fill ${r.pct >= 100 ? 'green-fill' : (r.pct >= 50 ? 'amber-fill' : 'pink-fill')}" style="width: ${Math.min(100, r.pct)}%"></div>
+                            <div class="progress-bar-fill ${r.pct >= 100 ? 'green-fill' : (r.pct >= 50 ? 'amber-fill' : 'pink-fill')}" style="width: ${Math.min(100, Math.max(0, r.pct))}%"></div>
                         </div>
                     </div>
                 </td>
-                <td style="text-align: center; font-family: var(--font-mono); font-weight: bold; color: var(--text-main);">${r.restJour}</td>
+                <td style="text-align: center; font-family: var(--font-mono); font-weight: bold; color: var(--text-main);">${Math.round(r.restJour).toLocaleString('fr-FR')} DH/j</td>
             </tr>
         `;
     }).join('');
@@ -1831,24 +1860,35 @@ async function fetchAndRenderVendeurTournees(vendeurName) {
             const hStart = t.heure_debut || '-';
             const hEnd = t.heure_fin || '-';
 
+            const dateLabel = (t.date && t.date !== '-') ? t.date : '-';
+            const tourneeName = (t.tournee && t.tournee !== '-' && t.tournee !== t.date) ? t.tournee : (t.secteur || 'Tournée standard');
+
+            const totalVisitesHtml = t.total_visites > 0 
+                ? `<strong>${t.total_visites}</strong>` 
+                : (t.total_clients_enregistres 
+                    ? `<span class="neon-text-sub">0 <small style="opacity: 0.65;">(${t.total_clients_enregistres} cli.)</small></span>` 
+                    : `<strong>0</strong>`);
+
             tr.innerHTML = `
-                <td>
-                    <strong style="color: var(--neon-blue);">${t.tournee}</strong>
-                    <br><code style="font-size: 0.72rem; color: var(--text-muted);">${t.date}</code>
+                <td style="white-space: nowrap;">
+                    <div style="font-weight: 700; color: var(--neon-blue); line-height: 1.2;">
+                        <i class="fa-regular fa-calendar-days" style="margin-right: 0.35rem;"></i>${dateLabel}
+                    </div>
+                    <div class="v360-tournee-name" style="font-size: 0.78rem; font-weight: 800; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px;" title="${tourneeName}">
+                        <i class="fa-solid fa-route" style="color: var(--neon-pink); margin-right: 0.25rem;"></i>${tourneeName}
+                    </div>
+                    ${t.secteur ? `<div style="font-size: 0.68rem; color: var(--text-sub); opacity: 0.9; font-weight: 600; margin-top: 1px;">${t.secteur}</div>` : ''}
                 </td>
-                <td><code>${hStart}</code></td>
-                <td><code>${hEnd}</code></td>
-                <td><span class="neon-text-sub">${dureeStr}</span></td>
-                <td><strong>${t.total_visites}</strong></td>
-                <td><span class="neon-text-green font-weight-bold">${t.visites_ok}</span></td>
-                <td><span class="neon-text-pink font-weight-bold">${t.visites_sans_ok}</span></td>
-                <td><span style="color: #ffaa00; font-weight: bold;">${t.anomalies_avec_facture || 0}</span></td>
-                <td>
-                    <span style="color: #bb86fc; font-weight: bold;">${t.big_facture || 0}</span> / 
-                    <span style="color: #03dac6; font-weight: bold;">${t.small_facture || 0}</span>
-                </td>
-                <td><span class="${rateClass} font-weight-bold">${t.billing_rate}%</span></td>
-                <td>
+                <td style="white-space: nowrap;"><code>${hStart}</code></td>
+                <td style="white-space: nowrap;"><code>${hEnd}</code></td>
+                <td style="white-space: nowrap;"><span class="neon-text-sub">${dureeStr}</span></td>
+                <td style="white-space: nowrap;">${totalVisitesHtml}</td>
+                <td style="white-space: nowrap;"><span class="neon-text-green font-weight-bold">${t.visites_ok}</span></td>
+                <td style="white-space: nowrap;"><span class="neon-text-pink font-weight-bold">${t.magasin_ferme || (t.motifs ? (t.motifs['Magasin Ferme'] || t.motifs['Magasin Fermé'] || 0) : 0)}</span></td>
+                <td style="white-space: nowrap;"><span class="neon-text-blue font-weight-bold">${t.stock_suffisant || (t.motifs ? (t.motifs['Stock Suffisant'] || 0) : 0)}</span></td>
+                <td style="white-space: nowrap;"><span class="neon-text-amber font-weight-bold">${t.responsable_absent || (t.motifs ? (t.motifs['Responsable Absent'] || 0) : 0)}</span></td>
+                <td style="white-space: nowrap;"><span class="${rateClass} font-weight-bold">${t.billing_rate}%</span></td>
+                <td style="white-space: nowrap;">
                     <button type="button" class="view-tournee-details-btn cyber-btn-small" data-idx="${idx}" style="padding: 0.2rem 0.55rem; font-size: 0.72rem;">
                         <i class="fa-solid fa-eye"></i> Voir
                     </button>
@@ -1882,8 +1922,8 @@ function openTourneeVisitsModal(tourneeObj) {
 
     if (!modal || !tbody) return;
 
-    if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-route neon-text-blue"></i> DÉTAILS VISITES : ${tourneeObj.tournee}`;
-    if (subEl) subEl.textContent = `Date: ${tourneeObj.date} | Vendeur: ${tourneeObj.vendeur_name} (${tourneeObj.vendeur_code}) | Heures: ${tourneeObj.heure_debut || '-'} à ${tourneeObj.heure_fin || '-'}`;
+    if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-route neon-text-blue"></i> DÉTAILS VISITES : ${tourneeObj.tournee || tourneeObj.date}`;
+    if (subEl) subEl.textContent = `Date: ${tourneeObj.date} | Tournée: ${tourneeObj.tournee || '-'} | Secteur: ${tourneeObj.secteur || '-'} | Vendeur: ${tourneeObj.vendeur_name} (${tourneeObj.vendeur_code}) | Heures: ${tourneeObj.heure_debut || '-'} à ${tourneeObj.heure_fin || '-'}`;
 
     if (statsBar) {
         statsBar.innerHTML = `
@@ -1920,6 +1960,7 @@ function openTourneeVisitsModal(tourneeObj) {
                 <td>
                     <strong>${v.client_name || '-'}</strong>
                     <br><code style="font-size: 0.72rem; color: var(--neon-blue);">${v.client_code}</code>
+                    ${v.tournee ? `<br><small class="v360-tournee-name" style="font-size: 0.72rem; font-weight: 800;"><i class="fa-solid fa-location-dot" style="color: var(--neon-pink); margin-right: 0.2rem;"></i>${v.tournee}</small>` : ''}
                 </td>
                 <td><code>${v.heure_debut || '-'}</code></td>
                 <td><code>${v.heure_fin || '-'}</code></td>

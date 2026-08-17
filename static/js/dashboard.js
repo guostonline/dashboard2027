@@ -2202,14 +2202,22 @@ function initVisitesUploadModal() {
     const saveResultBtn = document.getElementById('save-visites-result-btn');
 
     let selectedVisitesFiles = [];
+    const previewListEl = document.getElementById('visites-files-preview-list');
+    const previewLoadingEl = document.getElementById('visites-preview-loading');
 
     const resetUploadForm = () => {
         selectedVisitesFiles = [];
         if (fileInput) fileInput.value = '';
         if (fileInfo) fileInfo.style.display = 'none';
+        if (previewListEl) {
+            previewListEl.innerHTML = '';
+            previewListEl.style.display = 'none';
+        }
+        if (previewLoadingEl) previewLoadingEl.style.display = 'none';
         if (dropzone) dropzone.style.borderColor = 'var(--border-color)';
         if (dropzone) dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
     };
+    window.resetVisitesUploadForm = resetUploadForm;
 
     [closeUploadModalBtn, cancelUploadBtn].forEach(btn => {
         if (btn) {
@@ -2220,26 +2228,39 @@ function initVisitesUploadModal() {
     });
 
     if (dropzone && fileInput) {
-        dropzone.addEventListener('click', () => fileInput.click());
-
-        dropzone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropzone.style.borderColor = 'var(--neon-blue)';
-            dropzone.style.backgroundColor = 'rgba(0, 242, 254, 0.05)';
+        dropzone.addEventListener('click', (e) => {
+            if (e.target !== fileInput) {
+                fileInput.click();
+            }
         });
 
-        dropzone.addEventListener('dragleave', () => {
-            dropzone.style.borderColor = 'var(--border-color)';
-            dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropzone.style.borderColor = 'var(--neon-blue)';
+                dropzone.style.backgroundColor = 'rgba(0, 242, 254, 0.08)';
+            });
+        });
+
+        ['dragleave', 'dragend'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropzone.style.borderColor = 'var(--border-color)';
+                dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
+            });
         });
 
         dropzone.addEventListener('drop', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             dropzone.style.borderColor = 'var(--border-color)';
             dropzone.style.backgroundColor = 'rgba(0,0,0,0.2)';
             
-            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                handleFileSelect(e.dataTransfer.files);
+            const dt = e.dataTransfer;
+            if (dt && dt.files && dt.files.length > 0) {
+                handleFileSelect(dt.files);
             }
         });
 
@@ -2250,7 +2271,7 @@ function initVisitesUploadModal() {
         });
     }
 
-    const handleFileSelect = (fileList) => {
+    const handleFileSelect = async (fileList) => {
         const files = Array.from(fileList || []).filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
         if (files.length === 0) {
             showToast("Les fichiers doivent être au format Excel (.xlsx, .xls)", "error");
@@ -2259,12 +2280,117 @@ function initVisitesUploadModal() {
         selectedVisitesFiles = files;
         if (fileNameSpan) {
             if (files.length === 1) {
-                fileNameSpan.innerText = `Fichier : ${files[0].name}`;
+                fileNameSpan.innerText = `1 fichier : ${files[0].name}`;
             } else {
-                fileNameSpan.innerText = `${files.length} fichiers : ${files.map(f => f.name).join(', ')}`;
+                fileNameSpan.innerText = `${files.length} fichiers sélectionnés`;
             }
         }
         if (fileInfo) fileInfo.style.display = 'flex';
+
+        // Load preview details for each file
+        if (previewLoadingEl) previewLoadingEl.style.display = 'block';
+        if (previewListEl) {
+            previewListEl.innerHTML = '';
+            previewListEl.style.display = 'none';
+        }
+
+        try {
+            const formData = new FormData();
+            files.forEach(f => formData.append('files', f));
+
+            const res = await fetch('/api/clients/preview_visite_files', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+
+            if (previewLoadingEl) previewLoadingEl.style.display = 'none';
+
+            if (data.status === 'success' && data.vendeurs && data.vendeurs.length > 0) {
+                const totalVisitesAll = data.vendeurs.reduce((acc, v) => acc + (v.total_visites || 0), 0);
+                const totalTourneesAll = data.vendeurs.reduce((acc, v) => acc + (v.total_tournees || 0), 0);
+
+                let html = `
+                    <div style="background: rgba(0,0,0,0.35); border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; width: 100%;">
+                        <div style="padding: 0.5rem 0.75rem; background: rgba(0,242,254,0.08); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                            <span style="font-size: 0.78rem; font-weight: 700; color: var(--neon-blue); text-transform: uppercase;">
+                                <i class="fa-solid fa-users-viewfinder"></i> Données détectées (${data.vendeurs.length} Vendeurs)
+                            </span>
+                            <span style="font-size: 0.74rem; color: var(--text-muted);">
+                                <strong style="color: var(--neon-green);">${totalTourneesAll}</strong> Tournées &bull; <strong style="color: var(--neon-blue);">${totalVisitesAll.toLocaleString()}</strong> Visites
+                            </span>
+                        </div>
+                        <div style="max-height: 200px; overflow-y: auto;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.78rem;">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); text-align: left; position: sticky; top: 0; background: #0f172a; z-index: 1;">
+                                        <th style="padding: 0.45rem 0.75rem; font-weight: 600;">CODE VENDEUR</th>
+                                        <th style="padding: 0.45rem 0.75rem; font-weight: 600;">NOM VENDEUR</th>
+                                        <th style="padding: 0.45rem 0.75rem; font-weight: 600; text-align: center;">TOTAL TOURNÉES</th>
+                                        <th style="padding: 0.45rem 0.75rem; font-weight: 600; text-align: right;">TOTAL VISITES</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                `;
+
+                data.vendeurs.forEach(v => {
+                    html += `
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+                            <td style="padding: 0.45rem 0.75rem; font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">
+                                <span style="padding: 0.1rem 0.4rem; background: rgba(0,242,254,0.12); border: 1px solid var(--neon-blue); border-radius: 3px;">${v.vendeur_code}</span>
+                            </td>
+                            <td style="padding: 0.45rem 0.75rem; font-weight: 600; color: var(--text-main);">${v.vendeur_name}</td>
+                            <td style="padding: 0.45rem 0.75rem; text-align: center; font-weight: 700; color: var(--neon-green);">${v.total_tournees}</td>
+                            <td style="padding: 0.45rem 0.75rem; text-align: right; font-family: var(--font-mono); color: var(--text-muted);">${(v.total_visites || 0).toLocaleString()}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+
+                if (previewListEl) {
+                    previewListEl.innerHTML = html;
+                    previewListEl.style.display = 'block';
+                }
+            } else if (data.status === 'success' && data.files && data.files.length > 0) {
+                let html = ``;
+                data.files.forEach(f => {
+                    html += `
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; gap: 0.75rem;">
+                            <div style="display: flex; align-items: center; gap: 0.6rem; overflow: hidden;">
+                                <i class="fa-solid fa-file-excel" style="color: var(--neon-green); font-size: 1.3rem;"></i>
+                                <div style="overflow: hidden;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                                        <span style="font-weight: 800; font-size: 0.72rem; padding: 0.1rem 0.45rem; background: rgba(0,242,254,0.15); border: 1px solid var(--neon-blue); border-radius: 3px; color: var(--neon-blue); font-family: var(--font-mono);">${f.vendeur_code || 'Vendeur'}</span>
+                                        <strong style="color: var(--text-main); font-size: 0.85rem; font-weight: 700;">${f.vendeur_name}</strong>
+                                    </div>
+                                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                        <span style="font-family: var(--font-mono); color: var(--neon-blue);">${f.file_name}</span>
+                                        ${f.tournee && f.tournee !== '-' ? `<span style="color: var(--neon-pink);"><i class="fa-solid fa-route"></i> ${f.tournee}</span>` : ''}
+                                        ${f.date && f.date !== '-' ? `<span><i class="fa-regular fa-calendar-days"></i> ${f.date}</span>` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="text-align: right; white-space: nowrap;">
+                                <span class="neon-text-green" style="font-weight: 800; font-size: 0.82rem;">${f.total_visites} visites</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                if (previewListEl) {
+                    previewListEl.innerHTML = html;
+                    previewListEl.style.display = 'flex';
+                }
+            }
+        } catch (err) {
+            console.error("Error previewing files:", err);
+            if (previewLoadingEl) previewLoadingEl.style.display = 'none';
+        }
     };
 
     if (fileClearBtn) {
@@ -2379,84 +2505,50 @@ function initVisitesUploadModal() {
     if (submitUploadBtn) {
         submitUploadBtn.addEventListener('click', async () => {
             if (!selectedVisitesFiles || selectedVisitesFiles.length === 0) {
-                showToast("Veuillez sélectionner au moins un fichier Excel à analyser.", "warning");
+                showToast("Veuillez sélectionner au moins un fichier Excel à enregistrer.", "warning");
                 return;
             }
 
             submitUploadBtn.disabled = true;
             const originalContent = submitUploadBtn.innerHTML;
+            submitUploadBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ENREGISTREMENT EN BASE...`;
 
-            let successCount = 0;
-            let failCount = 0;
-            let lastResultData = null;
+            const ignoreTourneeCheck = document.getElementById('visites-ignore-tournee-check');
+            const ignoreTournee = ignoreTourneeCheck ? ignoreTourneeCheck.checked : true;
 
-            for (let i = 0; i < selectedVisitesFiles.length; i++) {
-                const file = selectedVisitesFiles[i];
-                submitUploadBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ANALYSE ${i + 1}/${selectedVisitesFiles.length}...`;
+            const formData = new FormData();
+            formData.append('ignore_tournee', ignoreTournee ? 'true' : 'false');
+            selectedVisitesFiles.forEach(f => formData.append('files', f));
 
-                const formData = new FormData();
-                formData.append('file', file);
+            try {
+                // Deletes all previous entries of visites_rapports and saves new datas in database
+                const response = await fetch('/api/visites/upload-laptop-files', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
 
-                try {
-                    const response = await fetch('/api/clients/analyse_visites', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const result = await response.json();
+                if (result.status === 'success') {
+                    showToast(result.message || "Anciennes visites supprimées et nouvelles données enregistrées avec succès !", "success");
+                    if (uploadModal) uploadModal.classList.remove('open');
+                    resetUploadForm();
 
-                    if (result.status === 'success') {
-                        if (result.is_acm) {
-                            successCount++;
-                            showToast(result.message, "success");
-                        } else {
-                            // Automatically register to DB
-                            const saveRes = await fetch('/api/clients/enregistrer_visites', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    metadata: result.metadata,
-                                    clients_ok: result.clients_ok,
-                                    clients_no_ok: result.clients_no_ok
-                                })
-                            });
-                            const saveJson = await saveRes.json();
-                            if (saveJson.status === 'success') {
-                                successCount++;
-                                lastResultData = result;
-                            } else {
-                                failCount++;
-                                showToast(`Erreur d'enregistrement sur ${file.name}: ${saveJson.message}`, "error");
-                            }
-                        }
-                    } else {
-                        failCount++;
-                        showToast(`Erreur d'analyse sur ${file.name}: ${result.message}`, "error");
+                    // Refresh filters and reload Visites tab data
+                    await loadVisitesTabFilters();
+                    loadVisitesTabData();
+
+                    if (typeof window.visitesUploadCallback === 'function') {
+                        await window.visitesUploadCallback();
                     }
-                } catch (err) {
-                    console.error("Error analyzing visit file:", file.name, err);
-                    failCount++;
+                } else {
+                    showToast(`Erreur d'enregistrement : ${result.message}`, "error");
                 }
-            }
-
-            submitUploadBtn.disabled = false;
-            submitUploadBtn.innerHTML = originalContent;
-
-            if (successCount > 0) {
-                showToast(`${successCount} rapport(s) de visites importé(s) et analysé(s) avec succès !`, "success");
-                if (uploadModal) uploadModal.classList.remove('open');
-                resetUploadForm();
-
-                if (typeof window.visitesUploadCallback === 'function') {
-                    await window.visitesUploadCallback();
-                }
-
-                if (selectedVisitesFiles.length === 1 && lastResultData) {
-                    analysisResultData = lastResultData;
-                    displayAnalysisResults(lastResultData);
-                    if (resultModal) resultModal.classList.add('open');
-                }
-            } else {
-                showToast("Aucun fichier n'a pu être importé.", "error");
+            } catch (err) {
+                console.error("Error saving visit files:", err);
+                showToast("Erreur de connexion lors de l'enregistrement des fichiers.", "error");
+            } finally {
+                submitUploadBtn.disabled = false;
+                submitUploadBtn.innerHTML = originalContent;
             }
         });
     }
@@ -2476,7 +2568,10 @@ function initVisitesUploadModal() {
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(analysisResultData)
+                    body: JSON.stringify({
+                        ...analysisResultData,
+                        clear_existing: true
+                    })
                 });
                 const result = await response.json();
 
@@ -2758,6 +2853,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const onVendeur360Route = path === '/vendeur360' || (path === '/details' && searchView === 'vendeur360');
             const onFdvRoute = path === '/fdv';
             const onTerrainRoute = path === '/terrain';
+            const onVisitesRoute = path === '/visites';
             const onFocusRoute = path === '/focus';
             const onRapportRoute = path === '/rapport';
             const onStockRoute = path === '/stock';
@@ -2775,6 +2871,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 activeView = 'fdv';
             } else if (onTerrainRoute) {
                 activeView = 'terrain';
+            } else if (onVisitesRoute) {
+                activeView = 'visites';
             } else if (onFocusRoute) {
                 activeView = 'focus';
             } else if (onRapportRoute) {
@@ -2794,7 +2892,7 @@ document.addEventListener('DOMContentLoaded', () => {
             switchView(activeView);
             
             // Skip the main dashboard fetch when the user is on sub routes
-            if (!onDetailsRoute && !onVendeur360Route && !onClientsRoute && !onFdvRoute && !onTerrainRoute && !onFocusRoute && !onRapportRoute && !onStockRoute && !onAnomalisRoute && !onTasksRoute && !onEngagementRoute) {
+            if (!onDetailsRoute && !onVendeur360Route && !onClientsRoute && !onFdvRoute && !onTerrainRoute && !onVisitesRoute && !onFocusRoute && !onRapportRoute && !onStockRoute && !onAnomalisRoute && !onTasksRoute && !onEngagementRoute) {
                 fetchSuiviDates(() => {
                     fetchDashboardData();
                 });
@@ -2806,6 +2904,8 @@ document.addEventListener('DOMContentLoaded', () => {
             initMultiUploadView();
             initAnomalisView();
             initTasksView();
+            initVisitesTabView();
+            initVisitesUploadModal();
             const dropdownList = document.getElementById('vendeur-dropdown-list');
             if (dropdownList) {
                 loadVendeursList();
@@ -2844,6 +2944,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setupEventListeners();
             initDetailsView();
             initMultiUploadView();
+            initVisitesUploadModal();
             const dropdownList = document.getElementById('vendeur-dropdown-list');
             if (dropdownList) {
                 loadVendeursList();
@@ -2900,6 +3001,7 @@ function switchView(viewName) {
     const navClientsFacturation = document.getElementById('nav-clients-facturation');
     const navFdv = document.getElementById('nav-fdv');
     const navTerrain = document.getElementById('nav-terrain');
+    const navVisites = document.getElementById('nav-visites');
     const navFocus = document.getElementById('nav-focus');
     const navRapport = document.getElementById('nav-rapport');
     const navStock = document.getElementById('nav-stock');
@@ -2913,6 +3015,7 @@ function switchView(viewName) {
     const clientsContainer = document.getElementById('clients-container');
     const fdvContainer = document.getElementById('fdv-container');
     const terrainContainer = document.getElementById('terrain-container');
+    const visitesContainer = document.getElementById('visites-container');
     const focusContainer = document.getElementById('focus-container');
     const rapportContainer = document.getElementById('rapport-container');
     const stockContainer = document.getElementById('stock-container');
@@ -2924,12 +3027,12 @@ function switchView(viewName) {
     const timelapseCtrl = document.getElementById('timelapse-control');
     
     // Remove active class from all nav items
-    [navDashboard, navRealisation, navDetails, navVendeur360, navClients, navClientsFacturation, navFdv, navTerrain, navFocus, navRapport, navStock, navStockFavorites, navAnomalis, navTasks, navEngagement].forEach(nav => {
+    [navDashboard, navRealisation, navDetails, navVendeur360, navClients, navClientsFacturation, navFdv, navTerrain, navVisites, navFocus, navRapport, navStock, navStockFavorites, navAnomalis, navTasks, navEngagement].forEach(nav => {
         if (nav) nav.classList.remove('active');
     });
     
     // Hide all view containers
-    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, focusContainer, rapportContainer, stockContainer, anomalisContainer, tasksContainer, engagementContainer].forEach(container => {
+    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, visitesContainer, focusContainer, rapportContainer, stockContainer, anomalisContainer, tasksContainer, engagementContainer].forEach(container => {
         if (container) container.style.display = 'none';
     });
     
@@ -3053,6 +3156,10 @@ function switchView(viewName) {
     } else if (viewName === 'engagement') {
         if (navEngagement) navEngagement.classList.add('active');
         if (engagementContainer) engagementContainer.style.display = '';
+    } else if (viewName === 'visites') {
+        if (navVisites) navVisites.classList.add('active');
+        if (visitesContainer) visitesContainer.style.display = '';
+        initVisitesTabView();
     } else {
         // dashboard or realisation
         if (viewName === 'dashboard' && navDashboard) navDashboard.classList.add('active');
@@ -3205,12 +3312,18 @@ function fetchDashboardData() {
                 populateCategoryDropdown();
                 updateDashboard();
                 populateFilters();
+                if (dashboardData && dashboardData.workdays) {
+                    if (!dashboardData.workdays.rest || dashboardData.workdays.rest <= 0) {
+                        dashboardData.workdays.rest = 15;
+                    }
+                    dashboardData.workdays.elapsed = Math.max(0, (dashboardData.workdays.total || 24) - dashboardData.workdays.rest);
+                }
                 if (prorataLabelEl && dashboardData && dashboardData.workdays) {
-                    prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS`;
+                    prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS (${dashboardData.workdays.rest} J RESTANTS)`;
                 }
                 const headerElapsedInput = document.getElementById('header-elapsed-days');
-                if (headerElapsedInput && dashboardData && dashboardData.workdays) {
-                    headerElapsedInput.value = dashboardData.workdays.elapsed;
+                if (headerElapsedInput) {
+                    headerElapsedInput.value = (dashboardData && dashboardData.workdays && dashboardData.workdays.rest > 0) ? dashboardData.workdays.rest : 15;
                 }
                 // Initialize the correct tab based on URL (function defined later in file)
                 if (typeof initializeActiveTab === 'function') {
@@ -3345,66 +3458,49 @@ function setupEventListeners() {
 
     const headerElapsedInput = document.getElementById('header-elapsed-days');
     if (headerElapsedInput) {
-        headerElapsedInput.addEventListener('change', () => {
-            if (!dashboardData) return;
-            const newElapsed = parseInt(headerElapsedInput.value);
-            if (isNaN(newElapsed) || newElapsed < 0 || newElapsed > dashboardData.workdays.total) {
+        const handleRestDaysChange = () => {
+            if (!dashboardData || !dashboardData.workdays) return;
+            const newRest = parseInt(headerElapsedInput.value);
+            if (isNaN(newRest) || newRest < 0 || newRest > 31) {
                 showToast("Veuillez saisir un nombre de jours valide.", "error");
-                headerElapsedInput.value = dashboardData.workdays.elapsed;
+                headerElapsedInput.value = dashboardData.workdays.rest;
                 return;
             }
             
             // Update frontend data
-            dashboardData.workdays.elapsed = newElapsed;
-            dashboardData.workdays.rest = dashboardData.workdays.total - newElapsed;
+            dashboardData.workdays.rest = newRest;
+            dashboardData.workdays.elapsed = Math.max(0, dashboardData.workdays.total - newRest);
             
             // Recalculate other displays
-            prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS`;
+            if (prorataLabelEl) {
+                prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS (${newRest} J RESTANTS)`;
+            }
             
             // Update other workday fields on the screen if they exist
-            if (infoElapsedDays) infoElapsedDays.innerText = newElapsed;
-            if (inputRestDays) inputRestDays.value = dashboardData.workdays.rest;
+            if (infoElapsedDays) infoElapsedDays.innerText = dashboardData.workdays.elapsed;
+            if (inputRestDays) inputRestDays.value = newRest;
             
-            // Trigger instant redraw
+            // Trigger instant redraw across all dashboard views, family cards, vendors, RAF calculations
             updateDashboard();
             
             // Persist the change to the backend settings
             const dateSelect = document.getElementById('date-select');
             const dateVal = dateSelect ? dateSelect.value : 'default';
             
-            // Retrieve currently excluded families to keep them
-            const excludedFamilies = [];
-            const container = document.getElementById('exclude-families-toggles');
-            if (container) {
-                container.querySelectorAll('.family-toggle-pill.excluded').forEach(pill => {
-                    excludedFamilies.push(pill.querySelector('span').innerText.trim());
-                });
-            }
-            
             fetch('/api/settings', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ 
-                    rest_days: dashboardData.workdays.rest,
-                    exclude_families: excludedFamilies,
-                    date: dateVal
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    date: dateVal,
+                    rest_days: newRest
                 })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showToast("Jours travaillés mis à jour et sauvegardés !", "success");
-                } else {
-                    showToast("Erreur lors de la sauvegarde: " + data.message, "error");
-                }
-            })
-            .catch(err => {
-                console.error("Error saving workdays:", err);
-            });
-        });
+            }).catch(err => console.error("Error saving rest days setting:", err));
+        };
+
+        headerElapsedInput.addEventListener('change', handleRestDaysChange);
+        headerElapsedInput.addEventListener('input', handleRestDaysChange);
     }
+
 
     // Toggle methodology collapsible inside settings modal
     const toggleMethodologyBtn = document.getElementById('toggle-methodology-btn');
@@ -4934,6 +5030,8 @@ function updateDashboard() {
     
     // Dynamic values
     const achievementRate = Math.round((totalCaReal / totalCaObj) * 100);
+    const achievementDev = totalCaObj > 0 ? Math.round(((totalCaReal - totalCaObj) / totalCaObj) * 100) : 0;
+    const achievementDevSign = achievementDev >= 0 ? '+' : '';
     let uniqueVendeursInSelection = [...new Set(quantiRecords.map(item => item.vendeur))].length;
     if (isCdzSelected) {
         uniqueVendeursInSelection = [...new Set(quantiRecords.map(item => item.vendeur).filter(v => v.trim().toUpperCase() !== targetNameUpper))].length;
@@ -4941,14 +5039,15 @@ function updateDashboard() {
 
     // Populate Top Cards
     animateNumber('total-ca', totalCaReal, ' DH');
-    caVsObjEl.innerText = `VS OBJ: ${formatNumber(totalCaObj)} DH (${Math.round((totalCaReal - totalCaObj) / totalCaObj * 100)}%)`;
+    caVsObjEl.innerText = `VS OBJ: ${formatNumber(totalCaObj)} DH (${achievementDevSign}${achievementDev}%)`;
     
-    achievementRateEl.innerText = `${achievementRate}%`;
+    achievementRateEl.innerText = `${achievementDevSign}${achievementDev}%`;
+    achievementRateEl.className = 'summary-value ' + (achievementDev >= 0 ? 'neon-text-green' : (achievementDev >= -20 ? 'neon-text-amber' : 'neon-text-pink'));
     achievementBarEl.style.width = `${Math.min(achievementRate, 100)}%`;
-    if (achievementRate < 50) {
+    if (achievementDev < -20) {
         achievementBarEl.className = 'progress-bar-fill';
-        achievementBarEl.classList.add('blue-fill');
-    } else if (achievementRate < 90) {
+        achievementBarEl.classList.add('pink-fill');
+    } else if (achievementDev < 0) {
         achievementBarEl.className = 'progress-bar-fill';
         achievementBarEl.classList.add('amber-fill');
     } else {
@@ -5319,7 +5418,7 @@ function renderFamillesGrid(records) {
 
     const elapsedDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.elapsed) ? dashboardData.workdays.elapsed : 20;
     const totalDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.total) ? dashboardData.workdays.total : 24;
-    const restDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.rest > 0) ? dashboardData.workdays.rest : 4;
+    const restDays = (dashboardData && dashboardData.workdays && dashboardData.workdays.rest > 0) ? dashboardData.workdays.rest : 15;
     const prorataRatio = (totalDays > 0) ? (elapsedDays / totalDays) : 1;
 
     sortedFamNames.forEach(fam => {
@@ -5418,8 +5517,18 @@ function renderFamillesGrid(records) {
                     vBadgeColor = '#64748b';
                 }
 
-                // Explicit calculation: RAF = Objectif Global - Realized
-                const vRaf = vObjGlobal - vReal;
+                // Calculate Full Month Objective TTC and Daily RAF TTC over restDays (matching Image 2)
+                const vObjMois = (r.obj_mois && r.obj_mois > 0) ? r.obj_mois : (totalDays > 0 && elapsedDays > 0 ? Math.round(vObjGlobal * (totalDays / elapsedDays)) : vObjGlobal);
+                const vRafTotalTTC = (vObjMois - vReal) * 1.2;
+                const vRafJourTTC = restDays > 0 ? Math.round(vRafTotalTTC / restDays) : Math.round(vRafTotalTTC);
+
+                // Badge styling matching Image 2: Yellow/Amber badge for RAF >= 0, Red for RAF < 0
+                let vRafBadgeBg = 'rgba(245, 158, 11, 0.25)';
+                let vRafBadgeColor = '#b45309';
+                if (vRafJourTTC < 0) {
+                    vRafBadgeBg = 'rgba(239, 68, 68, 0.2)';
+                    vRafBadgeColor = '#dc2626';
+                }
 
                 rowsHtml += `
                     <tr>
@@ -5437,8 +5546,10 @@ function renderFamillesGrid(records) {
                                 ${vPctText}
                             </span>
                         </td>
-                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: ${vRaf > 0 ? 'var(--neon-amber)' : 'var(--neon-green)'}; font-weight: 600;">
-                            ${formatNumber(vRaf)}
+                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
+                            <span style="background: ${vRafBadgeBg}; color: ${vRafBadgeColor}; padding: 0.15rem 0.35rem; border-radius: 3px; font-size: 0.68rem; display: inline-block;">
+                                ${formatNumber(vRafJourTTC)}
+                            </span>
                         </td>
                     </tr>
                 `;
@@ -5494,7 +5605,7 @@ function renderFamillesGrid(records) {
                 <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
                     <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">% Écart (OBJ)</div>
                     <div class="${pctClass}" style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); margin-top: 2px;">${devText}</div>
-                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">Taux: ${pctAchieved}%</div>
+                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">Taux: ${devText}</div>
                 </div>
 
                 <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
@@ -5507,7 +5618,7 @@ function renderFamillesGrid(records) {
             <div style="margin-top: 0.4rem;">
                 <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: var(--text-muted); margin-bottom: 0.2rem;">
                     <span>Taux d'Atteinte de l'Objectif</span>
-                    <span class="${pctClass}" style="font-weight: 700;">${pctAchieved}%</span>
+                    <span class="${pctClass}" style="font-weight: 700;">${devText}</span>
                 </div>
                 <div class="progress-bar-container" style="height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
                     <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(pctAchieved, 100)}%; height: 100%;"></div>
@@ -5905,21 +6016,10 @@ function renderQuantiTable(records) {
             hPctText = `${hPctSign}${hp}%`;
         }
 
-        // Signed RAF Jour calculation: (OBJ - REAL) / restDays
-        const diff = displayObj - data.real;
-        let rafJourVal = 0;
-        if (displayObj > 0 || data.real > 0) {
-            if (diff >= 0) {
-                rafJourVal = Math.round(diff / restDays);
-            } else {
-                if (fam.toUpperCase().includes('C.A') || fam.toUpperCase().includes('CA')) {
-                    rafJourVal = Math.round(diff / 7.5);
-                } else {
-                    rafJourVal = Math.round(diff / 5.0);
-                }
-            }
-        }
-
+        // Calculate Full Month Objective TTC and Daily RAF TTC over restDays (matching Image 2)
+        const famObjMois = (data.objMois > 0) ? data.objMois : (totalDays > 0 && elapsedDays > 0 ? Math.round(displayObj * (totalDays / elapsedDays)) : displayObj);
+        const famRafTotalTTC = (famObjMois - data.real) * 1.2;
+        const rafJourVal = restDays > 0 ? Math.round(famRafTotalTTC / restDays) : Math.round(famRafTotalTTC);
         const rafJourClass = rafJourVal < 0 ? 'neon-text-pink' : 'neon-text-amber';
         const displayFamName = (fam === 'SAUCES') ? 'SAUCES TACOS' : fam;
         
@@ -6071,7 +6171,10 @@ function renderFocusSections(focusVmm, focusSom) {
         
         // Progress
         const realizePct = obj_acm > 0 ? Math.round((realise / obj_acm) * 100) : 0;
-        focusVmmPct.innerText = `${realizePct}%`;
+        const realizeDev = obj_acm > 0 ? Math.round(((realise - obj_acm) / obj_acm) * 100) : 0;
+        const vmmDevSign = realizeDev >= 0 ? '+' : '';
+        focusVmmPct.innerText = `${vmmDevSign}${realizeDev}%`;
+        focusVmmPct.className = 'progress-pct ' + (realizeDev >= 0 ? 'neon-text-green' : (realizeDev >= -20 ? 'neon-text-amber' : 'neon-text-pink'));
         focusVmmBar.style.width = `${Math.min(realizePct, 100)}%`;
         focusVmmRealRest.innerText = `Réalisé: ${realise.toFixed(0)} | Reste: ${rest.toFixed(0)}`;
         focusVmmRafJour.innerText = `Reste/Jour: ${rest_jour.toFixed(1)}`;
@@ -6122,7 +6225,10 @@ function renderFocusSections(focusVmm, focusSom) {
         focusSomObjTtc.innerText = formatNumber(ttc) + ' DH';
         
         const realizePct = ttc > 0 ? Math.round((realise / ttc) * 100) : 0;
-        focusSomPct.innerText = `${realizePct}%`;
+        const realizeDev = ttc > 0 ? Math.round(((realise - ttc) / ttc) * 100) : 0;
+        const somDevSign = realizeDev >= 0 ? '+' : '';
+        focusSomPct.innerText = `${somDevSign}${realizeDev}%`;
+        focusSomPct.className = 'progress-pct ' + (realizeDev >= 0 ? 'neon-text-green' : (realizeDev >= -20 ? 'neon-text-amber' : 'neon-text-pink'));
         focusSomBar.style.width = `${Math.min(realizePct, 100)}%`;
         focusSomRealRest.innerText = `Réalisé: ${formatNumber(realise)} DH | Reste: ${formatNumber(rest)} DH`;
         focusSomRafJour.innerText = `Reste/Jour: ${formatNumber(rest_jour)} DH`;
@@ -7883,6 +7989,17 @@ function renderDropdownList() {
 
     // Show count header
     const countHtml = `<div style="padding: 0.5rem 0.85rem; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border-color); background: var(--bg-color);"><i class="fa-solid fa-list"></i> ${filteredVendeursList.length} vendeur${filteredVendeursList.length > 1 ? 's' : ''} disponible${filteredVendeursList.length > 1 ? 's' : ''}</div>`;
+    
+    const isAllSelected = !selectedVendeurForReport;
+    const allItemStyle = 'display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 0.85rem; margin-bottom: 0.25rem; border-radius: 6px; cursor: pointer; border: 1px dashed var(--primary-color); background: rgba(0, 212, 255, 0.05); color: var(--text-main); font-size: 0.85rem; font-weight: 600;';
+    const allOptionHtml = `
+        <div class="dropdown-item ${isAllSelected ? 'selected' : ''}" data-vendeur="" style="${allItemStyle}${isAllSelected ? ' background: rgba(0, 212, 255, 0.15);' : ''}">
+            <i class="fa-solid fa-users" style="color: var(--primary-color); font-size: 0.85rem; width: 16px; text-align: center; flex-shrink: 0;"></i>
+            <span class="dropdown-item-text" style="flex: 1; color: var(--primary-color); font-size: 0.85rem;">Tous les vendeurs (Rapport Global)</span>
+            ${isAllSelected ? '<i class="fa-solid fa-check" style="color: var(--primary-color); font-size: 0.9rem;"></i>' : ''}
+        </div>
+    `;
+
     const itemsHtml = filteredVendeursList.map((vendeur) => {
         const isSelected = selectedVendeurForReport === vendeur;
         const itemStyle = 'display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 0.85rem; margin-bottom: 0.25rem; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); font-size: 0.85rem;';
@@ -7896,7 +8013,7 @@ function renderDropdownList() {
         `;
     }).join('');
 
-    dropdownList.innerHTML = countHtml + itemsHtml;
+    dropdownList.innerHTML = countHtml + allOptionHtml + itemsHtml;
 
     // Add click event listeners
     const items = dropdownList.querySelectorAll('.dropdown-item');
@@ -8044,8 +8161,9 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     const reportFormat = activeFormatBtn ? activeFormatBtn.getAttribute('data-format') : 'complet';
     const isMiniReport = reportFormat === 'mini';
     
+    const targetVendeur = vendeurName || selectedVendeurForReport;
     const params = [`tax_mode=${currentTaxMode}`, `report_type=${reportFormat}`];
-    if (vendeurName) params.push(`vendeur=${encodeURIComponent(vendeurName)}`);
+    if (targetVendeur) params.push(`vendeur=${encodeURIComponent(targetVendeur)}`);
     else if (selectedCategory && selectedCategory !== 'All') params.push(`category=${encodeURIComponent(selectedCategory)}`);
     if (selectedDate && selectedDate !== 'default') params.push(`date=${encodeURIComponent(selectedDate)}`);
 
@@ -8060,8 +8178,8 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     }
 
     if (titleEl) {
-        if (vendeurName) {
-            titleEl.innerHTML = `<i class="fa-solid fa-brain neon-text-blue"></i> RAPPORT IA : <span class="neon-text-blue">${vendeurName}</span>`;
+        if (targetVendeur) {
+            titleEl.innerHTML = `<i class="fa-solid fa-brain neon-text-blue"></i> RAPPORT IA : <span class="neon-text-blue">${targetVendeur}</span>`;
         } else if (selectedCategory && selectedCategory !== 'All') {
             const categoryText = categorySelect.options[categorySelect.selectedIndex].text;
             titleEl.innerHTML = `<i class="fa-solid fa-brain neon-text-blue"></i> RAPPORT IA : <span class="neon-text-blue">${categoryText.toUpperCase()}</span>`;
@@ -8584,7 +8702,7 @@ function sendReportPdfViaWhatsapp(phone) {
                 a.download = filename;
                 document.body.appendChild(a);
                 a.click();
-                document.body.removeChild(a);
+                if (a && a.parentNode) a.parentNode.removeChild(a);
                 setTimeout(() => URL.revokeObjectURL(url), 5000);
 
                 // Open WhatsApp with the short pointer message
@@ -9243,7 +9361,7 @@ function downloadReportAsImage() {
                 a.download = filename;
                 document.body.appendChild(a);
                 a.click();
-                document.body.removeChild(a);
+                if (a && a.parentNode) a.parentNode.removeChild(a);
                 setTimeout(() => URL.revokeObjectURL(url), 5000);
 
                 advancePdfStep(4);
@@ -15131,3 +15249,338 @@ async function loadTasks() {
         showToast("Erreur lors du chargement des tâches.", "error");
     }
 }
+
+// -----------------------------------------------------------------------------
+// VISITES TAB FUNCTIONS
+// -----------------------------------------------------------------------------
+let visitesTabInitialized = false;
+let visitesTabCurrentSubtab = 'tournees';
+let visitesTabData = { tournees: [], visites: [], stats: {} };
+
+function initVisitesTabView() {
+    initVisitesUploadModal();
+    setupVisitesTabEventListeners();
+    loadVisitesTabFilters();
+    loadVisitesTabData();
+}
+
+async function loadVisitesTabFilters() {
+    const vendeurSelect = document.getElementById('visites-vendeur-filter');
+    const dateSelect = document.getElementById('visites-date-filter');
+    
+    if (!vendeurSelect) return;
+
+    try {
+        const currentVendeur = vendeurSelect.value || '';
+        const currentDate = dateSelect ? dateSelect.value : 'All';
+
+        const url = `/api/visites/filters${currentVendeur && currentVendeur !== 'All' ? `?vendeur=${encodeURIComponent(currentVendeur)}` : ''}`;
+        const res = await fetch(url).then(r => r.json()).catch(() => null);
+
+        let vendeurs = [];
+        let dates = [];
+
+        if (res && res.status === 'success') {
+            vendeurs = res.vendeurs || [];
+            dates = res.dates || [];
+        }
+
+        // 1. Fallback for vendors if empty
+        if (vendeurs.length === 0) {
+            const fdvRes = await fetch('/api/fdv').then(r => r.json()).catch(() => null);
+            if (fdvRes && fdvRes.data) {
+                vendeurs = [...new Set(fdvRes.data.map(d => d.vendeur).filter(Boolean))].sort();
+            }
+        }
+
+        // 2. Populate Vendeurs dynamically if not already present
+        if (vendeurs.length > 0) {
+            const existingVals = new Set(Array.from(vendeurSelect.options).map(o => o.value));
+            vendeurs.forEach(v => {
+                if (!existingVals.has(v)) {
+                    const opt = document.createElement('option');
+                    opt.value = v;
+                    opt.textContent = v;
+                    vendeurSelect.appendChild(opt);
+                    existingVals.add(v);
+                }
+            });
+        }
+
+        // 3. Clear and STRICTLY populate only dates from database with tournee name
+        if (dateSelect) {
+            dateSelect.innerHTML = '<option value="All">TOUTES LES DATES</option>';
+            const existingDates = [];
+            dates.forEach(item => {
+                const dateVal = typeof item === 'object' ? item.date : item;
+                const labelVal = typeof item === 'object' ? (item.label || (item.tournee ? `${item.date} - ${item.tournee}` : item.date)) : item;
+                if (dateVal && String(dateVal).trim() && String(dateVal).trim() !== '-') {
+                    const opt = document.createElement('option');
+                    opt.value = String(dateVal).trim();
+                    opt.textContent = String(labelVal).trim();
+                    dateSelect.appendChild(opt);
+                    existingDates.push(String(dateVal).trim());
+                }
+            });
+
+            // Restore date selection if it exists in the new list, otherwise default to All
+            if (currentDate && currentDate !== 'All' && existingDates.includes(currentDate)) {
+                dateSelect.value = currentDate;
+            } else {
+                dateSelect.value = 'All';
+            }
+        }
+    } catch (err) {
+        console.error('Error fetching visites filters:', err);
+    }
+}
+
+function setupVisitesTabEventListeners() {
+    if (visitesTabInitialized) return;
+    visitesTabInitialized = true;
+
+    const btnTournees = document.getElementById('visites-subtab-tournees');
+    const btnJournal = document.getElementById('visites-subtab-journal');
+    const viewTournees = document.getElementById('visites-view-tournees');
+    const viewJournal = document.getElementById('visites-view-journal');
+
+    if (btnTournees && btnJournal) {
+        btnTournees.addEventListener('click', () => {
+            btnTournees.classList.add('active');
+            btnJournal.classList.remove('active');
+            if (viewTournees) viewTournees.style.display = 'block';
+            if (viewJournal) viewJournal.style.display = 'none';
+            visitesTabCurrentSubtab = 'tournees';
+        });
+
+        btnJournal.addEventListener('click', () => {
+            btnJournal.classList.add('active');
+            btnTournees.classList.remove('active');
+            if (viewJournal) viewJournal.style.display = 'block';
+            if (viewTournees) viewTournees.style.display = 'none';
+            visitesTabCurrentSubtab = 'journal';
+        });
+    }
+
+    const vendeurFilter = document.getElementById('visites-vendeur-filter');
+    const dateFilter = document.getElementById('visites-date-filter');
+    const searchInput = document.getElementById('visites-search-input');
+    const refreshBtn = document.getElementById('visites-tab-refresh-btn');
+
+    if (vendeurFilter) {
+        vendeurFilter.addEventListener('change', async () => {
+            await loadVisitesTabFilters();
+            loadVisitesTabData();
+        });
+    }
+    if (dateFilter) dateFilter.addEventListener('change', loadVisitesTabData);
+    if (searchInput) searchInput.addEventListener('input', () => renderVisitesTabContent());
+    if (refreshBtn) refreshBtn.addEventListener('click', loadVisitesTabData);
+
+    // Modal Triggers
+    const importBtn = document.getElementById('visites-tab-import-btn');
+    const compareBtn = document.getElementById('visites-tab-compare-btn');
+
+    if (importBtn) {
+        importBtn.addEventListener('click', () => {
+            initVisitesUploadModal();
+            if (typeof window.resetVisitesUploadForm === 'function') {
+                window.resetVisitesUploadForm();
+            }
+            const modal = document.getElementById('visites-upload-modal');
+            if (modal) modal.classList.add('open');
+        });
+    }
+
+    if (compareBtn) {
+        compareBtn.addEventListener('click', () => {
+            const modal = document.getElementById('visites-compare-upload-modal');
+            if (modal) modal.classList.add('open');
+        });
+    }
+}
+
+async function loadVisitesTabData() {
+    const loading = document.getElementById('visites-loading');
+    const empty = document.getElementById('visites-empty');
+    if (loading) loading.style.display = 'none';
+    if (empty) empty.style.display = 'none';
+
+    const vendeurVal = document.getElementById('visites-vendeur-filter')?.value || '';
+    const dateVal = document.getElementById('visites-date-filter')?.value || 'All';
+
+    // DO NOT get data until a vendeur is selected
+    if (!vendeurVal || vendeurVal === 'All') {
+        visitesTabData = { tournees: [], visites: [], stats: {} };
+        renderVisitesTabContent(false);
+        return;
+    }
+
+    if (loading) loading.style.display = 'block';
+
+    try {
+        const [tourneeRes, journalRes] = await Promise.all([
+            fetch(`/api/visites/tournee-stats?vendeur=${encodeURIComponent(vendeurVal)}&date=${encodeURIComponent(dateVal === 'All' ? '' : dateVal)}`).then(r => r.json()).catch(() => ({ status: 'error' })),
+            fetch(`/api/anomalies/analysis?vendeur=${encodeURIComponent(vendeurVal)}&date=${encodeURIComponent(dateVal)}`).then(r => r.json()).catch(() => ({ status: 'error' }))
+        ]);
+
+        if (journalRes && journalRes.status === 'success') {
+            visitesTabData.visites = journalRes.visites || [];
+            visitesTabData.stats = journalRes.stats || {};
+        } else {
+            visitesTabData.visites = [];
+            visitesTabData.stats = {};
+        }
+
+        if (tourneeRes && tourneeRes.status === 'success') {
+            visitesTabData.tournees = tourneeRes.tournees || [];
+        } else {
+            visitesTabData.tournees = [];
+        }
+
+        renderVisitesTabContent(true);
+    } catch (err) {
+        console.error('Error loading visites tab data:', err);
+    } finally {
+        if (loading) loading.style.display = 'none';
+    }
+}
+
+function renderVisitesTabContent(hasVendorSelected) {
+    if (hasVendorSelected === undefined) {
+        const vendeurVal = document.getElementById('visites-vendeur-filter')?.value || '';
+        hasVendorSelected = Boolean(vendeurVal && vendeurVal !== 'All');
+    }
+
+    const { tournees, visites, stats } = visitesTabData;
+    const searchVal = (document.getElementById('visites-search-input')?.value || '').toLowerCase().trim();
+
+    const totalCount = stats.total_visites || visites.length || 0;
+    const totalAnomalies = stats.total_anomalies || 0;
+
+    let okCount = 0;
+    let fermesCount = 0;
+    visites.forEach(v => {
+        const m = (v.motif || '').toUpperCase();
+        if (m === 'OK' || m.includes('VENTE')) okCount++;
+        else if (m.includes('FERM') || m.includes('ABSENT')) fermesCount++;
+    });
+
+    const kpiTotal = document.getElementById('visites-kpi-total');
+    const kpiTotalSub = document.getElementById('visites-kpi-total-sub');
+    const kpiOk = document.getElementById('visites-kpi-ok');
+    const kpiOkSub = document.getElementById('visites-kpi-ok-sub');
+    const kpiFermes = document.getElementById('visites-kpi-fermes');
+    const kpiAnomalies = document.getElementById('visites-kpi-anomalies');
+
+    if (kpiTotal) kpiTotal.textContent = hasVendorSelected ? totalCount : '0';
+    if (kpiTotalSub) kpiTotalSub.textContent = hasVendorSelected ? `${tournees.length} tournées analysées` : 'Sélectionnez un vendeur';
+    
+    if (kpiOk) kpiOk.textContent = hasVendorSelected ? okCount : '0';
+    if (kpiOkSub) {
+        const pct = totalCount > 0 ? ((okCount / totalCount) * 100).toFixed(1) : '0';
+        kpiOkSub.textContent = hasVendorSelected ? `${pct}% taux de conformité` : '0% taux de conformité';
+    }
+
+    if (kpiFermes) kpiFermes.textContent = hasVendorSelected ? fermesCount : '0';
+    if (kpiAnomalies) kpiAnomalies.textContent = hasVendorSelected ? totalAnomalies : '0';
+
+    const tourneesTbody = document.getElementById('visites-tournees-tbody');
+    if (tourneesTbody) {
+        if (!hasVendorSelected) {
+            tourneesTbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 3rem 1rem;"><div style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--neon-blue);"><i class="fa-solid fa-user-check"></i></div><div style="font-size: 0.95rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.25rem;">Veuillez sélectionner un vendeur</div><div style="font-size: 0.8rem; color: var(--text-muted);">Choisissez un vendeur dans le filtre ci-dessus pour charger la synthèse par tournée.</div></td></tr>`;
+        } else {
+            const filteredTournees = tournees.filter(t => 
+                !searchVal || 
+                (t.tournee || '').toLowerCase().includes(searchVal) ||
+                (t.secteur || '').toLowerCase().includes(searchVal) ||
+                (t.vendeur || '').toLowerCase().includes(searchVal)
+            );
+
+            if (filteredTournees.length === 0) {
+                tourneesTbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucune tournée trouvée pour ce vendeur</td></tr>`;
+            } else {
+                tourneesTbody.innerHTML = filteredTournees.map(t => {
+                    const reg = t.total_clients_enregistres || 0;
+                    const vis = t.total_clients_visites || 0;
+                    const pct = reg > 0 ? Math.min(100, Math.round((vis / reg) * 100)) : 0;
+                    const s = t.statistics || {};
+                    
+                    return `
+                        <tr>
+                            <td style="font-weight: 600; color: var(--neon-blue);">${t.tournee || 'N/A'}</td>
+                            <td>${t.secteur || 'N/A'}</td>
+                            <td>${t.vendeur || 'N/A'}</td>
+                            <td style="text-align: center;">${reg}</td>
+                            <td style="text-align: center; font-weight: bold;">${vis}</td>
+                            <td style="text-align: center; color: var(--neon-green); font-weight: bold;">${s.ok || 0}</td>
+                            <td style="text-align: center; color: var(--neon-amber);">${s.magasin_ferme || 0}</td>
+                            <td style="text-align: center; color: #ff9966;">${s.responsable_absent || 0}</td>
+                            <td style="text-align: center; color: var(--neon-blue);">${s.stock_suffisant || 0}</td>
+                            <td style="text-align: center;">
+                                <span class="badge ${pct >= 80 ? 'badge-green' : pct >= 50 ? 'badge-amber' : 'badge-pink'}">${pct}%</span>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+    }
+
+    const journalTbody = document.getElementById('visites-journal-tbody');
+    if (journalTbody) {
+        if (!hasVendorSelected) {
+            journalTbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 3rem 1rem;"><div style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--neon-blue);"><i class="fa-solid fa-user-check"></i></div><div style="font-size: 0.95rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.25rem;">Veuillez sélectionner un vendeur</div><div style="font-size: 0.8rem; color: var(--text-muted);">Choisissez un vendeur dans le filtre ci-dessus pour afficher le journal des visites.</div></td></tr>`;
+        } else {
+            const filteredVisites = visites.filter(v => 
+                !searchVal ||
+                (v.client_code || '').toLowerCase().includes(searchVal) ||
+                (v.client_nom || '').toLowerCase().includes(searchVal) ||
+                (v.vendeur || '').toLowerCase().includes(searchVal) ||
+                (v.tournee || '').toLowerCase().includes(searchVal) ||
+                (v.motif || '').toLowerCase().includes(searchVal)
+            );
+
+            if (filteredVisites.length === 0) {
+                journalTbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucun enregistrement de visite trouvé pour ce vendeur</td></tr>`;
+            } else {
+                journalTbody.innerHTML = filteredVisites.map(v => {
+                    const dureeStr = v.duree_formatted || (v.duree_minutes ? `${v.duree_minutes} min` : (v.heure || 'N/A'));
+                    const motif = v.motif || 'OK';
+                    const hasAnom = v.has_anomaly;
+                    const anomList = Array.isArray(v.anomalies) ? v.anomalies : (v.anomalies_list || v.anomaly_reasons || []);
+                    const anomReasons = anomList.join(', ');
+                    
+                    let motifClass = 'badge-blue';
+                    if (motif.toUpperCase() === 'OK') motifClass = 'badge-green';
+                    else if (motif.toUpperCase().includes('FERM') || motif.toUpperCase().includes('ABSENT')) motifClass = 'badge-amber';
+
+                    return `
+                        <tr style="${hasAnom ? 'background: rgba(255, 77, 77, 0.06);' : ''}">
+                            <td style="font-family: var(--font-mono); font-size: 0.78rem;">${v.heure_debut || v.heure || '--:--'}</td>
+                            <td style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted);">${v.heure_fin || '--:--'}</td>
+                            <td>${v.vendeur || 'N/A'}</td>
+                            <td style="font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${v.client_code || 'N/A'}</td>
+                            <td style="font-weight: 500;">${v.client_nom || 'N/A'}</td>
+                            <td>${v.tournee || 'N/A'}</td>
+                            <td style="text-align: center; font-family: var(--font-mono);">${dureeStr}</td>
+                            <td style="text-align: center; font-family: var(--font-mono);">${v.distance ? v.distance + ' m' : '--'}</td>
+                            <td><span class="badge ${motifClass}">${motif}</span></td>
+                            <td style="text-align: center;">
+                                ${hasAnom 
+                                    ? `<span class="badge badge-pink" title="${anomReasons}"><i class="fa-solid fa-triangle-exclamation"></i> ${anomReasons || 'Anomalie'}</span>` 
+                                    : `<span class="badge badge-green"><i class="fa-solid fa-check"></i> Normal</span>`}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+    }
+
+    const emptyState = document.getElementById('visites-empty');
+    if (emptyState) {
+        emptyState.style.display = 'none';
+    }
+}
+

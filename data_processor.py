@@ -120,18 +120,22 @@ chakib_equipe: list = [
 
 def get_categorie(categories: str):
     # Try loading from database
+    conn = None
     try:
-        import sqlite3
-        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.db")
-        conn = sqlite3.connect(db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
+        import db_manager
+        conn = db_manager.get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM fdv")
         db_rows = [dict(r) for r in cursor.fetchall()]
-        conn.close()
     except Exception as e:
         print("Error reading database in get_categorie:", e)
         db_rows = []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     # If database has rows, build list dynamically!
     if db_rows:
