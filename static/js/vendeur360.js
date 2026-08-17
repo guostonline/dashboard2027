@@ -450,11 +450,21 @@ function renderV360TourneesTable(tournees, fallbackVendeur) {
         const ferme = s.magasin_ferme !== undefined ? s.magasin_ferme : (t.magasin_ferme || 0);
         const absent = s.responsable_absent !== undefined ? s.responsable_absent : (t.responsable_absent || 0);
         const stock = s.stock_suffisant !== undefined ? s.stock_suffisant : (t.stock_suffisant || 0);
-        const tourneeAttr = (t.tournee || '').replace(/"/g, '&quot;');
+        const dateStr = t.date && t.date !== '-' ? t.date : '';
+        const tourneeName = t.tournee || 'N/A';
+        const tourneeAttr = tourneeName.replace(/"/g, '&quot;');
 
         return `
             <tr>
-                <td style="font-weight: 600; color: var(--neon-blue);">${t.tournee || 'N/A'}</td>
+                <td style="white-space: nowrap;">
+                    ${dateStr ? `
+                    <div style="font-weight: 700; color: var(--neon-blue); font-size: 0.8rem; line-height: 1.2; margin-bottom: 2px;">
+                        <i class="fa-regular fa-calendar-days" style="margin-right: 0.35rem;"></i>${dateStr}
+                    </div>` : ''}
+                    <div style="font-weight: 600; color: ${dateStr ? 'var(--text-main)' : 'var(--neon-blue)'}; font-size: 0.82rem;">
+                        <i class="fa-solid fa-route" style="color: var(--neon-pink); margin-right: 0.25rem; font-size: 0.75rem;"></i>${tourneeName}
+                    </div>
+                </td>
                 <td style="text-align: center;">${reg}</td>
                 <td style="text-align: center; font-weight: bold;">${vis}</td>
                 <td style="text-align: center; color: var(--neon-green); font-weight: bold;">${ok}</td>

@@ -2301,6 +2301,8 @@ def get_visites_tournee_stats():
             COALESCE(vr.tournee, 'Tournée non spécifiée') AS tournee_name,
             COALESCE(vr.agence, 'Secteur non spécifié') AS secteur_name,
             vr.vendeur AS cv_vendeur,
+            MAX(vr.date_visite) AS date_visite,
+            GROUP_CONCAT(DISTINCT vr.date_visite) AS dates_list,
             COUNT(DISTINCT vr.client_code) AS total_visites,
             SUM(CASE WHEN UPPER(TRIM(vr.motif)) = 'OK' THEN 1 ELSE 0 END) AS ok_count,
             SUM(CASE WHEN UPPER(TRIM(vr.motif)) LIKE '%FERME%' OR UPPER(TRIM(vr.motif)) LIKE '%FERMÉ%' THEN 1 ELSE 0 END) AS magasin_ferme_count,
@@ -2314,7 +2316,7 @@ def get_visites_tournee_stats():
         FROM visites_rapports vr
         {where_str}
         GROUP BY tournee_name
-        ORDER BY total_visites DESC
+        ORDER BY date_visite DESC, total_visites DESC
         """
 
         cursor.execute(query, params)
@@ -2334,6 +2336,8 @@ def get_visites_tournee_stats():
 
             results.append({
                 "tournee": t_name,
+                "date": r["date_visite"] or "",
+                "dates_list": r["dates_list"] or "",
                 "secteur": r["secteur_name"],
                 "vendeur": r["cv_vendeur"],
                 "total_clients_enregistres": total_registered,
