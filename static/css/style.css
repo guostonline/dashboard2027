@@ -6158,18 +6158,10 @@ body.light-mode .famille-card-3col .metric-box {
 }
 
 .famille-table-wrapper {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(0, 212, 255, 0.3) transparent;
-}
-.famille-table-wrapper::-webkit-scrollbar {
-    width: 4px;
-}
-.famille-table-wrapper::-webkit-scrollbar-track {
-    background: transparent;
-}
-.famille-table-wrapper::-webkit-scrollbar-thumb {
-    background: rgba(0, 212, 255, 0.3);
-    border-radius: 2px;
+    max-height: none !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
 }
 
 .mini-famille-table th {

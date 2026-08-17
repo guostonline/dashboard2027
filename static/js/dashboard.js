@@ -5556,7 +5556,7 @@ function renderFamillesGrid(records) {
             });
 
             vendorTableHtml = `
-                <div class="famille-table-wrapper" style="max-height: 280px; overflow-y: auto; margin-top: 0.5rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                <div class="famille-table-wrapper" style="max-height: none !important; height: auto !important; overflow: visible !important; margin-top: 0.5rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
                     <table class="cyber-table mini-famille-table" style="width: 100%; font-size: 0.72rem; border-collapse: collapse;">
                         <thead>
                             <tr style="background: rgba(0, 212, 255, 0.08); position: sticky; top: 0; z-index: 2;">
