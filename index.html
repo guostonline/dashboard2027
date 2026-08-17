@@ -1152,6 +1152,7 @@
                                 <th style="text-align: center; color: #ff9966;">ABSENT</th>
                                 <th style="text-align: center; color: var(--neon-blue);">STOCK SUFF.</th>
                                 <th style="text-align: center;">COUVERTURE %</th>
+                                <th style="text-align: center;">DÉTAILS</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1161,6 +1162,16 @@
 
                 <!-- VIEW 2: JOURNAL DES VISITES -->
                 <div id="v360-view-journal" style="display: none; overflow-x: auto; width: 100%; max-height: 550px; padding: 0 1rem 1rem 1rem; box-sizing: border-box;">
+                    <div id="v360-journal-filter-bar" style="display: none; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; padding: 0.45rem 0.85rem; background: rgba(0, 212, 255, 0.08); border: 1px solid var(--neon-blue); border-radius: 4px; font-size: 0.82rem;">
+                        <div>
+                            <i class="fa-solid fa-filter neon-text-blue" style="margin-right: 0.4rem;"></i>
+                            <span>Tournée sélectionnée : <strong id="v360-journal-filter-name" class="neon-text-blue"></strong></span>
+                            <span id="v360-journal-filter-count" class="badge badge-blue" style="margin-left: 0.5rem; font-size: 0.72rem;"></span>
+                        </div>
+                        <button type="button" id="v360-journal-reset-filter" class="cyber-btn-small" style="font-size: 0.72rem; padding: 0.25rem 0.65rem; cursor: pointer;">
+                            <i class="fa-solid fa-xmark"></i> Afficher toutes les tournées
+                        </button>
+                    </div>
                     <table class="cyber-table" id="v360-journal-table" style="width: 100%;">
                         <thead>
                             <tr>
@@ -5332,7 +5343,7 @@
 
 
     <!-- Custom Script JS -->
-    <script src="/static/js/vendeur360.js?v=35.7"></script>
+    <script src="/static/js/vendeur360.js?v=35.8"></script>
     <script src="/static/js/dashboard.js?v=36.3"></script>
     <script src="/static/js/fdv.js?v=5.0"></script>
     <script src="/static/js/bg-anim.js?v=5.0"></script>
