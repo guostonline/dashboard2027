@@ -1803,10 +1803,41 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     initTourneeModalEvents();
+    initV360TourneeSubtabs();
 });
 
+let v360SubtabsBound = false;
+function initV360TourneeSubtabs() {
+    if (v360SubtabsBound) return;
+    v360SubtabsBound = true;
+
+    const btnTournees = document.getElementById('v360-subtab-tournees');
+    const btnJournal = document.getElementById('v360-subtab-journal');
+    const viewTournees = document.getElementById('v360-view-tournees');
+    const viewJournal = document.getElementById('v360-view-journal');
+
+    if (btnTournees && btnJournal) {
+        btnTournees.addEventListener('click', () => {
+            btnTournees.classList.add('active');
+            btnJournal.classList.remove('active');
+            if (viewTournees) viewTournees.style.display = 'block';
+            if (viewJournal) viewJournal.style.display = 'none';
+        });
+
+        btnJournal.addEventListener('click', () => {
+            btnJournal.classList.add('active');
+            btnTournees.classList.remove('active');
+            if (viewJournal) viewJournal.style.display = 'block';
+            if (viewTournees) viewTournees.style.display = 'none';
+        });
+    }
+}
+
 async function fetchAndRenderVendeurTournees(vendeurName) {
+    initV360TourneeSubtabs();
+
     const tableBody = document.querySelector('#v360-tournees-table tbody');
+    const journalTableBody = document.querySelector('#v360-journal-tbody');
     const kpiRibbon = document.getElementById('v360-tournees-kpis-ribbon');
     const motifsBar = document.getElementById('v360-motifs-bar');
 
@@ -1814,11 +1845,14 @@ async function fetchAndRenderVendeurTournees(vendeurName) {
 
     try {
         tableBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 1.5rem; color: var(--neon-blue);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement des tournées...</td></tr>`;
+        if (journalTableBody) {
+            journalTableBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 1.5rem; color: var(--neon-blue);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement du journal des visites...</td></tr>`;
+        }
 
-        // 1. Fetch tournee stats from /api/visites/tournee-stats (Image 1 authentic data source)
-        // and /api/vendeur360/tournees for top summary badges
-        const [tourneeStatsRes, v360Res] = await Promise.all([
+        // 1. Fetch tournee stats & journal data & v360 summaries in parallel
+        const [tourneeStatsRes, journalRes, v360Res] = await Promise.all([
             fetch(`/api/visites/tournee-stats?vendeur=${encodeURIComponent(vendeurName)}`).then(r => r.json()).catch(() => null),
+            fetch(`/api/anomalies/analysis?vendeur=${encodeURIComponent(vendeurName)}`).then(r => r.json()).catch(() => null),
             fetch(`/api/vendeur360/tournees/${encodeURIComponent(vendeurName)}`).then(r => r.json()).catch(() => null)
         ]);
 
@@ -1872,41 +1906,79 @@ async function fetchAndRenderVendeurTournees(vendeurName) {
             }
         }
 
-        // 3. Render Table Rows (Exact match to Image 1)
+        // 3. Render Tournées Table Rows (Exact match to Image 1)
         tableBody.innerHTML = '';
         if (tournees.length === 0) {
             tableBody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-sub); padding: 2rem;">Aucune tournée enregistrée pour ce vendeur</td></tr>`;
-            return;
+        } else {
+            tableBody.innerHTML = tournees.map(t => {
+                const reg = t.total_clients_enregistres || t.total_clients || 0;
+                const vis = t.total_clients_visites || t.total_visites || 0;
+                const pct = reg > 0 ? Math.min(100, Math.round((vis / reg) * 100)) : (t.couverture_pct !== undefined ? t.couverture_pct : (t.billing_rate !== undefined ? t.billing_rate : 100));
+                const s = t.statistics || {};
+                const ok = s.ok !== undefined ? s.ok : (t.clients_ok !== undefined ? t.clients_ok : (t.total_ok || 0));
+                const ferme = s.magasin_ferme !== undefined ? s.magasin_ferme : (t.magasin_ferme || 0);
+                const absent = s.responsable_absent !== undefined ? s.responsable_absent : (t.responsable_absent || 0);
+                const stock = s.stock_suffisant !== undefined ? s.stock_suffisant : (t.stock_suffisant || 0);
+                const vName = t.vendeur || vendeurName || 'N/A';
+
+                return `
+                    <tr>
+                        <td style="font-weight: 600; color: var(--neon-blue);">${t.tournee || 'N/A'}</td>
+                        <td>${t.secteur || 'N/A'}</td>
+                        <td>${vName}</td>
+                        <td style="text-align: center;">${reg}</td>
+                        <td style="text-align: center; font-weight: bold;">${vis}</td>
+                        <td style="text-align: center; color: var(--neon-green); font-weight: bold;">${ok}</td>
+                        <td style="text-align: center; color: var(--neon-amber);">${ferme}</td>
+                        <td style="text-align: center; color: #ff9966;">${absent}</td>
+                        <td style="text-align: center; color: var(--neon-blue);">${stock}</td>
+                        <td style="text-align: center;">
+                            <span class="badge ${pct >= 80 ? 'badge-green' : pct >= 50 ? 'badge-amber' : 'badge-pink'}">${pct}%</span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
-        tableBody.innerHTML = tournees.map(t => {
-            const reg = t.total_clients_enregistres || t.total_clients || 0;
-            const vis = t.total_clients_visites || t.total_visites || 0;
-            const pct = reg > 0 ? Math.min(100, Math.round((vis / reg) * 100)) : (t.couverture_pct !== undefined ? t.couverture_pct : (t.billing_rate !== undefined ? t.billing_rate : 100));
-            const s = t.statistics || {};
-            const ok = s.ok !== undefined ? s.ok : (t.clients_ok !== undefined ? t.clients_ok : (t.total_ok || 0));
-            const ferme = s.magasin_ferme !== undefined ? s.magasin_ferme : (t.magasin_ferme || 0);
-            const absent = s.responsable_absent !== undefined ? s.responsable_absent : (t.responsable_absent || 0);
-            const stock = s.stock_suffisant !== undefined ? s.stock_suffisant : (t.stock_suffisant || 0);
-            const vName = t.vendeur || vendeurName || 'N/A';
+        // 4. Render Journal Table Rows
+        if (journalTableBody) {
+            const journalVisites = (journalRes && journalRes.status === 'success' && Array.isArray(journalRes.visites)) ? journalRes.visites : [];
+            if (journalVisites.length === 0) {
+                journalTableBody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-sub); padding: 2rem;">Aucun enregistrement de visite trouvé pour ce vendeur</td></tr>`;
+            } else {
+                journalTableBody.innerHTML = journalVisites.map(v => {
+                    const dureeStr = v.duree_formatted || (v.duree_minutes ? `${v.duree_minutes} min` : (v.heure || 'N/A'));
+                    const motif = v.motif || 'OK';
+                    const hasAnom = v.has_anomaly;
+                    const anomList = Array.isArray(v.anomalies) ? v.anomalies : (v.anomalies_list || v.anomaly_reasons || []);
+                    const anomReasons = anomList.join(', ');
+                    
+                    let motifClass = 'badge-blue';
+                    if (motif.toUpperCase() === 'OK') motifClass = 'badge-green';
+                    else if (motif.toUpperCase().includes('FERM') || motif.toUpperCase().includes('ABSENT')) motifClass = 'badge-amber';
 
-            return `
-                <tr>
-                    <td style="font-weight: 600; color: var(--neon-blue);">${t.tournee || 'N/A'}</td>
-                    <td>${t.secteur || 'N/A'}</td>
-                    <td>${vName}</td>
-                    <td style="text-align: center;">${reg}</td>
-                    <td style="text-align: center; font-weight: bold;">${vis}</td>
-                    <td style="text-align: center; color: var(--neon-green); font-weight: bold;">${ok}</td>
-                    <td style="text-align: center; color: var(--neon-amber);">${ferme}</td>
-                    <td style="text-align: center; color: #ff9966;">${absent}</td>
-                    <td style="text-align: center; color: var(--neon-blue);">${stock}</td>
-                    <td style="text-align: center;">
-                        <span class="badge ${pct >= 80 ? 'badge-green' : pct >= 50 ? 'badge-amber' : 'badge-pink'}">${pct}%</span>
-                    </td>
-                </tr>
-            `;
-        }).join('');
+                    return `
+                        <tr style="${hasAnom ? 'background: rgba(255, 77, 77, 0.06);' : ''}">
+                            <td style="font-family: var(--font-mono); font-size: 0.78rem;">${v.heure_debut || v.heure || '--:--'}</td>
+                            <td style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted);">${v.heure_fin || '--:--'}</td>
+                            <td>${v.vendeur || vendeurName || 'N/A'}</td>
+                            <td style="font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${v.client_code || 'N/A'}</td>
+                            <td style="font-weight: 500;">${v.client_nom || 'N/A'}</td>
+                            <td>${v.tournee || 'N/A'}</td>
+                            <td style="text-align: center; font-family: var(--font-mono);">${dureeStr}</td>
+                            <td style="text-align: center; font-family: var(--font-mono);">${v.distance ? v.distance + ' m' : '--'}</td>
+                            <td><span class="badge ${motifClass}">${motif}</span></td>
+                            <td style="text-align: center;">
+                                ${hasAnom 
+                                    ? `<span class="badge badge-pink" title="${anomReasons}"><i class="fa-solid fa-triangle-exclamation"></i> ${anomReasons || 'Anomalie'}</span>` 
+                                    : `<span class="badge badge-green"><i class="fa-solid fa-check"></i> Normal</span>`}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
     } catch (e) {
         console.error("Error loading v360 tournées table:", e);
         tableBody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--neon-pink);">Erreur de chargement des tournées.</td></tr>`;

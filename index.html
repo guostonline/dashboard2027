@@ -1116,17 +1116,29 @@
             <!-- TOURNÉES & TAUX DE FACTURATION (FULL WIDTH CARD) -->
             <div class="cyber-card" style="width: 100%; margin-top: 1.5rem; margin-bottom: 1.5rem;">
                 <div class="card-edge"></div>
-                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
-                    <span class="tech-label"><i class="fa-solid fa-route neon-text-blue"></i> TOURNÉES &amp; TAUX DE FACTURATION (ANALYSE TOURNÉES SECTEURS)</span>
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                    <!-- Subtab Navigation matching Visites tab -->
+                    <div class="sub-tab-group" style="display: flex; gap: 0.5rem;">
+                        <button type="button" class="cyber-btn active" id="v360-subtab-tournees" style="font-size: 0.82rem; padding: 0.4rem 1rem;">
+                            <i class="fa-solid fa-map-location-dot"></i> SYNTHÈSE PAR TOURNÉE
+                        </button>
+                        <button type="button" class="cyber-btn" id="v360-subtab-journal" style="font-size: 0.82rem; padding: 0.4rem 1rem;">
+                            <i class="fa-solid fa-list-ul"></i> JOURNAL DES VISITES
+                        </button>
+                    </div>
+
                     <div id="v360-tournees-kpis-ribbon" style="display: flex; gap: 0.6rem; flex-wrap: wrap; font-size: 0.75rem;">
                         <!-- Dynamic KPI mini badges inserted via JS -->
                     </div>
                 </div>
+
                 <!-- MOTIFS BREAKDOWN BADGES -->
-                <div id="v360-motifs-bar" style="display: flex; gap: 0.4rem; padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.15); border-radius: 4px; overflow-x: auto; font-size: 0.72rem; margin-bottom: 0.6rem;">
+                <div id="v360-motifs-bar" style="display: flex; gap: 0.4rem; padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.15); border-radius: 4px; overflow-x: auto; font-size: 0.72rem; margin: 0 1rem 0.6rem 1rem;">
                     <!-- Motifs badges inserted via JS -->
                 </div>
-                <div style="overflow-x: auto; width: 100%; max-height: 550px;">
+
+                <!-- VIEW 1: SYNTHESE PAR TOURNEE -->
+                <div id="v360-view-tournees" style="overflow-x: auto; width: 100%; max-height: 550px; padding: 0 1rem 1rem 1rem; box-sizing: border-box;">
                     <table class="cyber-table" id="v360-tournees-table" style="width: 100%;">
                         <thead>
                             <tr>
@@ -1143,6 +1155,28 @@
                             </tr>
                         </thead>
                         <tbody>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- VIEW 2: JOURNAL DES VISITES -->
+                <div id="v360-view-journal" style="display: none; overflow-x: auto; width: 100%; max-height: 550px; padding: 0 1rem 1rem 1rem; box-sizing: border-box;">
+                    <table class="cyber-table" id="v360-journal-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>HEURE DÉBUT</th>
+                                <th>HEURE FIN</th>
+                                <th>VENDEUR</th>
+                                <th>CODE CLIENT</th>
+                                <th>NOM DU CLIENT</th>
+                                <th>TOURNÉE</th>
+                                <th style="text-align: center;">DURÉE</th>
+                                <th style="text-align: center;">DISTANCE</th>
+                                <th>MOTIF / RÉSULTAT</th>
+                                <th style="text-align: center;">ANOMALIE</th>
+                            </tr>
+                        </thead>
+                        <tbody id="v360-journal-tbody">
                         </tbody>
                     </table>
                 </div>
@@ -5298,7 +5332,7 @@
 
 
     <!-- Custom Script JS -->
-    <script src="/static/js/vendeur360.js?v=35.6"></script>
+    <script src="/static/js/vendeur360.js?v=35.7"></script>
     <script src="/static/js/dashboard.js?v=36.3"></script>
     <script src="/static/js/fdv.js?v=5.0"></script>
     <script src="/static/js/bg-anim.js?v=5.0"></script>
