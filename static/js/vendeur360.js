@@ -946,17 +946,21 @@ function drawPartialVerticalLine(chart, isLight) {
     const { top, bottom, left, right } = chartArea;
     const x = scales.x;
 
-    let elapsed = 6;
+    let elapsed = 11;
     let total = 24;
-    if (window.rawDashboardData && window.rawDashboardData.workdays) {
-        elapsed = window.rawDashboardData.workdays.elapsed || 6;
+    if (window.focusWorkdays && window.focusWorkdays.elapsed) {
+        elapsed = window.focusWorkdays.elapsed;
+        total = window.focusWorkdays.total || 24;
+    } else if (window.rawDashboardData && window.rawDashboardData.workdays) {
+        elapsed = window.rawDashboardData.workdays.elapsed || 11;
         total = window.rawDashboardData.workdays.total || 24;
     } else if (window.dashboardData && window.dashboardData.workdays) {
-        elapsed = window.dashboardData.workdays.elapsed || 6;
+        elapsed = window.dashboardData.workdays.elapsed || 11;
         total = window.dashboardData.workdays.total || 24;
     }
 
-    const targetPct = total > 0 ? Math.round((elapsed / total) * 100) : 25;
+    // Set target partial milestone to 45.76%
+    const targetPct = 45.76;
     const xPos = x.getPixelForValue(targetPct);
 
     if (xPos >= left && xPos <= right) {
@@ -974,7 +978,9 @@ function drawPartialVerticalLine(chart, isLight) {
         ctx.fillStyle = isLight ? '#be123c' : '#fb7185';
         ctx.font = 'bold 10px JetBrains Mono, monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(`Partiel (${targetPct}% - ${elapsed}/${total}j)`, xPos, Math.max(12, top - 6));
+        
+        const pctFormatted = targetPct.toFixed(2).replace('.', ',');
+        ctx.fillText(`Partiel (${pctFormatted}% - ${elapsed}/${total}j)`, xPos, Math.max(12, top - 6));
         ctx.restore();
     }
 }
@@ -1151,15 +1157,15 @@ async function renderV360FocusBarChart(vendeurName, apiData) {
     const values = [];
 
     // Get partial ratio for bar color calculation
-    let elapsed = 6, total = 24;
+    let elapsed = 11, total = 24;
     if (window.focusWorkdays) {
-        elapsed = window.focusWorkdays.elapsed || 6;
+        elapsed = window.focusWorkdays.elapsed || 11;
         total = window.focusWorkdays.total || 24;
     } else if (window.rawDashboardData && window.rawDashboardData.workdays) {
-        elapsed = window.rawDashboardData.workdays.elapsed || 6;
+        elapsed = window.rawDashboardData.workdays.elapsed || 11;
         total = window.rawDashboardData.workdays.total || 24;
     }
-    const targetPct = total > 0 ? Math.round((elapsed / total) * 100) : 25;
+    const targetPct = 45.76;
 
     focusItems.forEach(item => {
         labels.push(`${item.gamme}  (RAF: ${Math.round(item.raf).toLocaleString('fr-FR')} DH)`);
