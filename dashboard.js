@@ -15335,6 +15335,8 @@ async function loadVisitesTabFilters() {
     }
 }
 
+let visitesActiveFilter = 'all';
+
 function setupVisitesTabEventListeners() {
     if (visitesTabInitialized) return;
     visitesTabInitialized = true;
@@ -15376,6 +15378,133 @@ function setupVisitesTabEventListeners() {
     if (dateFilter) dateFilter.addEventListener('change', loadVisitesTabData);
     if (searchInput) searchInput.addEventListener('input', () => renderVisitesTabContent());
     if (refreshBtn) refreshBtn.addEventListener('click', loadVisitesTabData);
+
+    // Filter Toggle Buttons (Exact match to Clients à facturer)
+    const filterToggleBtns = document.querySelectorAll('#visites-view-toggle-bar .cf-view-btn');
+    filterToggleBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            filterToggleBtns.forEach(b => b.classList.remove('is-active'));
+            btn.classList.add('is-active');
+            visitesActiveFilter = btn.getAttribute('data-filter') || 'all';
+            
+            // Auto-switch to journal subtab when a specific filter is clicked
+            if (visitesActiveFilter !== 'all' && btnJournal && viewJournal && viewJournal.style.display === 'none') {
+                btnJournal.click();
+            }
+            renderVisitesTabContent();
+        });
+    });
+
+    // WhatsApp Send Button for Visites Tab
+    const btnWaVisites = document.getElementById('visites-btn-wa-vendeur');
+    if (btnWaVisites) {
+        btnWaVisites.addEventListener('click', async () => {
+            const vendeurVal = document.getElementById('visites-vendeur-filter')?.value || '';
+            if (!vendeurVal || vendeurVal === 'All') {
+                if (typeof showToast === 'function') showToast("Veuillez d'abord sélectionner un vendeur.", "warning");
+                else alert("Veuillez d'abord sélectionner un vendeur.");
+                return;
+            }
+
+            const { visites } = visitesTabData;
+            const searchVal = (document.getElementById('visites-search-input')?.value || '').toLowerCase().trim();
+
+            const filtered = (visites || []).filter(v => {
+                if (searchVal) {
+                    const matchesSearch = (v.client_code || '').toLowerCase().includes(searchVal) ||
+                        (v.client_nom || '').toLowerCase().includes(searchVal) ||
+                        (v.vendeur || '').toLowerCase().includes(searchVal) ||
+                        (v.tournee || '').toLowerCase().includes(searchVal) ||
+                        (v.motif || '').toLowerCase().includes(searchVal);
+                    if (!matchesSearch) return false;
+                }
+
+                const m = (v.motif || '').toUpperCase();
+                if (visitesActiveFilter === 'ok') {
+                    return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE');
+                } else if (visitesActiveFilter === 'nofacture') {
+                    return m !== 'OK' && !m.includes('VENTE') && !m.includes('COMMANDE');
+                } else if (visitesActiveFilter === 'ferme') {
+                    return m.includes('FERM');
+                } else if (visitesActiveFilter === 'absent') {
+                    return m.includes('ABSENT');
+                } else if (visitesActiveFilter === 'stock') {
+                    return m.includes('STOCK') || m.includes('SUFF');
+                } else if (visitesActiveFilter === 'anomalies') {
+                    return v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0);
+                }
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                if (typeof showToast === 'function') showToast("Aucun client dans la liste filtrée à envoyer.", "warning");
+                else alert("Aucun client dans la liste filtrée à envoyer.");
+                return;
+            }
+
+            // Fetch vendor phone
+            let vendeurPhone = '';
+            try {
+                const resp = await fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(vendeurVal) + '&include_rapport=false');
+                const resData = await resp.json();
+                if (resData.status === 'success' && resData.phone) {
+                    vendeurPhone = resData.phone;
+                }
+            } catch (e) {
+                console.warn('FDV phone lookup error:', e);
+            }
+
+            const dateSelect = document.getElementById('visites-date-filter');
+            const dateVal = dateSelect ? dateSelect.value : '';
+            const selectedDateOpt = dateSelect && dateSelect.selectedIndex >= 0 ? dateSelect.options[dateSelect.selectedIndex].text : '';
+            let tourneeName = selectedDateOpt.includes(' - ') ? selectedDateOpt.split(' - ').slice(1).join(' - ') : '';
+            
+            let dateFormatted = dateVal !== 'All' ? dateVal : 'Toutes les dates';
+            if (dateFormatted.includes('-')) {
+                const p = dateFormatted.split('-');
+                if (p.length === 3) dateFormatted = `${p[2]}/${p[1]}/${p[0]}`;
+            }
+
+            let filterLabel = "TOUS LES CLIENTS";
+            if (visitesActiveFilter === 'ok') filterLabel = "CLIENTS FACTURÉS (OK)";
+            else if (visitesActiveFilter === 'nofacture') filterLabel = "CLIENTS SANS FACTURE / NO OK";
+            else if (visitesActiveFilter === 'ferme') filterLabel = "CLIENTS MAGASIN FERMÉ";
+            else if (visitesActiveFilter === 'absent') filterLabel = "CLIENTS RESPONSABLE ABSENT";
+            else if (visitesActiveFilter === 'stock') filterLabel = "CLIENTS STOCK SUFFISANT";
+            else if (visitesActiveFilter === 'anomalies') filterLabel = "CLIENTS AVEC ANOMALIE";
+
+            let msg = `🚨 *RAPPORT DE VISITES TERRAIN*\n`;
+            msg += `👤 *Représentant:* ${vendeurVal}\n`;
+            if (dateFormatted && dateFormatted !== 'Toutes les dates') msg += `📅 *Date:* ${dateFormatted}\n`;
+            if (tourneeName) msg += `📍 *Tournée:* ${tourneeName}\n`;
+            msg += `📊 *Catégorie:* ${filterLabel} (${filtered.length} clients)\n`;
+            msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+            msg += `*LISTE DES CLIENTS :*\n`;
+            msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+
+            filtered.forEach((v, idx) => {
+                const code = v.client_code || '---';
+                const nom = v.client_nom || 'Client';
+                const motif = v.motif || 'OK';
+                const heure = v.heure_debut || v.heure || '';
+                const heureStr = heure ? ` - ${heure}` : '';
+                msg += `${idx + 1}. [${code}] *${nom}* (${motif}${heureStr})\n`;
+            });
+
+            msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+
+            // Open WhatsApp Modal
+            const waModal = document.getElementById('af-wa-modal');
+            const waVendeurNameInput = document.getElementById('af-wa-vendeur-name');
+            const waVendeurPhoneInput = document.getElementById('af-wa-vendeur-phone');
+            const waMessageTextarea = document.getElementById('af-wa-message-text');
+
+            if (waVendeurNameInput) waVendeurNameInput.value = vendeurVal;
+            if (waVendeurPhoneInput) waVendeurPhoneInput.value = typeof normalizePhoneForWhatsapp === 'function' ? normalizePhoneForWhatsapp(vendeurPhone) : vendeurPhone;
+            if (waMessageTextarea) waMessageTextarea.value = msg;
+            if (waModal) waModal.style.display = 'flex';
+        });
+    }
 
     // Modal Triggers
     const importBtn = document.getElementById('visites-tab-import-btn');
@@ -15455,6 +15584,36 @@ function renderVisitesTabContent(hasVendorSelected) {
     const { tournees, visites, stats } = visitesTabData;
     const searchVal = (document.getElementById('visites-search-input')?.value || '').toLowerCase().trim();
 
+    // Update Comparative Results Header Display
+    const headerDisplay = document.getElementById('visites-header-display');
+    if (headerDisplay) {
+        if (!hasVendorSelected) {
+            headerDisplay.textContent = 'CHOISIR UN VENDEUR';
+        } else {
+            const dateSelect = document.getElementById('visites-date-filter');
+            const selectedDateOpt = dateSelect && dateSelect.selectedIndex >= 0 ? dateSelect.options[dateSelect.selectedIndex].text : '';
+            const dateVal = dateSelect ? dateSelect.value : 'All';
+            
+            if (dateVal && dateVal !== 'All') {
+                let dateFormatted = dateVal;
+                if (dateVal.includes('-')) {
+                    const p = dateVal.split('-');
+                    if (p.length === 3) dateFormatted = `${p[2]}/${p[1]}/${p[0]}`;
+                }
+                let tourneeName = '';
+                if (selectedDateOpt.includes(' - ')) {
+                    tourneeName = selectedDateOpt.split(' - ').slice(1).join(' - ');
+                } else if (tournees.length > 0) {
+                    tourneeName = tournees[0].tournee;
+                }
+                headerDisplay.textContent = `${dateFormatted} – ${tourneeName || 'TOURNÉE DU JOUR'}`;
+            } else {
+                const vendeurVal = document.getElementById('visites-vendeur-filter')?.value || '';
+                headerDisplay.textContent = `${vendeurVal} – TOUTES LES DATES`;
+            }
+        }
+    }
+
     const totalCount = stats.total_visites || visites.length || 0;
     const totalAnomalies = stats.total_anomalies || 0;
 
@@ -15532,17 +15691,37 @@ function renderVisitesTabContent(hasVendorSelected) {
         if (!hasVendorSelected) {
             journalTbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 3rem 1rem;"><div style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--neon-blue);"><i class="fa-solid fa-user-check"></i></div><div style="font-size: 0.95rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.25rem;">Veuillez sélectionner un vendeur</div><div style="font-size: 0.8rem; color: var(--text-muted);">Choisissez un vendeur dans le filtre ci-dessus pour afficher le journal des visites.</div></td></tr>`;
         } else {
-            const filteredVisites = visites.filter(v => 
-                !searchVal ||
-                (v.client_code || '').toLowerCase().includes(searchVal) ||
-                (v.client_nom || '').toLowerCase().includes(searchVal) ||
-                (v.vendeur || '').toLowerCase().includes(searchVal) ||
-                (v.tournee || '').toLowerCase().includes(searchVal) ||
-                (v.motif || '').toLowerCase().includes(searchVal)
-            );
+            const filteredVisites = visites.filter(v => {
+                // 1. Text search filter
+                if (searchVal) {
+                    const matchesSearch = (v.client_code || '').toLowerCase().includes(searchVal) ||
+                        (v.client_nom || '').toLowerCase().includes(searchVal) ||
+                        (v.vendeur || '').toLowerCase().includes(searchVal) ||
+                        (v.tournee || '').toLowerCase().includes(searchVal) ||
+                        (v.motif || '').toLowerCase().includes(searchVal);
+                    if (!matchesSearch) return false;
+                }
+
+                // 2. Filter toggle pills matching Clients à facturer
+                const m = (v.motif || '').toUpperCase();
+                if (visitesActiveFilter === 'ok') {
+                    return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE');
+                } else if (visitesActiveFilter === 'nofacture') {
+                    return m !== 'OK' && !m.includes('VENTE') && !m.includes('COMMANDE');
+                } else if (visitesActiveFilter === 'ferme') {
+                    return m.includes('FERM');
+                } else if (visitesActiveFilter === 'absent') {
+                    return m.includes('ABSENT');
+                } else if (visitesActiveFilter === 'stock') {
+                    return m.includes('STOCK') || m.includes('SUFF');
+                } else if (visitesActiveFilter === 'anomalies') {
+                    return v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0);
+                }
+                return true;
+            });
 
             if (filteredVisites.length === 0) {
-                journalTbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucun enregistrement de visite trouvé pour ce vendeur</td></tr>`;
+                journalTbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucun enregistrement de visite trouvé pour ce filtre</td></tr>`;
             } else {
                 journalTbody.innerHTML = filteredVisites.map(v => {
                     const dureeStr = v.duree_formatted || (v.duree_minutes ? `${v.duree_minutes} min` : (v.heure || 'N/A'));

@@ -3854,8 +3854,8 @@
         <section class="cyber-card table-card" style="margin-top: 1.5rem;">
             <div class="card-edge"></div>
             
-            <!-- Filters Bar -->
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background: rgba(0, 0, 0, 0.25); border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 1rem;">
+            <!-- Filters & Selectors Bar -->
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; background: rgba(0, 0, 0, 0.25); border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 0.75rem;">
                 
                 <!-- Subtab Navigation -->
                 <div class="sub-tab-group" style="display: flex; gap: 0.5rem;">
@@ -3892,10 +3892,36 @@
                             <option value="All">TOUTES LES DATES</option>
                         </select>
                     </div>
+                </div>
+            </div>
 
-                    <div class="search-input-wrapper" style="position: relative; width: 200px; margin: 0;">
-                        <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.8rem;"></i>
-                        <input type="text" id="visites-search-input" placeholder="Rechercher..." autocomplete="off" style="font-size: 0.8rem; height: 32px; padding-left: 2.25rem; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-main); outline: none;">
+            <!-- COMPARATIVE RESULTS & WHATSAPP FILTER TOOLBAR (Exact match to Clients à facturer) -->
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; border-bottom: 1px solid var(--border-color); padding: 0.75rem 1.25rem; background: rgba(0, 212, 255, 0.02);">
+                <span class="tech-label" style="font-size: 0.85rem;">
+                    <i class="fa-solid fa-list-check"></i> RÉSULTATS COMPARATIFS : <strong id="visites-header-display" class="neon-text-blue">CHOISIR UN VENDEUR</strong>
+                </span>
+                
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <!-- Client search box -->
+                    <div class="search-input-wrapper" style="width: 170px; height: 32px; margin: 0;">
+                        <input type="text" id="visites-search-input" placeholder="Rechercher client..." style="font-size: 0.75rem; padding: 0.25rem 0.5rem; height: 32px; border-radius: 4px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-main); outline: none; width: 100%; box-sizing: border-box;">
+                    </div>
+
+                    <!-- WhatsApp Button -->
+                    <button type="button" id="visites-btn-wa-vendeur" class="cyber-btn" style="border-color: #25D366; color: #25D366; height: 32px; font-size: 0.72rem; padding: 0 0.75rem; font-weight: bold; display: flex; align-items: center; gap: 0.35rem;" title="Envoyer la liste des clients et motifs au vendeur par WhatsApp">
+                        <i class="fa-brands fa-whatsapp" style="font-size: 0.95rem;"></i>
+                        <span>ENVOYER VENDEUR</span>
+                    </button>
+
+                    <!-- Filter Toggle Buttons matching Clients à facturer -->
+                    <div class="cf-view-toggle" id="visites-view-toggle-bar" role="tablist" style="display: inline-flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 32px;">
+                        <button type="button" class="cf-view-btn is-active" id="visites-btn-all" data-filter="all" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer;">TOUS</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-ok" data-filter="ok" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-green); font-weight: bold;" title="Clients visités avec motif OK">FACTURÉ (≥1)</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-nofacture" data-filter="nofacture" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-amber); font-weight: bold;" title="Clients non facturés / NO OK">AUCUNE FACTURE</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-ferme" data-filter="ferme" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-amber);">FERMÉ</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-absent" data-filter="absent" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: #ff9966;">ABSENT</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-stock" data-filter="stock" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-blue);">STOCK SUFF.</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-anomalies" data-filter="anomalies" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-pink); font-weight: bold;" title="Visites avec anomalies">ANOMALIES</button>
                     </div>
                 </div>
             </div>
@@ -5274,7 +5300,7 @@
 
     <!-- Custom Script JS -->
     <script src="/static/js/vendeur360.js?v=35.4"></script>
-    <script src="/static/js/dashboard.js?v=36.2"></script>
+    <script src="/static/js/dashboard.js?v=36.3"></script>
     <script src="/static/js/fdv.js?v=5.0"></script>
     <script src="/static/js/bg-anim.js?v=5.0"></script>
     <script src="/static/js/terrain.js?v=5.1"></script>
