@@ -431,28 +431,44 @@ function renderV360TasksTable(tasks) {
     });
 }
 
-function renderV360TourneesTable(tournees) {
+function renderV360TourneesTable(tournees, fallbackVendeur) {
     const tbody = document.querySelector('#v360-tournees-table tbody');
     if (!tbody) return;
 
     tbody.innerHTML = '';
-    if (tournees.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-sub);">Aucune tournée enregistrée.</td></tr>`;
+    if (!tournees || tournees.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-sub); padding: 2rem;">Aucune tournée enregistrée.</td></tr>`;
         return;
     }
 
-    tournees.forEach(t => {
-        const tr = document.createElement('tr');
-        const rateClass = t.billing_rate >= 50 ? 'neon-text-green' : (t.billing_rate >= 30 ? 'neon-text-amber' : 'neon-text-pink');
-        tr.innerHTML = `
-            <td><strong>${t.tournee}</strong></td>
-            <td><code>${t.total_clients}</code></td>
-            <td><span class="neon-text-green font-weight-bold">${t.clients_ok}</span></td>
-            <td><span class="neon-text-pink font-weight-bold">${t.clients_sans_ok}</span></td>
-            <td><span class="${rateClass} font-weight-bold">${t.billing_rate}%</span></td>
+    tbody.innerHTML = tournees.map(t => {
+        const reg = t.total_clients_enregistres || t.total_clients || 0;
+        const vis = t.total_clients_visites || t.total_visites || 0;
+        const pct = reg > 0 ? Math.min(100, Math.round((vis / reg) * 100)) : (t.couverture_pct !== undefined ? t.couverture_pct : (t.billing_rate !== undefined ? t.billing_rate : 100));
+        const s = t.statistics || {};
+        const ok = s.ok !== undefined ? s.ok : (t.clients_ok !== undefined ? t.clients_ok : (t.total_ok || 0));
+        const ferme = s.magasin_ferme !== undefined ? s.magasin_ferme : (t.magasin_ferme || 0);
+        const absent = s.responsable_absent !== undefined ? s.responsable_absent : (t.responsable_absent || 0);
+        const stock = s.stock_suffisant !== undefined ? s.stock_suffisant : (t.stock_suffisant || 0);
+        const vName = t.vendeur || fallbackVendeur || 'N/A';
+
+        return `
+            <tr>
+                <td style="font-weight: 600; color: var(--neon-blue);">${t.tournee || 'N/A'}</td>
+                <td>${t.secteur || 'N/A'}</td>
+                <td>${vName}</td>
+                <td style="text-align: center;">${reg}</td>
+                <td style="text-align: center; font-weight: bold;">${vis}</td>
+                <td style="text-align: center; color: var(--neon-green); font-weight: bold;">${ok}</td>
+                <td style="text-align: center; color: var(--neon-amber);">${ferme}</td>
+                <td style="text-align: center; color: #ff9966;">${absent}</td>
+                <td style="text-align: center; color: var(--neon-blue);">${stock}</td>
+                <td style="text-align: center;">
+                    <span class="badge ${pct >= 80 ? 'badge-green' : pct >= 50 ? 'badge-amber' : 'badge-pink'}">${pct}%</span>
+                </td>
+            </tr>
         `;
-        tbody.appendChild(tr);
-    });
+    }).join('');
 }
 
 let currentV360RadarMode = 'quanti';
@@ -1797,125 +1813,103 @@ async function fetchAndRenderVendeurTournees(vendeurName) {
     if (!vendeurName || !tableBody) return;
 
     try {
-        tableBody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 1.5rem; color: var(--neon-blue);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement des tournées et visites en cours...</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 1.5rem; color: var(--neon-blue);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement des tournées...</td></tr>`;
 
-        const res = await fetch(`/api/vendeur360/tournees/${encodeURIComponent(vendeurName)}`);
-        const json = await res.json();
+        // 1. Fetch tournee stats from /api/visites/tournee-stats (Image 1 authentic data source)
+        // and /api/vendeur360/tournees for top summary badges
+        const [tourneeStatsRes, v360Res] = await Promise.all([
+            fetch(`/api/visites/tournee-stats?vendeur=${encodeURIComponent(vendeurName)}`).then(r => r.json()).catch(() => null),
+            fetch(`/api/vendeur360/tournees/${encodeURIComponent(vendeurName)}`).then(r => r.json()).catch(() => null)
+        ]);
 
-        if (!json.success || !json.data) {
-            tableBody.innerHTML = `<tr><td colspan="11" style="text-align:center; color: var(--text-sub);">Aucune tournée enregistrée.</td></tr>`;
-            return;
+        let tournees = [];
+        if (tourneeStatsRes && tourneeStatsRes.status === 'success' && Array.isArray(tourneeStatsRes.tournees) && tourneeStatsRes.tournees.length > 0) {
+            tournees = tourneeStatsRes.tournees;
+        } else if (v360Res && v360Res.success && v360Res.data && Array.isArray(v360Res.data.tournees)) {
+            tournees = v360Res.data.tournees;
         }
 
-        const data = json.data;
-        const tournees = data.tournees || [];
-
-        // 1. Render Mini-KPI Ribbon
-        if (kpiRibbon) {
-            kpiRibbon.innerHTML = `
-                <span class="badge-blue"><i class="fa-solid fa-route"></i> ${data.total_tournees || 0} Tournées</span>
-                <span class="badge-blue"><i class="fa-solid fa-store"></i> ${data.total_visites || 0} Visites</span>
-                <span class="badge-green"><i class="fa-solid fa-file-invoice"></i> ${data.visites_ok || 0} Avec Facture (${data.billing_rate || 0}%)</span>
-                <span class="badge-pink"><i class="fa-solid fa-triangle-exclamation"></i> ${data.visites_sans_ok || 0} Sans Facture</span>
-                <span style="background: rgba(255, 170, 0, 0.2); color: #ffaa00; border: 1px solid #ffaa00; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold;">
-                    <i class="fa-solid fa-bolt"></i> ${data.anomalies_avec_facture || 0} Anomalies
-                </span>
-                <span style="background: rgba(187, 134, 252, 0.2); color: #bb86fc; border: 1px solid #bb86fc; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold;">
-                    <i class="fa-solid fa-arrow-up-right-dots"></i> ${data.big_facture || 0} Big Fact.
-                </span>
-                <span style="background: rgba(3, 218, 198, 0.2); color: #03dac6; border: 1px solid #03dac6; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold;">
-                    <i class="fa-solid fa-basket-shopping"></i> ${data.small_facture || 0} Small Fact.
-                </span>
-            `;
-        }
-
-        // 2. Render Motifs Bar
-        if (motifsBar) {
-            const motifs = data.motifs_summary || {};
-            let motifsHtml = `<span style="font-weight: bold; color: var(--text-muted); align-self: center; margin-right: 0.4rem;">MOTIFS DE VISITE:</span>`;
-            
-            const motifColors = {
-                'OK': 'color: var(--neon-green); border: 1px solid var(--neon-green);',
-                'Stock Suffisant': 'color: var(--neon-blue); border: 1px solid var(--neon-blue);',
-                'Magasin Ferme': 'color: var(--neon-pink); border: 1px solid var(--neon-pink);',
-                'Responsable Absent': 'color: var(--neon-amber); border: 1px solid var(--neon-amber);',
-                'Erreur de Manipluation': 'color: #e0e0e0; border: 1px solid #777;'
-            };
-
-            for (const [mName, mCount] of Object.entries(motifs)) {
-                const styleStr = motifColors[mName] || 'color: var(--text-sub); border: 1px solid var(--border-color);';
-                motifsHtml += `<span style="padding: 0.15rem 0.5rem; border-radius: 3px; background: rgba(0,0,0,0.3); font-weight: 600; ${styleStr}">
-                    ${mName}: <strong>${mCount}</strong>
-                </span>`;
+        // 2. Render Mini-KPI Ribbon & Motifs bar if available
+        if (v360Res && v360Res.data) {
+            const data = v360Res.data;
+            if (kpiRibbon) {
+                kpiRibbon.innerHTML = `
+                    <span class="badge-blue"><i class="fa-solid fa-route"></i> ${tournees.length || data.total_tournees || 0} Tournées</span>
+                    <span class="badge-blue"><i class="fa-solid fa-store"></i> ${data.total_visites || 0} Visites</span>
+                    <span class="badge-green"><i class="fa-solid fa-file-invoice"></i> ${data.visites_ok || 0} Avec Facture (${data.billing_rate || 0}%)</span>
+                    <span class="badge-pink"><i class="fa-solid fa-triangle-exclamation"></i> ${data.visites_sans_ok || 0} Sans Facture</span>
+                    <span style="background: rgba(255, 170, 0, 0.2); color: #ffaa00; border: 1px solid #ffaa00; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold;">
+                        <i class="fa-solid fa-bolt"></i> ${data.anomalies_avec_facture || 0} Anomalies
+                    </span>
+                    <span style="background: rgba(187, 134, 252, 0.2); color: #bb86fc; border: 1px solid #bb86fc; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold;">
+                        <i class="fa-solid fa-arrow-up-right-dots"></i> ${data.big_facture || 0} Big Fact.
+                    </span>
+                    <span style="background: rgba(3, 218, 198, 0.2); color: #03dac6; border: 1px solid #03dac6; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold;">
+                        <i class="fa-solid fa-basket-shopping"></i> ${data.small_facture || 0} Small Fact.
+                    </span>
+                `;
             }
-            motifsBar.innerHTML = motifsHtml;
+
+            if (motifsBar) {
+                const motifs = data.motifs_summary || {};
+                let motifsHtml = `<span style="font-weight: bold; color: var(--text-muted); align-self: center; margin-right: 0.4rem;">MOTIFS DE VISITE:</span>`;
+                
+                const motifColors = {
+                    'OK': 'color: var(--neon-green); border: 1px solid var(--neon-green);',
+                    'Stock Suffisant': 'color: var(--neon-blue); border: 1px solid var(--neon-blue);',
+                    'Magasin Ferme': 'color: var(--neon-pink); border: 1px solid var(--neon-pink);',
+                    'Responsable Absent': 'color: var(--neon-amber); border: 1px solid var(--neon-amber);',
+                    'Erreur de Manipluation': 'color: #e0e0e0; border: 1px solid #777;'
+                };
+
+                for (const [mName, mCount] of Object.entries(motifs)) {
+                    const styleStr = motifColors[mName] || 'color: var(--text-sub); border: 1px solid var(--border-color);';
+                    motifsHtml += `<span style="padding: 0.15rem 0.5rem; border-radius: 3px; background: rgba(0,0,0,0.3); font-weight: 600; ${styleStr}">
+                        ${mName}: <strong>${mCount}</strong>
+                    </span>`;
+                }
+                motifsBar.innerHTML = motifsHtml;
+            }
         }
 
-        // 3. Render Tournées Table Rows
+        // 3. Render Table Rows (Exact match to Image 1)
         tableBody.innerHTML = '';
         if (tournees.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--text-sub);">Aucune tournée enregistrée.</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-sub); padding: 2rem;">Aucune tournée enregistrée pour ce vendeur</td></tr>`;
             return;
         }
 
-        tournees.forEach((t, idx) => {
-            const tr = document.createElement('tr');
-            const rateClass = t.billing_rate >= 50 ? 'neon-text-green' : (t.billing_rate >= 30 ? 'neon-text-amber' : 'neon-text-pink');
-            
-            const dureeStr = t.duree_totale_minutes ? `${t.duree_totale_minutes} min` : '-';
-            const hStart = t.heure_debut || '-';
-            const hEnd = t.heure_fin || '-';
+        tableBody.innerHTML = tournees.map(t => {
+            const reg = t.total_clients_enregistres || t.total_clients || 0;
+            const vis = t.total_clients_visites || t.total_visites || 0;
+            const pct = reg > 0 ? Math.min(100, Math.round((vis / reg) * 100)) : (t.couverture_pct !== undefined ? t.couverture_pct : (t.billing_rate !== undefined ? t.billing_rate : 100));
+            const s = t.statistics || {};
+            const ok = s.ok !== undefined ? s.ok : (t.clients_ok !== undefined ? t.clients_ok : (t.total_ok || 0));
+            const ferme = s.magasin_ferme !== undefined ? s.magasin_ferme : (t.magasin_ferme || 0);
+            const absent = s.responsable_absent !== undefined ? s.responsable_absent : (t.responsable_absent || 0);
+            const stock = s.stock_suffisant !== undefined ? s.stock_suffisant : (t.stock_suffisant || 0);
+            const vName = t.vendeur || vendeurName || 'N/A';
 
-            const dateLabel = (t.date && t.date !== '-') ? t.date : '-';
-            const tourneeName = (t.tournee && t.tournee !== '-' && t.tournee !== t.date) ? t.tournee : (t.secteur || 'Tournée standard');
-
-            const totalVisitesHtml = t.total_visites > 0 
-                ? `<strong>${t.total_visites}</strong>` 
-                : (t.total_clients_enregistres 
-                    ? `<span class="neon-text-sub">0 <small style="opacity: 0.65;">(${t.total_clients_enregistres} cli.)</small></span>` 
-                    : `<strong>0</strong>`);
-
-            tr.innerHTML = `
-                <td style="white-space: nowrap;">
-                    <div style="font-weight: 700; color: var(--neon-blue); line-height: 1.2;">
-                        <i class="fa-regular fa-calendar-days" style="margin-right: 0.35rem;"></i>${dateLabel}
-                    </div>
-                    <div class="v360-tournee-name" style="font-size: 0.78rem; font-weight: 800; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px;" title="${tourneeName}">
-                        <i class="fa-solid fa-route" style="color: var(--neon-pink); margin-right: 0.25rem;"></i>${tourneeName}
-                    </div>
-                    ${t.secteur ? `<div style="font-size: 0.68rem; color: var(--text-sub); opacity: 0.9; font-weight: 600; margin-top: 1px;">${t.secteur}</div>` : ''}
-                </td>
-                <td style="white-space: nowrap;"><code>${hStart}</code></td>
-                <td style="white-space: nowrap;"><code>${hEnd}</code></td>
-                <td style="white-space: nowrap;"><span class="neon-text-sub">${dureeStr}</span></td>
-                <td style="white-space: nowrap;">${totalVisitesHtml}</td>
-                <td style="white-space: nowrap;"><span class="neon-text-green font-weight-bold">${t.visites_ok}</span></td>
-                <td style="white-space: nowrap;"><span class="neon-text-pink font-weight-bold">${t.magasin_ferme || (t.motifs ? (t.motifs['Magasin Ferme'] || t.motifs['Magasin Fermé'] || 0) : 0)}</span></td>
-                <td style="white-space: nowrap;"><span class="neon-text-blue font-weight-bold">${t.stock_suffisant || (t.motifs ? (t.motifs['Stock Suffisant'] || 0) : 0)}</span></td>
-                <td style="white-space: nowrap;"><span class="neon-text-amber font-weight-bold">${t.responsable_absent || (t.motifs ? (t.motifs['Responsable Absent'] || 0) : 0)}</span></td>
-                <td style="white-space: nowrap;"><span class="${rateClass} font-weight-bold">${t.billing_rate}%</span></td>
-                <td style="white-space: nowrap;">
-                    <button type="button" class="view-tournee-details-btn cyber-btn-small" data-idx="${idx}" style="padding: 0.2rem 0.55rem; font-size: 0.72rem;">
-                        <i class="fa-solid fa-eye"></i> Voir
-                    </button>
-                </td>
+            return `
+                <tr>
+                    <td style="font-weight: 600; color: var(--neon-blue);">${t.tournee || 'N/A'}</td>
+                    <td>${t.secteur || 'N/A'}</td>
+                    <td>${vName}</td>
+                    <td style="text-align: center;">${reg}</td>
+                    <td style="text-align: center; font-weight: bold;">${vis}</td>
+                    <td style="text-align: center; color: var(--neon-green); font-weight: bold;">${ok}</td>
+                    <td style="text-align: center; color: var(--neon-amber);">${ferme}</td>
+                    <td style="text-align: center; color: #ff9966;">${absent}</td>
+                    <td style="text-align: center; color: var(--neon-blue);">${stock}</td>
+                    <td style="text-align: center;">
+                        <span class="badge ${pct >= 80 ? 'badge-green' : pct >= 50 ? 'badge-amber' : 'badge-pink'}">${pct}%</span>
+                    </td>
+                </tr>
             `;
-            tableBody.appendChild(tr);
-        });
-
-        const detailBtns = tableBody.querySelectorAll('.view-tournee-details-btn');
-        detailBtns.forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const idx = parseInt(btn.getAttribute('data-idx'));
-                if (tournees[idx]) {
-                    openTourneeVisitsModal(tournees[idx]);
-                }
-            });
-        });
-
-    } catch (err) {
-        console.error("Error fetching vendor tournees:", err);
-        tableBody.innerHTML = `<tr><td colspan="11" style="text-align:center; color: var(--neon-pink);">Erreur lors du chargement des tournées.</td></tr>`;
+        }).join('');
+    } catch (e) {
+        console.error("Error loading v360 tournées table:", e);
+        tableBody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--neon-pink);">Erreur de chargement des tournées.</td></tr>`;
     }
 }
 
