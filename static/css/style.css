@@ -6311,6 +6311,243 @@ body.light-mode .v360-tournee-name,
     font-weight: 800 !important;
 }
 
+.v360-tournee-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.v360-tournee-row:hover {
+    background: rgba(0, 212, 255, 0.12) !important;
+}
+
+body.light-mode .v360-tournee-row:hover,
+[data-theme="light"] .v360-tournee-row:hover {
+    background: rgba(0, 102, 204, 0.08) !important;
+}
+
+/* ========================================================
+   SAGE GREEN BI-DAILY CURVED LINE CHART (EXACT IMAGE 1 THEME)
+   ======================================================== */
+.sage-chart-card {
+    background: linear-gradient(165deg, #446e5f 0%, #35584b 50%, #244238 100%) !important;
+    border-radius: 20px !important;
+    border: 1px solid rgba(180, 242, 195, 0.3) !important;
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+    padding: 1.5rem 1.75rem !important;
+    position: relative !important;
+    margin-bottom: 1.75rem !important;
+    color: #ffffff !important;
+    overflow: hidden !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.sage-chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+    width: 100%;
+}
+
+.sage-title {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: #bbf7d0;
+    font-family: var(--font-mono, monospace);
+    font-size: 1.05rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.sage-select {
+    background: rgba(18, 38, 30, 0.85);
+    border: 1.5px solid rgba(187, 247, 208, 0.4);
+    border-radius: 999px;
+    color: #e2f7e8;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 0.45rem 1.15rem;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.sage-select:hover, .sage-select:focus {
+    border-color: #bbf7d0;
+    background: rgba(22, 48, 38, 0.95);
+    box-shadow: 0 0 12px rgba(187, 247, 208, 0.3);
+}
+
+.sage-select option {
+    background-color: #1e362d;
+    color: #ffffff;
+}
+
+.sage-kpi-bar {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 1.25rem;
+}
+
+.sage-kpi-chip {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 0.4rem 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.sage-kpi-chip .sage-kpi-title {
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.65);
+    font-family: var(--font-mono, monospace);
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.sage-kpi-chip .sage-kpi-val {
+    font-size: 0.95rem;
+    font-weight: 800;
+    font-family: var(--font-mono, monospace);
+}
+
+.sage-chart-wrapper {
+    position: relative;
+    height: 360px;
+    width: 100%;
+}
+
+.sage-pill-group {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1.25rem;
+    margin-top: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.sage-pill-btn {
+    padding: 0.55rem 2rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 2px solid transparent;
+    color: rgba(255, 255, 255, 0.65);
+    font-family: var(--font-mono, monospace);
+    font-weight: 800;
+    font-size: 0.88rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.sage-pill-btn:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateY(-1px);
+}
+
+.sage-pill-btn.active {
+    color: #bbf7d0 !important;
+    background: rgba(187, 247, 208, 0.12) !important;
+    border-color: #bbf7d0 !important;
+    box-shadow: 0 0 20px rgba(187, 247, 208, 0.25) !important;
+    transform: translateY(-1px);
+}
+
+body.light-mode .sage-chart-card {
+    background: linear-gradient(165deg, #3d6859 0%, #2f5144 50%, #203a30 100%) !important;
+    box-shadow: 0 16px 36px rgba(40, 70, 58, 0.35) !important;
+}
+
+/* SAGE MULTI-FAMILY GRID & CARDS */
+.sage-families-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+    gap: 1.25rem;
+    width: 100%;
+}
+
+.sage-family-card {
+    background: linear-gradient(165deg, #446e5f 0%, #35584b 50%, #244238 100%) !important;
+    border-radius: 18px !important;
+    border: 1px solid rgba(180, 242, 195, 0.28) !important;
+    box-shadow: 0 16px 38px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+    padding: 1.25rem 1.4rem !important;
+    position: relative !important;
+    color: #ffffff !important;
+    overflow: hidden !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sage-family-card:hover {
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.42), 0 0 18px rgba(187, 247, 208, 0.15) !important;
+    border-color: rgba(180, 242, 195, 0.45) !important;
+}
+
+.sage-ca-card {
+    grid-column: 1 / -1;
+    background: linear-gradient(165deg, #4d7a6b 0%, #396052 50%, #27493e 100%) !important;
+    border: 1.5px solid rgba(74, 222, 128, 0.45) !important;
+    box-shadow: 0 22px 50px rgba(0, 0, 0, 0.42), 0 0 22px rgba(74, 222, 128, 0.15) !important;
+}
+
+.sage-family-badge {
+    font-size: 0.7rem;
+    font-weight: 800;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    font-family: var(--font-mono, monospace);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.sage-badge-som {
+    background: rgba(56, 189, 248, 0.2);
+    border: 1px solid rgba(56, 189, 248, 0.6);
+    color: #38bdf8;
+}
+
+.sage-badge-vmm {
+    background: rgba(244, 114, 182, 0.2);
+    border: 1px solid rgba(244, 114, 182, 0.6);
+    color: #f472b6;
+}
+
+.sage-badge-global {
+    background: rgba(74, 222, 128, 0.2);
+    border: 1px solid rgba(74, 222, 128, 0.6);
+    color: #4ade80;
+}
+
+@media (max-width: 900px) {
+    .sage-families-grid {
+        grid-template-columns: 1fr !important;
+    }
+    .sage-ca-card {
+        grid-column: auto !important;
+    }
+}
+
+
+
 
 
 

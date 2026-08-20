@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "includeFiles": [
+          "static/**",
+          "templates/**",
+          "*.html",
+          "logo.png",
+          "bg_anim.png",
+          "config.json",
+          "*.db",
+          "*.json",
+          "*.xlsx"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "api/index.py"
+    }
+  ]
+}

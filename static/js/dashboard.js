@@ -1458,13 +1458,17 @@ async function initClientsAFacturerView() {
             const vendeurName = data.vendeur || data.vendeur_code || (selectEntity ? selectEntity.value : '') || 'VENDEUR';
             let vendeurPhone = data.vendeur_phone || '';
 
-            // Fetch vendor phone number from FDV table if missing
-            if (!vendeurPhone && vendeurName) {
+            // Fetch vendor phone number and RAF ACM from FDV table if missing
+            let rawRafAcm = (data.raf_acm !== undefined && data.raf_acm !== null && !isNaN(data.raf_acm)) ? data.raf_acm : null;
+            if ((!vendeurPhone || rawRafAcm === null) && vendeurName) {
                 try {
                     const resp = await fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(vendeurName) + '&include_rapport=false');
                     const resData = await resp.json();
-                    if (resData.status === 'success' && resData.phone) {
-                        vendeurPhone = resData.phone;
+                    if (resData.status === 'success') {
+                        if (resData.phone && !vendeurPhone) vendeurPhone = resData.phone;
+                        if (resData.raf_acm !== undefined && resData.raf_acm !== null && rawRafAcm === null) {
+                            rawRafAcm = resData.raf_acm;
+                        }
                     }
                 } catch (e) {
                     console.warn('FDV phone lookup error:', e);
@@ -1472,8 +1476,7 @@ async function initClientsAFacturerView() {
             }
 
             const filterMode = window.activeFilterTab || activeFilter || 'all';
-            const rawRafAcm = (data.raf_acm !== undefined && data.raf_acm !== null) ? data.raf_acm : 20;
-            const minActivations = Math.max(20, Math.round(rawRafAcm));
+            const minActivations = (rawRafAcm !== null && !isNaN(rawRafAcm)) ? Math.round(rawRafAcm) : 20;
 
             let listDesc = `Ci-dessous la liste des clients (${clients.length} clients) :`;
             if (filterMode === 'nofacture' || filterMode === 'never') {
@@ -1491,7 +1494,7 @@ async function initClientsAFacturerView() {
 
             let msg = `📋 LISTE CLIENTS À FACTURER - ${vendeurName.toUpperCase()}\n`;
             if (locHeader) msg += locHeader;
-            msg += `🎯 Objectif minimum : ${minActivations} Activations / Facturations (ACM RAF / jour)\n`;
+            msg += `🎯 *Vous avez ${minActivations} client${minActivations > 1 ? 's' : ''} à activer aujourd'hui (RAF ACM)*\n`;
             msg += `----------------------------------------\n`;
             msg += `${listDesc}\n\n`;
             clients.forEach(c => {
@@ -1575,7 +1578,15 @@ async function initClientsAFacturerView() {
                 return;
             }
 
-            const encodedMsg = encodeURIComponent(waMessageTextarea.value);
+            const msg = waMessageTextarea.value || '';
+            const countMatches = msg.match(/^\d+\.\s+\[/gm) || msg.match(/•\s+/g);
+            const count = countMatches ? countMatches.length : 'la';
+            const vName = waVendeurNameInput ? waVendeurNameInput.value.trim() : 'le vendeur';
+
+            const userConfirmed = window.confirm(`📲 CONFIRMATION ENVOI WHATSAPP\n\nVoulez-vous envoyer la liste de ${count} client(s) sélectionné(s) à :\n👤 ${vName}\n📞 +${phone}\n\nCliquez sur "OK" pour confirmer et ouvrir WhatsApp.`);
+            if (!userConfirmed) return;
+
+            const encodedMsg = encodeURIComponent(msg);
             const waUrl = `https://wa.me/${phone}?text=${encodedMsg}`;
             window.open(waUrl, '_blank');
             if (waModal) waModal.style.display = 'none';
@@ -3283,6 +3294,44 @@ function applyTaxMode() {
     updateTaxToggleUI();
 }
 
+function calculateCalendarWorkdays(dateStr) {
+    let dt = new Date();
+    if (dateStr) {
+        if (dateStr.includes('/')) {
+            const p = dateStr.split('/');
+            if (p.length === 3) dt = new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
+        } else if (dateStr.includes('-')) {
+            const p = dateStr.split('-');
+            if (p.length === 3) dt = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+        }
+    }
+    const year = dt.getFullYear();
+    const month = dt.getMonth();
+    const day = dt.getDate();
+    const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+    
+    // Total workdays in month (1 to lastDayOfMonth - 1, excluding Sundays)
+    let totalWorkdays = 0;
+    for (let d = 1; d < lastDayOfMonth; d++) {
+        const cDate = new Date(year, month, d);
+        if (cDate.getDay() !== 0) totalWorkdays++;
+    }
+    
+    // Remaining workdays (from current day to lastDayOfMonth - 1, excluding Sundays)
+    let restDays = 0;
+    for (let d = day; d < lastDayOfMonth; d++) {
+        const cDate = new Date(year, month, d);
+        if (cDate.getDay() !== 0) restDays++;
+    }
+    
+    const elapsed = Math.max(0, totalWorkdays - restDays);
+    return {
+        total: totalWorkdays > 0 ? totalWorkdays : 25,
+        elapsed: elapsed,
+        rest: restDays
+    };
+}
+
 function fetchDashboardData() {
     prorataLabelEl.innerText = "REFRESHING...";
     const categorySelect = document.getElementById('category-select');
@@ -3311,19 +3360,20 @@ function fetchDashboardData() {
                 applyTaxMode();
                 populateCategoryDropdown();
                 updateDashboard();
-                populateFilters();
-                if (dashboardData && dashboardData.workdays) {
-                    if (!dashboardData.workdays.rest || dashboardData.workdays.rest <= 0) {
-                        dashboardData.workdays.rest = 15;
-                    }
-                    dashboardData.workdays.elapsed = Math.max(0, (dashboardData.workdays.total || 24) - dashboardData.workdays.rest);
+                const dynamicWk = calculateCalendarWorkdays(selectedDate || (dashboardData && dashboardData.date));
+                if (!dashboardData.workdays) {
+                    dashboardData.workdays = dynamicWk;
+                } else {
+                    dashboardData.workdays.total = dynamicWk.total;
+                    dashboardData.workdays.rest = dynamicWk.rest;
+                    dashboardData.workdays.elapsed = dynamicWk.elapsed;
                 }
                 if (prorataLabelEl && dashboardData && dashboardData.workdays) {
                     prorataLabelEl.innerText = `${dashboardData.workdays.elapsed}/${dashboardData.workdays.total} JOURS ECOULÉS (${dashboardData.workdays.rest} J RESTANTS)`;
                 }
                 const headerElapsedInput = document.getElementById('header-elapsed-days');
                 if (headerElapsedInput) {
-                    headerElapsedInput.value = (dashboardData && dashboardData.workdays && dashboardData.workdays.rest > 0) ? dashboardData.workdays.rest : 15;
+                    headerElapsedInput.value = dashboardData.workdays.rest;
                 }
                 // Initialize the correct tab based on URL (function defined later in file)
                 if (typeof initializeActiveTab === 'function') {
@@ -5916,6 +5966,7 @@ function renderQuantiTable(records) {
             <th>Vendeurs</th>
             <th>Réalisé (HT)</th>
             <th>Objectif (HT)</th>
+            <th>Objectif Global (HT)</th>
             <th>% Taux</th>
             <th>Histo 2025</th>
             <th>% Histo</th>
@@ -5938,7 +5989,7 @@ function renderQuantiTable(records) {
         if (r.h_pct !== undefined && r.h_pct !== null) {
             families[r.famille].hPct = r.h_pct;
         }
-        families[r.famille].objMois += r.obj_mois;
+        families[r.famille].objMois += (r.obj_mois || 0);
         families[r.famille].raf += r.raf;
         if (r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE') {
             families[r.famille].vendeurs.add(r.vendeur.trim());
@@ -6038,6 +6089,7 @@ function renderQuantiTable(records) {
             <td style="text-align: center;"><span style="background: rgba(0,212,255,0.15); color: var(--neon-blue); padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.85rem;">${nbrVend}</span></td>
             <td>${formatNumber(data.real)}</td>
             <td>${formatNumber(displayObj)}</td>
+            <td><strong>${formatNumber(famObjMois)}</strong></td>
             <td class="${pctClass}">${pctText}</td>
             <td>${formatNumber(data.real2025)}</td>
             <td class="${hPctClass}">${hPctText}</td>
@@ -6050,7 +6102,7 @@ function renderQuantiTable(records) {
     });
 
     if (sortedFamilies.length === 0) {
-        quantiTableBody.innerHTML = `<tr><td colspan="9" style="text-align:center;">Aucune donnée disponible</td></tr>`;
+        quantiTableBody.innerHTML = `<tr><td colspan="10" style="text-align:center;">Aucune donnée disponible</td></tr>`;
     }
 }
 
@@ -12514,10 +12566,11 @@ async function loadClientsData() {
 
     try {
         const qs = buildClientsQueryString();
+        const fParams = cfState.filters.secteurs.length ? '?secteurs=' + encodeURIComponent(cfState.filters.secteurs.join(',')) : '';
         const [listRes, statsRes, filtRes] = await Promise.all([
             fetch('/api/clients_full?' + qs + '&_=' + Date.now()).then(r => r.json()),
             fetch('/api/clients_full/stats?_=' + Date.now()).then(r => r.json()),
-            fetch('/api/clients_full/filters?_=' + Date.now()).then(r => r.json()),
+            fetch('/api/clients_full/filters' + fParams + (fParams ? '&_=' : '?_=') + Date.now()).then(r => r.json()),
         ]);
 
         if (listRes.status === 'offline') {
@@ -12528,9 +12581,13 @@ async function loadClientsData() {
             throw new Error(listRes.message || 'Erreur inconnue');
         }
 
-        // Cache filter options
+        // Cache filter options and prune invalid localites
         if (filtRes.status === 'success') {
             cfState.options = filtRes.filters;
+            if (cfState.filters.secteurs.length > 0 && cfState.options.localites) {
+                const allowed = new Set(cfState.options.localites);
+                cfState.filters.localites = cfState.filters.localites.filter(l => allowed.has(l));
+            }
             populateAdvancedFilters();
         }
 
@@ -12655,7 +12712,7 @@ function renderPagination() {
 function populateAdvancedFilters() {
     const configs = [
         { key: 'secteurs', label: 'Tous les secteurs', filterKey: 'secteurs' },
-        { key: 'localites', label: 'Toutes les localités', filterKey: 'localites' },
+        { key: 'localites', label: 'Toutes les localités / tournées', filterKey: 'localites' },
         { key: 'vendeurs_som', label: 'Tous les vendeurs SOM', filterKey: 'vendeurs_som' },
         { key: 'vendeurs_vmm', label: 'Tous les vendeurs VMM', filterKey: 'vendeurs_vmm' },
     ];
@@ -12668,11 +12725,23 @@ function populateAdvancedFilters() {
         if (!toggle || !menu) return;
 
         lbl.dataset.placeholder = cfg.label;
-        const values = cfState.options[cfg.key] || [];
+        let values = cfState.options[cfg.key] || [];
 
-        // Skip full rebuild if the menu is already populated for the right size
-        if (sel.dataset.optionsLen === String(values.length) && menu.dataset.built === '1') {
-            // Just refresh checked state and label
+        // If localites and secteurs are selected, ensure localites list only contains localites of those secteurs
+        if (cfg.key === 'localites' && cfState.filters.secteurs.length > 0 && cfState.options.secteur_localites_map) {
+            const allowed = new Set();
+            cfState.filters.secteurs.forEach(s => {
+                (cfState.options.secteur_localites_map[s] || []).forEach(l => allowed.add(l));
+            });
+            if (allowed.size > 0) {
+                values = Array.from(allowed).sort();
+            }
+        }
+
+        const optionsHash = values.join(':::');
+
+        // Skip full rebuild if the menu is already populated with the exact same options
+        if (sel.dataset.optionsHash === optionsHash && menu.dataset.built === '1') {
             refreshMultiSelectState(sel, cfg);
             return;
         }
@@ -12697,6 +12766,7 @@ function populateAdvancedFilters() {
             optsContainer.innerHTML = '<div class="cf-multi-empty">Aucune valeur</div>';
         }
         menu.dataset.built = '1';
+        sel.dataset.optionsHash = optionsHash;
         sel.dataset.optionsLen = String(values.length);
 
         // Toggle menu on click
@@ -12815,6 +12885,30 @@ function commitMultiSelect(sel, cfg) {
         .map(cb => cb.value);
     cfState.filters[cfg.filterKey] = checked;
     cfState.page = 1;
+
+    // If Secteurs changed, immediately update and filter available Localités
+    if (cfg.filterKey === 'secteurs') {
+        if (cfState.options.secteur_localites_map) {
+            if (checked.length > 0) {
+                const allowed = new Set();
+                checked.forEach(s => (cfState.options.secteur_localites_map[s] || []).forEach(l => allowed.add(l)));
+                cfState.options.localites = Array.from(allowed).sort();
+                // Prune any selected localites not in the allowed list
+                cfState.filters.localites = cfState.filters.localites.filter(l => allowed.has(l));
+            } else {
+                const allL = new Set();
+                Object.values(cfState.options.secteur_localites_map).forEach(arr => arr.forEach(l => allL.add(l)));
+                cfState.options.localites = Array.from(allL).sort();
+            }
+        }
+        // Force rebuild of localites dropdown
+        const locSel = document.querySelector('.cf-multi-select[data-filter="localites"]');
+        if (locSel) {
+            delete locSel.dataset.optionsHash;
+        }
+        populateAdvancedFilters();
+    }
+
     refreshMultiSelectState(sel, cfg);
     loadClientsData();
 }
@@ -15250,6 +15344,86 @@ async function loadTasks() {
     }
 }
 
+function initGlobalWhatsappModal() {
+    const waModal = document.getElementById('af-wa-modal');
+    if (!waModal || waModal.dataset.initialized === '1') return;
+    waModal.dataset.initialized = '1';
+
+    const waModalClose = document.getElementById('af-wa-modal-close');
+    const waCopyBtn = document.getElementById('af-wa-copy-btn');
+    const waSendBtn = document.getElementById('af-wa-send-btn');
+    const waVendeurNameInput = document.getElementById('af-wa-vendeur-name');
+    const waVendeurPhoneInput = document.getElementById('af-wa-vendeur-phone');
+    const waMessageTextarea = document.getElementById('af-wa-message-text');
+
+    if (waModalClose) {
+        waModalClose.onclick = () => { 
+            waModal.style.display = 'none'; 
+            waModal.classList.remove('open');
+        };
+    }
+    waModal.onclick = (e) => {
+        if (e.target === waModal) {
+            waModal.style.display = 'none';
+            waModal.classList.remove('open');
+        }
+    };
+
+    if (waCopyBtn && waMessageTextarea) {
+        waCopyBtn.onclick = () => {
+            navigator.clipboard.writeText(waMessageTextarea.value)
+                .then(() => {
+                    if (typeof showToast === 'function') showToast("Message copié dans le presse-papier !", "success");
+                    else alert("Message copié !");
+                })
+                .catch(() => {
+                    waMessageTextarea.select();
+                    document.execCommand('copy');
+                    if (typeof showToast === 'function') showToast("Message copié !", "success");
+                    else alert("Message copié !");
+                });
+        };
+    }
+
+    if (waSendBtn && waMessageTextarea) {
+        waSendBtn.onclick = () => {
+            let rawPhone = waVendeurPhoneInput ? waVendeurPhoneInput.value.trim() : '';
+            let cleanPhone = typeof normalizePhoneForWhatsapp === 'function' ? normalizePhoneForWhatsapp(rawPhone) : rawPhone.replace(/\D/g, '');
+            if (!cleanPhone) {
+                if (typeof showToast === 'function') showToast("Veuillez saisir un numéro de téléphone WhatsApp valide.", "warning");
+                else alert("Veuillez saisir un numéro de téléphone WhatsApp valide.");
+                if (waVendeurPhoneInput) waVendeurPhoneInput.focus();
+                return;
+            }
+            const encodedMsg = encodeURIComponent(waMessageTextarea.value);
+            const waUrl = `https://wa.me/${cleanPhone}?text=${encodedMsg}`;
+            window.open(waUrl, '_blank');
+        };
+    }
+
+    if (waVendeurNameInput) {
+        let lookupTimer = null;
+        const doLookup = async () => {
+            const name = waVendeurNameInput.value.trim();
+            if (!name) return;
+            try {
+                const resp = await fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(name) + '&include_rapport=false');
+                const resData = await resp.json();
+                if (resData.status === 'success' && resData.phone && waVendeurPhoneInput) {
+                    waVendeurPhoneInput.value = typeof normalizePhoneForWhatsapp === 'function' ? normalizePhoneForWhatsapp(resData.phone) : resData.phone;
+                }
+            } catch (err) {
+                console.warn('FDV phone lookup error:', err);
+            }
+        };
+        waVendeurNameInput.addEventListener('input', () => {
+            clearTimeout(lookupTimer);
+            lookupTimer = setTimeout(doLookup, 250);
+        });
+        waVendeurNameInput.addEventListener('change', doLookup);
+    }
+}
+
 // -----------------------------------------------------------------------------
 // VISITES TAB FUNCTIONS
 // -----------------------------------------------------------------------------
@@ -15337,6 +15511,26 @@ async function loadVisitesTabFilters() {
 
 let visitesActiveFilter = 'all';
 
+window.setVisitesActiveFilter = function(filterName) {
+    visitesActiveFilter = filterName || 'all';
+
+    // Switch to Journal view to show the filtered visits table
+    const btnJournal = document.getElementById('visites-subtab-journal');
+    const btnTournees = document.getElementById('visites-subtab-tournees');
+    const viewTournees = document.getElementById('visites-view-tournees');
+    const viewJournal = document.getElementById('visites-view-journal');
+
+    if (btnJournal && btnTournees) {
+        btnJournal.classList.add('active');
+        btnTournees.classList.remove('active');
+        if (viewJournal) viewJournal.style.display = 'block';
+        if (viewTournees) viewTournees.style.display = 'none';
+        visitesTabCurrentSubtab = 'journal';
+    }
+
+    renderVisitesTabContent();
+};
+
 function setupVisitesTabEventListeners() {
     if (visitesTabInitialized) return;
     visitesTabInitialized = true;
@@ -15353,6 +15547,7 @@ function setupVisitesTabEventListeners() {
             if (viewTournees) viewTournees.style.display = 'block';
             if (viewJournal) viewJournal.style.display = 'none';
             visitesTabCurrentSubtab = 'tournees';
+            renderVisitesTabContent();
         });
 
         btnJournal.addEventListener('click', () => {
@@ -15361,6 +15556,7 @@ function setupVisitesTabEventListeners() {
             if (viewJournal) viewJournal.style.display = 'block';
             if (viewTournees) viewTournees.style.display = 'none';
             visitesTabCurrentSubtab = 'journal';
+            renderVisitesTabContent();
         });
     }
 
@@ -15379,28 +15575,44 @@ function setupVisitesTabEventListeners() {
     if (searchInput) searchInput.addEventListener('input', () => renderVisitesTabContent());
     if (refreshBtn) refreshBtn.addEventListener('click', loadVisitesTabData);
 
-    // Filter Toggle Buttons (Exact match to Clients à facturer)
-    const filterToggleBtns = document.querySelectorAll('#visites-view-toggle-bar .cf-view-btn');
-    filterToggleBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            filterToggleBtns.forEach(b => b.classList.remove('is-active'));
-            btn.classList.add('is-active');
-            visitesActiveFilter = btn.getAttribute('data-filter') || 'all';
-            
-            // Auto-switch to journal subtab when a specific filter is clicked
-            if (visitesActiveFilter !== 'all' && btnJournal && viewJournal && viewJournal.style.display === 'none') {
-                btnJournal.click();
+    // Filter Toggle Buttons
+    const toggleBar = document.getElementById('visites-view-toggle-bar');
+    if (toggleBar) {
+        toggleBar.addEventListener('click', (e) => {
+            const btn = e.target.closest('.cf-view-btn');
+            if (!btn) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            const filterVal = btn.getAttribute('data-filter') || 'all';
+            visitesActiveFilter = filterVal;
+
+            // Switch to Journal view to show the filtered visits table
+            const btnJournal = document.getElementById('visites-subtab-journal');
+            const btnTournees = document.getElementById('visites-subtab-tournees');
+            const viewTournees = document.getElementById('visites-view-tournees');
+            const viewJournal = document.getElementById('visites-view-journal');
+
+            if (btnJournal && btnTournees) {
+                btnJournal.classList.add('active');
+                btnTournees.classList.remove('active');
+                if (viewJournal) viewJournal.style.display = 'block';
+                if (viewTournees) viewTournees.style.display = 'none';
+                visitesTabCurrentSubtab = 'journal';
             }
+
             renderVisitesTabContent();
         });
-    });
+    }
 
     // WhatsApp Send Button for Visites Tab
     const btnWaVisites = document.getElementById('visites-btn-wa-vendeur');
     if (btnWaVisites) {
         btnWaVisites.addEventListener('click', async () => {
+            initGlobalWhatsappModal();
+
             const vendeurVal = document.getElementById('visites-vendeur-filter')?.value || '';
-            if (!vendeurVal || vendeurVal === 'All') {
+            if (!vendeurVal || vendeurVal === 'All' || vendeurVal.includes('--')) {
                 if (typeof showToast === 'function') showToast("Veuillez d'abord sélectionner un vendeur.", "warning");
                 else alert("Veuillez d'abord sélectionner un vendeur.");
                 return;
@@ -15409,104 +15621,242 @@ function setupVisitesTabEventListeners() {
             const { visites } = visitesTabData;
             const searchVal = (document.getElementById('visites-search-input')?.value || '').toLowerCase().trim();
 
-            const filtered = (visites || []).filter(v => {
-                if (searchVal) {
-                    const matchesSearch = (v.client_code || '').toLowerCase().includes(searchVal) ||
+            const okClientCodes = new Set();
+            (visites || []).forEach(v => {
+                const c = (v.client_code || '').trim().toUpperCase();
+                const m = (v.motif || '').toUpperCase();
+                if (c && (m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || v.facture_status === 'AVEC FACTURE' || v.has_facture || v.is_client_billed || v.has_ok_visit)) {
+                    okClientCodes.add(c);
+                }
+            });
+
+            const isOkMotif = (motif) => {
+                const m = (motif || '').toUpperCase();
+                return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || m.includes('FACTURE');
+            };
+
+            // Filter strictly for NO OK / Non Facturés clients (never include a client who has OK on any visit)
+            let filtered = (visites || []).filter(v => {
+                const cCode = (v.client_code || '').trim().toUpperCase();
+                const isClientBilled = cCode && okClientCodes.has(cCode);
+                const m = (v.motif || '').toUpperCase();
+
+                if (visitesActiveFilter === 'ok') {
+                    return isOkMotif(v.motif) || isClientBilled;
+                } else if (visitesActiveFilter === 'ferme') {
+                    if (isClientBilled) return false;
+                    return m.includes('FERM');
+                } else if (visitesActiveFilter === 'absent') {
+                    if (isClientBilled) return false;
+                    return m.includes('ABSENT');
+                } else if (visitesActiveFilter === 'stock') {
+                    if (isClientBilled) return false;
+                    return m.includes('STOCK') || m.includes('SUFF');
+                } else if (visitesActiveFilter === 'anomalies') {
+                    return v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0);
+                } else {
+                    if (isClientBilled) return false;
+                    return !isOkMotif(v.motif);
+                }
+            });
+
+            if (searchVal) {
+                filtered = filtered.filter(v => {
+                    return (v.client_code || '').toLowerCase().includes(searchVal) ||
                         (v.client_nom || '').toLowerCase().includes(searchVal) ||
                         (v.vendeur || '').toLowerCase().includes(searchVal) ||
                         (v.tournee || '').toLowerCase().includes(searchVal) ||
                         (v.motif || '').toLowerCase().includes(searchVal);
-                    if (!matchesSearch) return false;
-                }
+                });
+            }
 
-                const m = (v.motif || '').toUpperCase();
-                if (visitesActiveFilter === 'ok') {
-                    return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE');
-                } else if (visitesActiveFilter === 'nofacture') {
-                    return m !== 'OK' && !m.includes('VENTE') && !m.includes('COMMANDE');
-                } else if (visitesActiveFilter === 'ferme') {
-                    return m.includes('FERM');
-                } else if (visitesActiveFilter === 'absent') {
-                    return m.includes('ABSENT');
-                } else if (visitesActiveFilter === 'stock') {
-                    return m.includes('STOCK') || m.includes('SUFF');
-                } else if (visitesActiveFilter === 'anomalies') {
-                    return v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0);
+            // Deduplicate by client_code so each client is listed only once in WhatsApp message
+            const seenWaClients = new Map();
+            filtered.forEach(v => {
+                const code = (v.client_code || '').trim().toUpperCase();
+                if (!code) {
+                    seenWaClients.set(v.id || Math.random(), v);
+                    return;
                 }
-                return true;
+                if (!seenWaClients.has(code)) {
+                    seenWaClients.set(code, v);
+                } else {
+                    const existing = seenWaClients.get(code);
+                    const existingMotif = (existing.motif || '').toUpperCase();
+                    const currentMotif = (v.motif || '').toUpperCase();
+                    const isCurrentBetter = (existingMotif.includes('ERREUR') || existingMotif.includes('MANIP')) &&
+                        (!currentMotif.includes('ERREUR') && !currentMotif.includes('MANIP'));
+                    if (isCurrentBetter || (v.duree_seconds || 0) > (existing.duree_seconds || 0)) {
+                        seenWaClients.set(code, v);
+                    }
+                }
             });
+            filtered = Array.from(seenWaClients.values());
 
             if (filtered.length === 0) {
-                if (typeof showToast === 'function') showToast("Aucun client dans la liste filtrée à envoyer.", "warning");
-                else alert("Aucun client dans la liste filtrée à envoyer.");
+                if (typeof showToast === 'function') showToast("Aucun client non facturé (NO OK) trouvé pour ce filtre.", "info");
+                else alert("Aucun client non facturé (NO OK) trouvé pour ce filtre.");
                 return;
             }
 
-            // Fetch vendor phone
             let vendeurPhone = '';
+            let rafAcm = 20;
+            const dateSelect = document.getElementById('visites-date-filter');
+            const rawDateVal = dateSelect ? dateSelect.value : '';
+            const cleanDateMatch = (rawDateVal || '').match(/\d{4}-\d{2}-\d{2}/);
+            const cleanDate = cleanDateMatch ? cleanDateMatch[0] : (rawDateVal !== 'All' ? rawDateVal : '');
+
             try {
-                const resp = await fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(vendeurVal) + '&include_rapport=false');
+                const dateParam = cleanDate ? '&date=' + encodeURIComponent(cleanDate) : '';
+                const resp = await fetch('/api/fdv/whatsapp_link?vendeur=' + encodeURIComponent(vendeurVal) + dateParam + '&include_rapport=false');
                 const resData = await resp.json();
-                if (resData.status === 'success' && resData.phone) {
-                    vendeurPhone = resData.phone;
+                if (resData.status === 'success') {
+                    if (resData.phone) vendeurPhone = resData.phone;
+                    if (resData.raf_acm !== undefined && resData.raf_acm !== null && !isNaN(resData.raf_acm)) rafAcm = parseInt(resData.raf_acm, 10);
                 }
             } catch (e) {
-                console.warn('FDV phone lookup error:', e);
+                console.warn('FDV phone and RAF lookup error:', e);
             }
 
-            const dateSelect = document.getElementById('visites-date-filter');
-            const dateVal = dateSelect ? dateSelect.value : '';
             const selectedDateOpt = dateSelect && dateSelect.selectedIndex >= 0 ? dateSelect.options[dateSelect.selectedIndex].text : '';
             let tourneeName = selectedDateOpt.includes(' - ') ? selectedDateOpt.split(' - ').slice(1).join(' - ') : '';
-            
-            let dateFormatted = dateVal !== 'All' ? dateVal : 'Toutes les dates';
+            let dateFormatted = cleanDate || 'Toutes les dates';
             if (dateFormatted.includes('-')) {
                 const p = dateFormatted.split('-');
                 if (p.length === 3) dateFormatted = `${p[2]}/${p[1]}/${p[0]}`;
             }
 
-            let filterLabel = "TOUS LES CLIENTS";
-            if (visitesActiveFilter === 'ok') filterLabel = "CLIENTS FACTURÉS (OK)";
-            else if (visitesActiveFilter === 'nofacture') filterLabel = "CLIENTS SANS FACTURE / NO OK";
-            else if (visitesActiveFilter === 'ferme') filterLabel = "CLIENTS MAGASIN FERMÉ";
-            else if (visitesActiveFilter === 'absent') filterLabel = "CLIENTS RESPONSABLE ABSENT";
-            else if (visitesActiveFilter === 'stock') filterLabel = "CLIENTS STOCK SUFFISANT";
-            else if (visitesActiveFilter === 'anomalies') filterLabel = "CLIENTS AVEC ANOMALIE";
-
             let msg = `🚨 *RAPPORT DE VISITES TERRAIN*\n`;
             msg += `👤 *Représentant:* ${vendeurVal}\n`;
-            if (dateFormatted && dateFormatted !== 'Toutes les dates') msg += `📅 *Date:* ${dateFormatted}\n`;
+            msg += `📅 *Date:* ${dateFormatted}\n`;
             if (tourneeName) msg += `📍 *Tournée:* ${tourneeName}\n`;
-            msg += `📊 *Catégorie:* ${filterLabel} (${filtered.length} clients)\n`;
+            msg += `🎯 *Vous avez ${rafAcm} client${rafAcm > 1 ? 's' : ''} à activer aujourd'hui (RAF ACM)*\n`;
             msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-            msg += `*LISTE DES CLIENTS :*\n`;
+            msg += `*CLIENTS SANS FACTURE (NO OK) :*\n`;
             msg += `━━━━━━━━━━━━━━━━━━━━\n`;
 
             filtered.forEach((v, idx) => {
-                const code = v.client_code || '---';
-                const nom = v.client_nom || 'Client';
-                const motif = v.motif || 'OK';
-                const heure = v.heure_debut || v.heure || '';
-                const heureStr = heure ? ` - ${heure}` : '';
-                msg += `${idx + 1}. [${code}] *${nom}* (${motif}${heureStr})\n`;
+                const heureStr = v.heure_debut || v.heure ? ` (${v.heure_debut || v.heure})` : '';
+                const motifStr = v.motif || 'Non spécifié';
+                const distStr = v.distance ? ` - ${v.distance}m` : '';
+                msg += `${idx + 1}. [${v.client_code || '---'}] *${v.client_nom || 'Client'}* (${motifStr}${distStr}${heureStr})\n`;
             });
-
             msg += `━━━━━━━━━━━━━━━━━━━━\n`;
 
-            // Open WhatsApp Modal
             const waModal = document.getElementById('af-wa-modal');
             const waVendeurNameInput = document.getElementById('af-wa-vendeur-name');
             const waVendeurPhoneInput = document.getElementById('af-wa-vendeur-phone');
             const waMessageTextarea = document.getElementById('af-wa-message-text');
+            const waCountBadge = document.getElementById('af-wa-client-count-badge');
 
             if (waVendeurNameInput) waVendeurNameInput.value = vendeurVal;
             if (waVendeurPhoneInput) waVendeurPhoneInput.value = typeof normalizePhoneForWhatsapp === 'function' ? normalizePhoneForWhatsapp(vendeurPhone) : vendeurPhone;
+            if (waCountBadge) waCountBadge.textContent = `${filtered.length} clients NO OK`;
             if (waMessageTextarea) waMessageTextarea.value = msg;
-            if (waModal) waModal.style.display = 'flex';
+            if (waModal) {
+                waModal.style.display = 'flex';
+                waModal.classList.add('open');
+            }
         });
     }
 
-    // Modal Triggers
+    // Excel Export Button for Visites Tab
+    const btnExportVisites = document.getElementById('visites-btn-export-excel');
+    if (btnExportVisites) {
+        btnExportVisites.addEventListener('click', () => {
+            const vendeurVal = document.getElementById('visites-vendeur-filter')?.value || 'Tous';
+            const dateVal = document.getElementById('visites-date-filter')?.value || 'Toutes_dates';
+            const { tournees, visites } = visitesTabData;
+            const isTourneesView = (visitesTabCurrentSubtab === 'tournees');
+
+            if (isTourneesView) {
+                if (!tournees || tournees.length === 0) {
+                    if (typeof showToast === 'function') showToast("Aucune tournée à exporter.", "warning");
+                    else alert("Aucune tournée à exporter.");
+                    return;
+                }
+                const headers = ["TOURNÉE / LOCALITÉ", "SECTEUR", "VENDEUR", "DATE", "CLIENTS ENREGISTRÉS", "CLIENTS VISITÉS", "MOTIF OK", "MAGASIN FERMÉ", "RESPONSABLE ABSENT", "STOCK SUFFISANT", "COUVERTURE %"];
+                let totalReg = 0, totalVis = 0, totalOk = 0, totalFerme = 0, totalAbsent = 0, totalStock = 0;
+                const rows = tournees.map(t => {
+                    const reg = t.total_clients_enregistres || 0;
+                    const vis = t.total_clients_visites || 0;
+                    const pct = reg > 0 ? Math.min(100, Math.round((vis / reg) * 100)) : 0;
+                    const s = t.statistics || {};
+                    const ok = s.ok || 0;
+                    const ferme = s.magasin_ferme || 0;
+                    const absent = s.responsable_absent || 0;
+                    const stock = s.stock_suffisant || 0;
+                    totalReg += reg; totalVis += vis; totalOk += ok; totalFerme += ferme; totalAbsent += absent; totalStock += stock;
+                    return [t.tournee || '', t.secteur || '', t.vendeur || '', t.date || '', reg, vis, ok, ferme, absent, stock, `${pct}%`];
+                });
+                const totalPct = totalReg > 0 ? Math.min(100, Math.round((totalVis / totalReg) * 100)) : 0;
+                rows.push([`TOTAL (${tournees.length} tournées)`, '-', '-', '-', totalReg, totalVis, totalOk, totalFerme, totalAbsent, totalStock, `${totalPct}%`]);
+            const cleanVendeur = String(vendeurVal).replace(/[^a-zA-Z0-9_-]/g, '_');
+                exportVisitesTableToExcel(rows, headers, `Synthese_Tournees_${cleanVendeur}_${dateVal}`);
+                if (typeof showToast === 'function') showToast("Export Excel des tournées réussi !", "success");
+            } else {
+                if (!visites || visites.length === 0) {
+                    if (typeof showToast === 'function') showToast("Aucune visite à exporter.", "warning");
+                    else alert("Aucune visite à exporter.");
+                    return;
+                }
+                const searchVal = (document.getElementById('visites-search-input')?.value || '').toLowerCase().trim();
+                const okClientCodes = new Set();
+                visites.forEach(v => {
+                    const c = (v.client_code || '').trim().toUpperCase();
+                    const m = (v.motif || '').toUpperCase();
+                    if (c && (m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || v.facture_status === 'AVEC FACTURE' || v.has_facture || v.is_client_billed)) okClientCodes.add(c);
+                });
+                const filteredVisites = visites.filter(v => {
+                    if (searchVal) {
+                        const matchesSearch = (v.client_code || '').toLowerCase().includes(searchVal) || (v.client_nom || '').toLowerCase().includes(searchVal) || (v.vendeur || '').toLowerCase().includes(searchVal) || (v.tournee || '').toLowerCase().includes(searchVal) || (v.motif || '').toLowerCase().includes(searchVal);
+                        if (!matchesSearch) return false;
+                    }
+                    const m = (v.motif || '').toUpperCase();
+                    const cCode = (v.client_code || '').trim().toUpperCase();
+                    const isClientBilled = cCode && okClientCodes.has(cCode);
+                    if (visitesActiveFilter === 'ok') return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || isClientBilled;
+                    else if (visitesActiveFilter === 'nofacture') return !isClientBilled && m !== 'OK' && !m.includes('VENTE') && !m.includes('COMMANDE');
+                    else if (visitesActiveFilter === 'ferme') return !isClientBilled && m.includes('FERM');
+                    else if (visitesActiveFilter === 'absent') return !isClientBilled && m.includes('ABSENT');
+                    else if (visitesActiveFilter === 'stock') return !isClientBilled && (m.includes('STOCK') || m.includes('SUFF'));
+                    else if (visitesActiveFilter === 'anomalies') return v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0);
+                    return true;
+                });
+
+                // Deduplicate clients for Excel export in non-OK categories
+                let exportVisites = filteredVisites;
+                if (['nofacture', 'ferme', 'absent', 'stock'].includes(visitesActiveFilter)) {
+                    const seenExcelMap = new Map();
+                    filteredVisites.forEach(v => {
+                        const code = (v.client_code || '').trim().toUpperCase();
+                        if (!code) seenExcelMap.set(v.id || Math.random(), v);
+                        else if (!seenExcelMap.has(code)) seenExcelMap.set(code, v);
+                    });
+                    exportVisites = Array.from(seenExcelMap.values());
+                }
+
+                if (exportVisites.length === 0) {
+                    if (typeof showToast === 'function') showToast("Aucune visite ne correspond au filtre actif.", "info");
+                    else alert("Aucune visite ne correspond au filtre actif.");
+                    return;
+                }
+                const headers = ["DATE", "HEURE DÉBUT", "HEURE FIN", "VENDEUR", "CODE CLIENT", "NOM DU CLIENT", "TOURNÉE", "DURÉE", "DISTANCE", "MOTIF", "ANOMALIE / STATUT"];
+                const rows = exportVisites.map(v => {
+                    const dureeStr = v.duree_formatted || (v.duree_minutes ? `${v.duree_minutes} min` : (v.heure || ''));
+                    const anomList = Array.isArray(v.anomalies) ? v.anomalies : (v.anomalies_list || v.anomaly_reasons || []);
+                    const anomStr = v.has_anomaly ? (anomList.join(', ') || 'Anomalie') : 'Normal';
+                    return [v.date_visite || dateVal, v.heure_debut || v.heure || '', v.heure_fin || '', v.vendeur || '', v.client_code || '', v.client_nom || '', v.tournee || '', dureeStr, v.distance ? `${v.distance} m` : '', v.motif || 'OK', anomStr];
+                });
+                const cleanVendeur = String(vendeurVal).replace(/[^a-zA-Z0-9_-]/g, '_');
+                exportVisitesTableToExcel(rows, headers, `Journal_Visites_${cleanVendeur}_${visitesActiveFilter}_${dateVal}`);
+                if (typeof showToast === 'function') showToast(`Export Excel réussi (${exportVisites.length} clients/visites) !`, "success");
+            }
+        });
+    }
+
+    initGlobalWhatsappModal();
+
     const importBtn = document.getElementById('visites-tab-import-btn');
     const compareBtn = document.getElementById('visites-tab-compare-btn');
 
@@ -15527,6 +15877,35 @@ function setupVisitesTabEventListeners() {
             if (modal) modal.classList.add('open');
         });
     }
+}
+
+function exportVisitesTableToExcel(rows, headers, filename) {
+    let html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
+    html += '<head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Export</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--><style>th{background-color:#0d233a;color:#ffffff;font-weight:bold;padding:6px;border:1px solid #ccc;}td{padding:5px;border:1px solid #ddd;}</style></head><body>';
+    html += '<table border="1"><thead><tr>';
+    headers.forEach(h => {
+        html += `<th>${h}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+    rows.forEach(r => {
+        const isTotalRow = (r[0] && String(r[0]).startsWith('TOTAL'));
+        html += `<tr style="${isTotalRow ? 'background-color:#e6f7ff;font-weight:bold;' : ''}">`;
+        r.forEach(cell => {
+            html += `<td>${cell !== undefined && cell !== null ? String(cell) : ''}</td>`;
+        });
+        html += '</tr>';
+    });
+    html += '</tbody></table></body></html>';
+
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename}.xls`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 async function loadVisitesTabData() {
@@ -15576,13 +15955,17 @@ async function loadVisitesTabData() {
 }
 
 function renderVisitesTabContent(hasVendorSelected) {
-    if (hasVendorSelected === undefined) {
-        const vendeurVal = document.getElementById('visites-vendeur-filter')?.value || '';
-        hasVendorSelected = Boolean(vendeurVal && vendeurVal !== 'All');
-    }
-
     const { tournees, visites, stats } = visitesTabData;
     const searchVal = (document.getElementById('visites-search-input')?.value || '').toLowerCase().trim();
+    const vendeurVal = document.getElementById('visites-vendeur-filter')?.value || '';
+
+    if (hasVendorSelected === undefined) {
+        hasVendorSelected = Boolean(
+            (vendeurVal && vendeurVal !== 'All' && !vendeurVal.includes('--')) ||
+            (visites && visites.length > 0) ||
+            (tournees && tournees.length > 0)
+        );
+    }
 
     // Update Comparative Results Header Display
     const headerDisplay = document.getElementById('visites-header-display');
@@ -15617,12 +16000,87 @@ function renderVisitesTabContent(hasVendorSelected) {
     const totalCount = stats.total_visites || visites.length || 0;
     const totalAnomalies = stats.total_anomalies || 0;
 
-    let okCount = 0;
-    let fermesCount = 0;
+    const okClientCodes = new Set();
     visites.forEach(v => {
+        const c = (v.client_code || '').trim().toUpperCase();
         const m = (v.motif || '').toUpperCase();
-        if (m === 'OK' || m.includes('VENTE')) okCount++;
-        else if (m.includes('FERM') || m.includes('ABSENT')) fermesCount++;
+        if (c && (m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || v.facture_status === 'AVEC FACTURE' || v.has_facture || v.is_client_billed || v.has_ok_visit)) {
+            okClientCodes.add(c);
+        }
+    });
+
+    let btnTotalCount = visites.length;
+    let btnOkCount = 0;
+    let btnNoFactureCount = 0;
+    let btnFermeCount = 0;
+    let btnAbsentCount = 0;
+    let btnStockCount = 0;
+    let btnAnomaliesCount = 0;
+
+    const seenNoOkClientsForBtn = new Set();
+    const seenFermeClientsForBtn = new Set();
+    const seenAbsentClientsForBtn = new Set();
+    const seenStockClientsForBtn = new Set();
+
+    visites.forEach(v => {
+        const cCode = (v.client_code || '').trim().toUpperCase();
+        const isClientBilled = cCode && okClientCodes.has(cCode);
+        const m = (v.motif || '').toUpperCase();
+
+        if (m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || isClientBilled) {
+            btnOkCount++;
+        } else {
+            if (!cCode || !seenNoOkClientsForBtn.has(cCode)) {
+                if (cCode) seenNoOkClientsForBtn.add(cCode);
+                btnNoFactureCount++;
+            }
+            if (m.includes('FERM')) {
+                if (!cCode || !seenFermeClientsForBtn.has(cCode)) {
+                    if (cCode) seenFermeClientsForBtn.add(cCode);
+                    btnFermeCount++;
+                }
+            } else if (m.includes('ABSENT')) {
+                if (!cCode || !seenAbsentClientsForBtn.has(cCode)) {
+                    if (cCode) seenAbsentClientsForBtn.add(cCode);
+                    btnAbsentCount++;
+                }
+            } else if (m.includes('STOCK') || m.includes('SUFF')) {
+                if (!cCode || !seenStockClientsForBtn.has(cCode)) {
+                    if (cCode) seenStockClientsForBtn.add(cCode);
+                    btnStockCount++;
+                }
+            }
+        }
+        if (v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0)) {
+            btnAnomaliesCount++;
+        }
+    });
+
+    const bAll = document.getElementById('visites-btn-all');
+    const bOk = document.getElementById('visites-btn-ok');
+    const bNoFacture = document.getElementById('visites-btn-nofacture');
+    const bFerme = document.getElementById('visites-btn-ferme');
+    const bAbsent = document.getElementById('visites-btn-absent');
+    const bStock = document.getElementById('visites-btn-stock');
+    const bAnomalies = document.getElementById('visites-btn-anomalies');
+
+    if (bAll) bAll.innerHTML = `TOUS <span style="background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-weight: 800; margin-left: 3px;">${hasVendorSelected ? btnTotalCount : 0}</span>`;
+    if (bOk) bOk.innerHTML = `FACTURÉ (OK) <span style="background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-weight: 800; margin-left: 3px;">${hasVendorSelected ? btnOkCount : 0}</span>`;
+    if (bNoFacture) bNoFacture.innerHTML = `NO OK (SANS FACTURE) <span style="background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-weight: 800; margin-left: 3px;">${hasVendorSelected ? btnNoFactureCount : 0}</span>`;
+    if (bFerme) bFerme.innerHTML = `FERMÉ <span style="background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-weight: 800; margin-left: 3px;">${hasVendorSelected ? btnFermeCount : 0}</span>`;
+    if (bAbsent) bAbsent.innerHTML = `ABSENT <span style="background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-weight: 800; margin-left: 3px;">${hasVendorSelected ? btnAbsentCount : 0}</span>`;
+    if (bStock) bStock.innerHTML = `STOCK SUFF. <span style="background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-weight: 800; margin-left: 3px;">${hasVendorSelected ? btnStockCount : 0}</span>`;
+    if (bAnomalies) bAnomalies.innerHTML = `ANOMALIES <span style="background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-weight: 800; margin-left: 3px;">${hasVendorSelected ? btnAnomaliesCount : 0}</span>`;
+
+    // Ensure currently selected filter button has the active class
+    const filterBtns = document.querySelectorAll('#visites-view-toggle-bar .cf-view-btn');
+    filterBtns.forEach(btn => {
+        const filterVal = btn.getAttribute('data-filter') || 'all';
+        if (filterVal === visitesActiveFilter) {
+            btn.classList.add('is-active');
+        } else {
+            btn.classList.remove('is-active');
+        }
     });
 
     const kpiTotal = document.getElementById('visites-kpi-total');
@@ -15635,13 +16093,13 @@ function renderVisitesTabContent(hasVendorSelected) {
     if (kpiTotal) kpiTotal.textContent = hasVendorSelected ? totalCount : '0';
     if (kpiTotalSub) kpiTotalSub.textContent = hasVendorSelected ? `${tournees.length} tournées analysées` : 'Sélectionnez un vendeur';
     
-    if (kpiOk) kpiOk.textContent = hasVendorSelected ? okCount : '0';
+    if (kpiOk) kpiOk.textContent = hasVendorSelected ? btnOkCount : '0';
     if (kpiOkSub) {
-        const pct = totalCount > 0 ? ((okCount / totalCount) * 100).toFixed(1) : '0';
+        const pct = totalCount > 0 ? ((btnOkCount / totalCount) * 100).toFixed(1) : '0';
         kpiOkSub.textContent = hasVendorSelected ? `${pct}% taux de conformité` : '0% taux de conformité';
     }
 
-    if (kpiFermes) kpiFermes.textContent = hasVendorSelected ? fermesCount : '0';
+    if (kpiFermes) kpiFermes.textContent = hasVendorSelected ? btnFermeCount : '0';
     if (kpiAnomalies) kpiAnomalies.textContent = hasVendorSelected ? totalAnomalies : '0';
 
     const tourneesTbody = document.getElementById('visites-tournees-tbody');
@@ -15659,38 +16117,119 @@ function renderVisitesTabContent(hasVendorSelected) {
             if (filteredTournees.length === 0) {
                 tourneesTbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucune tournée trouvée pour ce vendeur</td></tr>`;
             } else {
-                tourneesTbody.innerHTML = filteredTournees.map(t => {
+                let totalReg = 0;
+                let totalVis = 0;
+                let totalOk = 0;
+                let totalFerme = 0;
+                let totalAbsent = 0;
+                let totalStock = 0;
+
+                const rowsHtml = filteredTournees.map(t => {
                     const reg = t.total_clients_enregistres || 0;
                     const vis = t.total_clients_visites || 0;
                     const pct = reg > 0 ? Math.min(100, Math.round((vis / reg) * 100)) : 0;
                     const s = t.statistics || {};
+                    const ok = s.ok || 0;
+                    const ferme = s.magasin_ferme || 0;
+                    const absent = s.responsable_absent || 0;
+                    const stock = s.stock_suffisant || 0;
+
+                    totalReg += reg;
+                    totalVis += vis;
+                    totalOk += ok;
+                    totalFerme += ferme;
+                    totalAbsent += absent;
+                    totalStock += stock;
                     
                     const tDate = t.date && t.date !== '-' ? t.date : '';
                     return `
-                        <tr>
+                        <tr class="visites-tournee-row" style="cursor: pointer;" title="Cliquer pour afficher le journal des visites de cette localité" data-tournee="${escapeAttr(t.tournee || '')}" data-date="${escapeAttr(tDate)}">
                             <td style="white-space: nowrap;">
-                                ${tDate ? `
-                                <div style="font-weight: 700; color: var(--neon-blue); font-size: 0.8rem; line-height: 1.2; margin-bottom: 2px;">
-                                    <i class="fa-regular fa-calendar-days" style="margin-right: 0.35rem;"></i>${tDate}
-                                </div>` : ''}
-                                <div style="font-weight: 600; color: ${tDate ? 'var(--text-main)' : 'var(--neon-blue)'}; font-size: 0.82rem;">
-                                    <i class="fa-solid fa-route" style="color: var(--neon-pink); margin-right: 0.25rem; font-size: 0.75rem;"></i>${t.tournee || 'N/A'}
+                                <div class="visites-tournee-link" style="font-weight: 700; color: var(--neon-blue); font-size: 0.84rem; line-height: 1.3;">
+                                    <i class="fa-solid fa-route" style="color: var(--neon-pink); margin-right: 0.3rem; font-size: 0.78rem;"></i>
+                                    <span style="border-bottom: 1px dashed rgba(0, 212, 255, 0.4);">${escapeHtml(t.tournee || 'N/A')}</span>
                                 </div>
+                                ${tDate ? `
+                                <div style="font-weight: 600; color: var(--text-muted); font-size: 0.76rem; margin-top: 3px; font-family: var(--font-mono);">
+                                    <i class="fa-regular fa-calendar-days" style="color: var(--neon-blue); margin-right: 0.35rem;"></i>${tDate}
+                                </div>` : ''}
                             </td>
-                            <td>${t.secteur || 'N/A'}</td>
-                            <td>${t.vendeur || 'N/A'}</td>
+                            <td>${escapeHtml(t.secteur || 'N/A')}</td>
+                            <td>${escapeHtml(t.vendeur || 'N/A')}</td>
                             <td style="text-align: center;">${reg}</td>
                             <td style="text-align: center; font-weight: bold;">${vis}</td>
-                            <td style="text-align: center; color: var(--neon-green); font-weight: bold;">${s.ok || 0}</td>
-                            <td style="text-align: center; color: var(--neon-amber);">${s.magasin_ferme || 0}</td>
-                            <td style="text-align: center; color: #ff9966;">${s.responsable_absent || 0}</td>
-                            <td style="text-align: center; color: var(--neon-blue);">${s.stock_suffisant || 0}</td>
+                            <td style="text-align: center; color: var(--neon-green); font-weight: bold;">${ok}</td>
+                            <td style="text-align: center; color: var(--neon-amber);">${ferme}</td>
+                            <td style="text-align: center; color: #ff9966;">${absent}</td>
+                            <td style="text-align: center; color: var(--neon-blue);">${stock}</td>
                             <td style="text-align: center;">
                                 <span class="badge ${pct >= 80 ? 'badge-green' : pct >= 50 ? 'badge-amber' : 'badge-pink'}">${pct}%</span>
                             </td>
                         </tr>
                     `;
                 }).join('');
+
+                const totalPct = totalReg > 0 ? Math.min(100, Math.round((totalVis / totalReg) * 100)) : 0;
+                const totalRowHtml = `
+                    <tr style="background: rgba(0, 243, 255, 0.08); font-weight: 800; border-top: 2px solid var(--neon-blue);">
+                        <td style="color: var(--text-main); font-weight: 800; font-size: 0.88rem;">
+                            <i class="fa-solid fa-calculator" style="color: var(--neon-blue); margin-right: 0.35rem;"></i>TOTAL (${filteredTournees.length} tournées)
+                        </td>
+                        <td style="color: var(--text-muted); text-align: center;">-</td>
+                        <td style="color: var(--text-muted); text-align: center;">-</td>
+                        <td style="text-align: center; font-family: var(--font-mono); font-size: 0.92rem; color: var(--text-main); font-weight: 800;">${totalReg}</td>
+                        <td style="text-align: center; font-family: var(--font-mono); font-size: 0.92rem; color: var(--neon-blue); font-weight: 800;">${totalVis}</td>
+                        <td style="text-align: center; font-family: var(--font-mono); font-size: 0.92rem; color: var(--neon-green); font-weight: 800;">${totalOk}</td>
+                        <td style="text-align: center; font-family: var(--font-mono); font-size: 0.92rem; color: var(--neon-amber); font-weight: 800;">${totalFerme}</td>
+                        <td style="text-align: center; font-family: var(--font-mono); font-size: 0.92rem; color: #ff9966; font-weight: 800;">${totalAbsent}</td>
+                        <td style="text-align: center; font-family: var(--font-mono); font-size: 0.92rem; color: var(--neon-blue); font-weight: 800;">${totalStock}</td>
+                        <td style="text-align: center;">
+                            <span class="badge ${totalPct >= 80 ? 'badge-green' : totalPct >= 50 ? 'badge-amber' : 'badge-pink'}" style="font-size: 0.82rem; font-weight: 800;">${totalPct}%</span>
+                        </td>
+                    </tr>
+                `;
+
+                tourneesTbody.innerHTML = rowsHtml + totalRowHtml;
+
+                // Attach click handler to go to journal des visites for the clicked localite
+                tourneesTbody.querySelectorAll('.visites-tournee-row').forEach(row => {
+                    row.addEventListener('click', () => {
+                        const tournee = row.getAttribute('data-tournee') || '';
+                        const date = row.getAttribute('data-date') || '';
+                        
+                        // Switch to Journal subtab
+                        const btnJournal = document.getElementById('visites-subtab-journal');
+                        const btnTournees = document.getElementById('visites-subtab-tournees');
+                        const viewTournees = document.getElementById('visites-view-tournees');
+                        const viewJournal = document.getElementById('visites-view-journal');
+                        
+                        if (btnJournal && btnTournees) {
+                            btnJournal.classList.add('active');
+                            btnTournees.classList.remove('active');
+                            if (viewJournal) viewJournal.style.display = 'block';
+                            if (viewTournees) viewTournees.style.display = 'none';
+                            visitesTabCurrentSubtab = 'journal';
+                        }
+                        
+                        // Set search input to the localite/tournee name
+                        const searchInput = document.getElementById('visites-search-input');
+                        if (searchInput) {
+                            searchInput.value = tournee;
+                        }
+                        
+                        // If date is present and exists in date filter, select it
+                        const dateFilter = document.getElementById('visites-date-filter');
+                        if (dateFilter && date) {
+                            const matchingOpt = Array.from(dateFilter.options).find(o => o.value === date || o.textContent.includes(date));
+                            if (matchingOpt) {
+                                dateFilter.value = matchingOpt.value;
+                            }
+                        }
+                        
+                        // Re-render the content with the new search filter applied
+                        renderVisitesTabContent();
+                    });
+                });
             }
         }
     }
@@ -15712,16 +16251,25 @@ function renderVisitesTabContent(hasVendorSelected) {
                 }
 
                 // 2. Filter toggle pills matching Clients à facturer
-                const m = (v.motif || '').toUpperCase();
+                const m = (v.motif || '').trim().toUpperCase();
+                const cCode = (v.client_code || '').trim().toUpperCase();
+                const isClientBilled = (cCode && okClientCodes.has(cCode)) || v.is_client_billed || v.has_ok_visit || v.facture_status === 'AVEC FACTURE' || v.has_facture;
+
                 if (visitesActiveFilter === 'ok') {
-                    return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE');
+                    return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || isClientBilled;
                 } else if (visitesActiveFilter === 'nofacture') {
-                    return m !== 'OK' && !m.includes('VENTE') && !m.includes('COMMANDE');
+                    // MUST NEVER BE BILLED AND MOTIF MUST NEVER BE OK / VENTE / COMMANDE
+                    if (isClientBilled) return false;
+                    if (m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE')) return false;
+                    return true;
                 } else if (visitesActiveFilter === 'ferme') {
+                    if (isClientBilled || m === 'OK') return false;
                     return m.includes('FERM');
                 } else if (visitesActiveFilter === 'absent') {
+                    if (isClientBilled || m === 'OK') return false;
                     return m.includes('ABSENT');
                 } else if (visitesActiveFilter === 'stock') {
+                    if (isClientBilled || m === 'OK') return false;
                     return m.includes('STOCK') || m.includes('SUFF');
                 } else if (visitesActiveFilter === 'anomalies') {
                     return v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0);
@@ -15729,9 +16277,44 @@ function renderVisitesTabContent(hasVendorSelected) {
                 return true;
             });
 
+            // If in non-OK filter modes (nofacture, ferme, absent, stock), deduplicate so each client appears only once
+            if (['nofacture', 'ferme', 'absent', 'stock'].includes(visitesActiveFilter)) {
+                const seenNoOkMap = new Map();
+                filteredVisites.forEach(v => {
+                    const code = (v.client_code || '').trim().toUpperCase();
+                    if (!code) {
+                        seenNoOkMap.set(v.id || Math.random(), v);
+                        return;
+                    }
+                    if (!seenNoOkMap.has(code)) {
+                        seenNoOkMap.set(code, v);
+                    } else {
+                        const existing = seenNoOkMap.get(code);
+                        const existingMotif = (existing.motif || '').trim().toUpperCase();
+                        const currentMotif = (v.motif || '').trim().toUpperCase();
+                        const isCurrentBetter = (existingMotif.includes('ERREUR') || existingMotif.includes('MANIP')) &&
+                            (!currentMotif.includes('ERREUR') && !currentMotif.includes('MANIP'));
+                        const isCurrentLonger = (v.duree_seconds || 0) > (existing.duree_seconds || 0);
+                        if (isCurrentBetter || (isCurrentLonger && !currentMotif.includes('ERREUR'))) {
+                            seenNoOkMap.set(code, v);
+                        }
+                    }
+                });
+                filteredVisites = Array.from(seenNoOkMap.values());
+            }
+
             if (filteredVisites.length === 0) {
                 journalTbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucun enregistrement de visite trouvé pour ce filtre</td></tr>`;
             } else {
+                // Pre-count visits per client code in dataset
+                const clientVisitsCountMap = {};
+                visites.forEach(v => {
+                    const c = (v.client_code || '').trim().toUpperCase();
+                    if (c) {
+                        clientVisitsCountMap[c] = (clientVisitsCountMap[c] || 0) + 1;
+                    }
+                });
+
                 journalTbody.innerHTML = filteredVisites.map(v => {
                     const dureeStr = v.duree_formatted || (v.duree_minutes ? `${v.duree_minutes} min` : (v.heure || 'N/A'));
                     const motif = v.motif || 'OK';
@@ -15743,12 +16326,27 @@ function renderVisitesTabContent(hasVendorSelected) {
                     if (motif.toUpperCase() === 'OK') motifClass = 'badge-green';
                     else if (motif.toUpperCase().includes('FERM') || motif.toUpperCase().includes('ABSENT')) motifClass = 'badge-amber';
 
+                    const cCode = (v.client_code || '').trim().toUpperCase();
+                    const totalVisitesForClient = clientVisitsCountMap[cCode] || 1;
+                    const isMultiVisite = (totalVisitesForClient >= 2);
+
+                    // Yellow for unique visit, Green for multi-visite in background
+                    const rowBgStyle = isMultiVisite
+                        ? 'background: rgba(16, 185, 129, 0.16); border-left: 4px solid #10b981;'
+                        : 'background: rgba(234, 179, 8, 0.13); border-left: 4px solid #eab308;';
+
+                    const visitTypeBadge = isMultiVisite
+                        ? `<span class="badge" style="background: rgba(16, 185, 129, 0.25); color: #10b981; border: 1px solid #10b981; font-size: 0.67rem; font-weight: 800; padding: 1px 5px; border-radius: 3px; margin-left: 4px; white-space: nowrap;" title="Client visité ${totalVisitesForClient} fois"><i class="fa-solid fa-arrows-rotate"></i> Multi (${totalVisitesForClient})</span>`
+                        : `<span class="badge" style="background: rgba(234, 179, 8, 0.20); color: #d97706; border: 1px solid #eab308; font-size: 0.67rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; margin-left: 4px; white-space: nowrap;" title="Visite unique"><i class="fa-solid fa-user"></i> 1 Visite</span>`;
+
                     return `
-                        <tr style="${hasAnom ? 'background: rgba(255, 77, 77, 0.06);' : ''}">
+                        <tr style="${rowBgStyle}">
                             <td style="font-family: var(--font-mono); font-size: 0.78rem;">${v.heure_debut || v.heure || '--:--'}</td>
                             <td style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted);">${v.heure_fin || '--:--'}</td>
                             <td>${v.vendeur || 'N/A'}</td>
-                            <td style="font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${v.client_code || 'N/A'}</td>
+                            <td style="font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue); white-space: nowrap;">
+                                ${v.client_code || 'N/A'} ${visitTypeBadge}
+                            </td>
                             <td style="font-weight: 500;">${v.client_nom || 'N/A'}</td>
                             <td>
                                 ${v.date_visite ? `<div style="font-size: 0.72rem; color: var(--neon-blue); font-family: var(--font-mono); font-weight: 600; line-height: 1.1; margin-bottom: 2px;"><i class="fa-regular fa-calendar-days"></i> ${v.date_visite}</div>` : ''}

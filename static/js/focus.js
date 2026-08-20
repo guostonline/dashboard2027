@@ -19,6 +19,8 @@
     let focusWorkdays = null;
     let focusSettings = null;
     let focusTotalDays = 24;
+    let focusTerrainRecords = [];
+    let autoAddTerrainSum = localStorage.getItem('focusAutoAddTerrain') !== 'OFF';
 
     // Wait until DOM is ready
     document.addEventListener('DOMContentLoaded', function () {
@@ -33,6 +35,7 @@
         if (focusContainer && focusData) {
             renderFocusView();
             renderFocusDailySection();
+            renderFocusSellerDetailsTable();
         }
     });
 
@@ -44,12 +47,29 @@
                 renderFocusView();
                 renderFocusTrendChart();
                 renderFocusDailySection();
+                renderFocusSellerDetailsTable();
             }
         });
     }
 
     function initFocusTab() {
         console.log("Initializing Focus Tab...");
+        
+        // 0. Bind Auto-Add Terrain Toggle
+        const terrainSelect = document.getElementById('focus-auto-add-terrain-select');
+        if (terrainSelect) {
+            terrainSelect.value = autoAddTerrainSum ? 'ON' : 'OFF';
+            terrainSelect.style.color = autoAddTerrainSum ? 'var(--neon-green)' : 'var(--neon-pink)';
+            terrainSelect.style.borderColor = autoAddTerrainSum ? 'var(--neon-green)' : 'var(--neon-pink)';
+
+            terrainSelect.addEventListener('change', function() {
+                autoAddTerrainSum = this.value === 'ON';
+                localStorage.setItem('focusAutoAddTerrain', this.value);
+                terrainSelect.style.color = autoAddTerrainSum ? 'var(--neon-green)' : 'var(--neon-pink)';
+                terrainSelect.style.borderColor = autoAddTerrainSum ? 'var(--neon-green)' : 'var(--neon-pink)';
+                renderFocusView();
+            });
+        }
         
         // 1. Bind tab switches
         const tabGlace = document.getElementById('focus-tab-glace');
@@ -934,6 +954,7 @@
         renderFocusView();
         renderFocusTrendChart();
         renderFocusDailySection();
+        renderFocusSellerDetailsTable();
     }
 
     function handleExcelUpload(file, dateStr, callback) {
@@ -1165,6 +1186,9 @@
             if (res.status === 'success' && res.data) {
                 focusData = res.data;
                 focusWorkdays = res.workdays || null;
+                if (res.terrain_records && Array.isArray(res.terrain_records)) {
+                    focusTerrainRecords = res.terrain_records;
+                }
                 if (res.focus_names) {
                     focusNames = res.focus_names;
                     updateTabTitles();
@@ -1211,13 +1235,58 @@
                 window.focusHistoryData = res.data;
                 focusSettings = res.settings || null;
                 focusTotalDays = res.total_days || 24;
+                if (res.latest_db_upload_date) {
+                    window.latestDbUploadDate = res.latest_db_upload_date;
+                }
+                if (res.terrain_records && Array.isArray(res.terrain_records)) {
+                    focusTerrainRecords = res.terrain_records;
+                }
                 renderFocusTrendChart();
                 renderFocusDailySection();
+                renderFocusSellerDetailsTable();
             }
         })
         .catch(err => {
             console.error("Failed to load focus trend data:", err);
         });
+    }
+
+    function getTerrainFocusSum(repName, focusType, startDate) {
+        if (!focusTerrainRecords || focusTerrainRecords.length === 0 || !repName) return 0;
+        const code = repName.split(' ')[0].toUpperCase();
+        const repUpper = repName.trim().toUpperCase();
+        
+        const parseIso = (dStr) => {
+            if (!dStr) return '';
+            const m = String(dStr).match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+            if (m) {
+                const day = m[1].padStart(2, '0');
+                const month = m[2].padStart(2, '0');
+                return `${m[3]}-${month}-${day}`;
+            }
+            const m2 = String(dStr).match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+            return m2 ? m2[0] : String(dStr);
+        };
+        
+        const minIso = startDate ? parseIso(startDate) : '2026-08-17';
+        let total = 0;
+        
+        focusTerrainRecords.forEach(tr => {
+            const rowIso = parseIso(tr.date);
+            if (rowIso && rowIso >= minIso) {
+                const trVend = (tr.vendeur || '').trim().toUpperCase();
+                const trCode = trVend.split(' ')[0];
+                if (trCode === code || trVend === repUpper || repUpper.includes(trVend) || trVend.includes(repUpper)) {
+                    if (focusType === 'GLACE') {
+                        total += Number(tr.glass_ca || 0);
+                    } else {
+                        total += Number(tr.tomate_frito || 0);
+                    }
+                }
+            }
+        });
+        
+        return total;
     }
 
     function renderFocusView() {
@@ -1282,6 +1351,54 @@
                 }
             });
         }
+
+        // Auto-add terrain focus additions (>= 17/08/2026) to Realised and recalculate deviations & ranks if enabled
+        reps.forEach(r => {
+            const terrainSum = getTerrainFocusSum(r.representative, currentFocusType, '2026-08-17');
+            r._terrainSum = terrainSum;
+            
+            if (r._origRealisedTtc === undefined) {
+                r._origRealisedTtc = r.realised_ttc;
+                r._origRealisedClients = r.realised_clients;
+                r._origDeviation = r.deviation;
+            }
+            
+            if (autoAddTerrainSum && terrainSum > 0) {
+                r.realised_ttc = r._origRealisedTtc + terrainSum;
+                const targetObj = (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') ? r.obj_ttc : r.obj_acm;
+                if (targetObj > 0) {
+                    r.deviation = (r.realised_ttc - targetObj) / targetObj;
+                }
+            } else {
+                r.realised_ttc = r._origRealisedTtc;
+                r.deviation = r._origDeviation;
+            }
+        });
+
+        // Re-rank reps by updated deviation descending
+        reps.sort((a, b) => b.deviation - a.deviation);
+        reps.forEach((r, idx) => {
+            r.rank = idx + 1;
+        });
+
+        // Recalculate CDZ deviations based on updated reps
+        const cdzDevGroups = {};
+        reps.forEach(r => {
+            const cz = (r.cdz || 'N/A').trim().toUpperCase();
+            if (!cdzDevGroups[cz]) cdzDevGroups[cz] = [];
+            cdzDevGroups[cz].push(r.deviation);
+        });
+
+        cdz.forEach(c => {
+            const cz = (c.cdz || 'N/A').trim().toUpperCase();
+            if (cdzDevGroups[cz] && cdzDevGroups[cz].length > 0) {
+                c.deviation = cdzDevGroups[cz].reduce((a, b) => a + b, 0) / cdzDevGroups[cz].length;
+            }
+        });
+        cdz.sort((a, b) => b.deviation - a.deviation);
+        cdz.forEach((c, idx) => {
+            c.rank = idx + 1;
+        });
 
         // Filter based on global category-select
         const globalCategorySelect = document.getElementById('category-select');
@@ -1377,29 +1494,21 @@
         const joursTravailSub = document.getElementById('focus-jours-travail-sub');
         const joursProgress = document.getElementById('focus-jours-progress');
         const joursRestEl = document.getElementById('focus-summary-jours-rest');
-        const joursRestSub = document.getElementById('focus-jours-rest-sub');
-        if (joursTravailEl && joursRestEl) {
-            const wk = focusWorkdays;
-            const elapsed = (wk && wk.elapsed !== undefined) ? wk.elapsed : null;
-            const total   = (wk && wk.total   !== undefined) ? wk.total   : null;
-            const rest    = (wk && wk.rest    !== undefined) ? wk.rest    : null;
-            if (elapsed !== null && total !== null && rest !== null) {
-                joursTravailEl.innerText = elapsed;
-                joursTravailSub.innerText = `sur ${total} jours ouvrables`;
-                joursRestEl.innerText = rest;
-                joursRestSub.innerText = rest === 1 ? 'jour avant fin de période' : 'jours avant fin de période';
-                if (joursProgress && total > 0) {
-                    const pct = Math.min(100, Math.round((elapsed / total) * 100));
-                    setTimeout(() => { joursProgress.style.width = pct + '%'; }, 100);
-                }
-            } else {
-                joursTravailEl.innerText = '—';
-                joursTravailSub.innerText = 'données non disponibles';
-                joursRestEl.innerText = '—';
-                joursRestSub.innerText = 'données non disponibles';
-                if (joursProgress) joursProgress.style.width = '0%';
-            }
+
+        if (focusWorkdays) {
+            const totalWorkdays = focusWorkdays.total || 24;
+            const restDays = focusWorkdays.rest !== undefined ? focusWorkdays.rest : 20;
+            const elapsedDays = totalWorkdays - restDays;
+            const progressPct = totalWorkdays > 0 ? Math.min(100, Math.round((elapsedDays / totalWorkdays) * 100)) : 0;
+
+            if (joursTravailEl) joursTravailEl.innerText = `${elapsedDays} j`;
+            if (joursTravailSub) joursTravailSub.innerText = `sur ${totalWorkdays} jours total`;
+            if (joursProgress) joursProgress.style.width = `${progressPct}%`;
+            if (joursRestEl) joursRestEl.innerText = `${restDays} j`;
         }
+
+        // 2. Render Progression Chart
+        renderFocusComparisonChart(reps);
 
         // 3. Render Representatives Table
         const tableTitle = document.getElementById('focus-table-title');
@@ -1463,6 +1572,16 @@
             const deviationFormatted = devSign + devPct.toFixed(1) + '%';
             
             let html = '';
+            const terrainSum = getTerrainFocusSum(r.representative, currentFocusType, '2026-08-17');
+            let terrainBadge = '';
+            if (terrainSum > 0) {
+                if (autoAddTerrainSum) {
+                    terrainBadge = `<div style="color: var(--neon-green); font-size: 0.76rem; font-weight: 700; margin-top: 2px;">(+${formatCurrency(terrainSum)})</div>`;
+                } else {
+                    terrainBadge = `<div style="color: var(--text-muted); font-size: 0.74rem; margin-top: 2px; opacity: 0.75;" title="Non inclus dans le réalisé">(Terrain: +${formatCurrency(terrainSum)})</div>`;
+                }
+            }
+
             if (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') {
                 const targetObj = taxMode === 'HT' ? r.obj_ht : r.obj_ttc;
                 const targetReal = taxMode === 'HT' ? (r.realised_ttc / 1.2) : r.realised_ttc;
@@ -1481,7 +1600,10 @@
                     <td><strong>${r.representative}</strong></td>
                     <td>${r.secteur}</td>
                     <td>${objVal}</td>
-                    <td>${realVal}</td>
+                    <td>
+                        <div style="font-weight: 700; color: var(--neon-blue); font-size: 0.92rem;">${realVal}</div>
+                        ${terrainBadge}
+                    </td>
                     <td>${rafVal}</td>
                     <td>${rafPerDayVal}</td>
                     <td class="${devClass}"><strong>${deviationFormatted}</strong></td>
@@ -1505,7 +1627,10 @@
                     <td>${r.secteur}</td>
                     <td>${nbClients}</td>
                     <td>${objVal}</td>
-                    <td>${realVal}</td>
+                    <td>
+                        <div style="font-weight: 700; color: var(--neon-blue); font-size: 0.92rem;">${realVal}</div>
+                        ${terrainBadge}
+                    </td>
                     <td>${rafVal}</td>
                     <td>${rafPerDayVal}</td>
                     <td class="${devClass}"><strong>${deviationFormatted}</strong></td>
@@ -2271,6 +2396,213 @@
                 }
             }
         });
+    }
+
+    function renderFocusSellerDetailsTable() {
+        const tbody = document.getElementById('focus-seller-details-tbody');
+        const tfoot = document.getElementById('focus-seller-details-tfoot');
+        const countBadge = document.getElementById('focus-seller-table-count');
+        const dateSelect = document.getElementById('focus-seller-date-filter');
+        const nameSelect = document.getElementById('focus-seller-name-filter');
+
+        if (!tbody) return;
+
+        if (!focusTerrainRecords || focusTerrainRecords.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 1.5rem; color: var(--text-muted);">Chargement des données du Google Sheet...</td></tr>';
+            if (tfoot) tfoot.innerHTML = '';
+            if (countBadge) countBadge.textContent = '0 ENTRÉES';
+            return;
+        }
+
+        const isGlace = currentFocusType === 'GLACE';
+        const focusName = isGlace ? (focusNames.GLACE || 'MOUSSE CHANTILLY') : (focusNames.TOMATE_FRITO || 'PESCADA ALG');
+        const activityTag = isGlace ? 'SOM' : 'VMM';
+        const focusThemeColor = isGlace ? 'var(--neon-blue)' : 'var(--neon-pink)';
+        const focusThemeClass = isGlace ? 'neon-text-blue' : 'neon-text-pink';
+        const focusThemeIcon = isGlace ? 'fa-ice-cream' : 'fa-tomato';
+
+        // Update Title & Badge
+        const tableTitle = document.getElementById('focus-seller-table-title');
+        if (tableTitle) {
+            tableTitle.innerHTML = `<i class="fa-solid ${focusThemeIcon} ${focusThemeClass}"></i> DÉTAIL DU FOCUS ${focusName.toUpperCase()} (${activityTag}) - SUIVI TERRAIN GOOGLE SHEET`;
+        }
+
+        // Render Dynamic Header
+        const headersRow = document.getElementById('focus-seller-details-headers');
+        if (headersRow) {
+            headersRow.innerHTML = `
+                <th style="min-width: 95px;">Date</th>
+                <th style="min-width: 170px;">Vendeur</th>
+                <th style="min-width: 80px;">Activité</th>
+                <th style="min-width: 140px;" class="${focusThemeClass}"><i class="fa-solid ${focusThemeIcon}"></i> Focus CA (Jour)</th>
+                <th style="min-width: 150px; color: var(--neon-green);"><i class="fa-solid fa-layer-group"></i> Focus CA (Cumul)</th>
+                <th style="min-width: 140px;">Réalisation CA (Total)</th>
+                <th style="min-width: 65px;">BL</th>
+            `;
+        }
+
+        const parseIso = (dStr) => {
+            if (!dStr) return '';
+            const m = String(dStr).match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+            if (m) {
+                const day = m[1].padStart(2, '0');
+                const month = m[2].padStart(2, '0');
+                return `${m[3]}-${month}-${day}`;
+            }
+            const m2 = String(dStr).match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+            return m2 ? m2[0] : String(dStr);
+        };
+
+        // Filter eligible records by active focus activity
+        const eligibleRecords = focusTerrainRecords.filter(r => {
+            const act = (r.activite || '').toUpperCase();
+            const chantilly = Number(r.glass_ca || 0);
+            const pescada = Number(r.tomate_frito || 0);
+
+            if (isGlace) {
+                if (chantilly > 0) return true;
+                if (act.includes('SOM')) return true;
+                return false;
+            } else {
+                if (pescada > 0) return true;
+                if (act.includes('VMM')) return true;
+                return false;
+            }
+        });
+
+        // Sort chronologically ascending to compute accurate cumulative sums per vendor
+        const chronoRecords = [...eligibleRecords].sort((a, b) => {
+            const dComp = parseIso(a.date).localeCompare(parseIso(b.date));
+            if (dComp !== 0) return dComp;
+            return (a.vendeur || '').localeCompare(b.vendeur || '');
+        });
+
+        const cumulByVendor = {};
+        chronoRecords.forEach(r => {
+            const v = (r.vendeur || '').trim().toUpperCase();
+            const focusVal = isGlace ? Number(r.glass_ca || 0) : Number(r.tomate_frito || 0);
+            cumulByVendor[v] = (cumulByVendor[v] || 0) + focusVal;
+            r._cumulFocus = cumulByVendor[v];
+        });
+
+        // Populate date dropdown based on eligible records
+        const uniqueDates = [...new Set(eligibleRecords.map(r => r.date).filter(Boolean))];
+        uniqueDates.sort((a, b) => parseIso(b).localeCompare(parseIso(a)));
+
+        if (dateSelect) {
+            const currentSelectedDate = dateSelect.value || 'All';
+            dateSelect.innerHTML = '<option value="All">Toutes les dates</option>';
+            uniqueDates.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d;
+                opt.textContent = d;
+                dateSelect.appendChild(opt);
+            });
+            if (uniqueDates.includes(currentSelectedDate) || currentSelectedDate === 'All') {
+                dateSelect.value = currentSelectedDate;
+            }
+            if (!dateSelect._hasFocusListener) {
+                dateSelect._hasFocusListener = true;
+                dateSelect.addEventListener('change', () => renderFocusSellerDetailsTable());
+            }
+        }
+
+        // Populate vendor dropdown based on eligible focus sellers
+        const uniqueVendors = [...new Set(eligibleRecords.map(r => r.vendeur).filter(Boolean))].sort();
+        if (nameSelect) {
+            const currentSelectedName = nameSelect.value || 'All';
+            nameSelect.innerHTML = '<option value="All">Tous les vendeurs</option>';
+            uniqueVendors.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v;
+                opt.textContent = v;
+                nameSelect.appendChild(opt);
+            });
+            if (uniqueVendors.includes(currentSelectedName) || currentSelectedName === 'All') {
+                nameSelect.value = currentSelectedName;
+            }
+            if (!nameSelect._hasFocusListener) {
+                nameSelect._hasFocusListener = true;
+                nameSelect.addEventListener('change', () => renderFocusSellerDetailsTable());
+            }
+        }
+
+        // Sync with top vendor filter if set and nameSelect is at All
+        if (selectedVendeurFilter && nameSelect && nameSelect.value === 'All') {
+            const matchingOpt = Array.from(nameSelect.options).find(o => o.value.startsWith(selectedVendeurFilter));
+            if (matchingOpt) {
+                nameSelect.value = matchingOpt.value;
+            }
+        }
+
+        const selectedDate = dateSelect ? dateSelect.value : 'All';
+        const selectedName = nameSelect ? nameSelect.value : 'All';
+
+        // Filter rows by date & vendor
+        let filtered = eligibleRecords.filter(r => {
+            if (selectedDate !== 'All' && r.date !== selectedDate) return false;
+            if (selectedName !== 'All' && r.vendeur !== selectedName) return false;
+            return true;
+        });
+
+        // Sort rows by Date descending, then Vendeur ascending
+        filtered.sort((a, b) => {
+            const dComp = parseIso(b.date).localeCompare(parseIso(a.date));
+            if (dComp !== 0) return dComp;
+            return (a.vendeur || '').localeCompare(b.vendeur || '');
+        });
+
+        if (countBadge) countBadge.textContent = `${filtered.length} ENTRÉES`;
+
+        // Render rows and compute totals
+        let sumFocusDay = 0;
+        let sumCA = 0;
+        let sumBL = 0;
+
+        tbody.innerHTML = '';
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 1.5rem; color: var(--text-muted);">Aucune entrée pour les filtres sélectionnés</td></tr>';
+            if (tfoot) tfoot.innerHTML = '';
+            return;
+        }
+
+        filtered.forEach(r => {
+            const chantilly = Number(r.glass_ca || 0);
+            const pescada = Number(r.tomate_frito || 0);
+            const focusVal = isGlace ? chantilly : pescada;
+            const ca = Number(r.realisation_ca || 0);
+            const bl = Number(r.bl || 0);
+            const cumul = Number(r._cumulFocus || focusVal);
+
+            sumFocusDay += focusVal;
+            sumCA += ca;
+            sumBL += bl;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${r.date || '—'}</strong></td>
+                <td><span style="font-family: var(--font-mono); font-weight: 600;">${r.vendeur || '—'}</span></td>
+                <td><span class="badge-blue" style="font-size: 0.72rem; padding: 2px 6px;">${r.activite || activityTag}</span></td>
+                <td style="font-weight: bold; color: ${focusThemeColor}; font-size: 0.9rem;">${focusVal > 0 ? formatCurrency(focusVal) + ' DH' : '<span style="color: var(--text-muted); opacity: 0.4;">0 DH</span>'}</td>
+                <td style="font-weight: 700; color: var(--neon-green); font-size: 0.92rem;">${formatCurrency(cumul)} DH</td>
+                <td style="font-weight: 500;">${formatCurrency(ca)} DH</td>
+                <td><span class="badge-pink" style="font-size: 0.72rem; padding: 2px 6px;">${bl}</span></td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        // Render totals in tfoot
+        if (tfoot) {
+            tfoot.innerHTML = `
+                <tr style="border-top: 2px solid var(--border-color); background: rgba(0,0,0,0.35);">
+                    <td colspan="3"><strong>TOTAL (${filtered.length} lignes)</strong></td>
+                    <td style="color: ${focusThemeColor}; font-size: 0.95rem;"><strong>${formatCurrency(sumFocusDay)} DH</strong></td>
+                    <td style="color: var(--neon-green); font-size: 0.95rem;"><strong>—</strong></td>
+                    <td style="font-size: 0.95rem;"><strong>${formatCurrency(sumCA)} DH</strong></td>
+                    <td><strong class="neon-text-amber">${sumBL}</strong></td>
+                </tr>
+            `;
+        }
     }
 
     // Helpers

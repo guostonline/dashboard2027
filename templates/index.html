@@ -256,12 +256,10 @@
                 <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' and active_tab != 'anomalis' and active_tab != 'anomalies' and active_tab != 'tasks' and active_tab != 'engagement' and active_tab != 'visites' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
                 <a href="/details" class="nav-item {% if active_tab == 'details' and active_sub_tab != 'vendeur360' %}active{% endif %}" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
                 <a href="/vendeur360" class="nav-item {% if active_tab == 'details' and active_sub_tab == 'vendeur360' %}active{% endif %}" id="nav-vendeur-360" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'details' %}display: none;{% endif %}"><i class="fa-solid fa-id-card neon-text-blue"></i> <span>Vendeur</span></a>
-                <a href="/clients" class="nav-item {% if active_tab == 'clients' and active_sub_tab != 'facturation' %}active{% endif %}" id="nav-clients"><i class="fa-solid fa-address-book"></i> <span>Client</span></a>
-                <a href="/clients?view=facturation" class="nav-item {% if active_tab == 'clients' and active_sub_tab == 'facturation' %}active{% endif %}" id="nav-clients-facturation" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'clients' %}display: none;{% endif %}"><i class="fa-solid fa-file-invoice"></i> <span>Facturation</span></a>
-                <a href="/clients?view=afacturer" class="nav-item {% if active_tab == 'clients' and active_sub_tab == 'afacturer' %}active{% endif %}" id="nav-clients-afacturer" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'clients' %}display: none;{% endif %}"><i class="fa-solid fa-file-invoice-dollar"></i> <span>Client à facturer</span></a>
+                <a href="/clients" class="nav-item {% if active_tab == 'clients' %}active{% endif %}" id="nav-clients"><i class="fa-solid fa-address-book"></i> <span>Client</span></a>
+                <a href="/visites" class="nav-item {% if active_tab == 'visites' %}active{% endif %}" id="nav-visites"><i class="fa-solid fa-route neon-text-blue"></i> <span>Visites</span></a>
                 <a href="/fdv" class="nav-item {% if active_tab == 'fdv' %}active{% endif %}" id="nav-fdv"><i class="fa-solid fa-people-group"></i> <span>FDV</span></a>
                 <a href="/terrain" class="nav-item {% if active_tab == 'terrain' %}active{% endif %}" id="nav-terrain"><i class="fa-solid fa-file-invoice-dollar"></i> <span>Suivi Terrain</span></a>
-                <a href="/visites" class="nav-item {% if active_tab == 'visites' %}active{% endif %}" id="nav-visites"><i class="fa-solid fa-route neon-text-blue"></i> <span>Visites</span></a>
                 <a href="/focus" class="nav-item {% if active_tab == 'focus' %}active{% endif %}" id="nav-focus"><i class="fa-solid fa-bullseye"></i> <span>Focus</span></a>
                 <a href="/rapport" class="nav-item {% if active_tab == 'rapport' %}active{% endif %}" id="nav-rapport"><i class="fa-solid fa-brain"></i> <span>Rapport</span></a>
                 <a href="/stock" class="nav-item {% if active_tab == 'stock' and active_sub_tab != 'favorites' and active_sub_tab != 'favorit' %}active{% endif %}" id="nav-stock"><i class="fa-solid fa-boxes-stacked"></i> <span>Stock</span></a>
@@ -409,7 +407,7 @@
             <!-- Header Jours Reste Input -->
             <div class="header-workdays-input-wrapper" style="display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--border-color); padding: 0.25rem 0.5rem; border-radius: 4px; background: rgba(0, 0, 0, 0.25); height: 38px;">
                 <span class="tech-label" style="font-size: 0.72rem; color: var(--text-muted); font-weight: bold; white-space: nowrap; text-transform: uppercase;"><i class="fa-solid fa-hourglass-half neon-text-blue"></i> JOURS RESTE</span>
-                <input type="number" id="header-elapsed-days" min="0" max="31" value="15" class="cyber-input" style="width: 55px; height: 26px; padding: 0 0.25rem; font-size: 0.85rem; font-family: var(--font-mono); text-align: center; border-color: var(--neon-blue); background: rgba(0,0,0,0.5); color: #fff; margin: 0; border-radius: 3px;" title="Nombre de jours restants">
+                <input type="number" id="header-elapsed-days" min="0" max="31" value="10" class="cyber-input" style="width: 55px; height: 26px; padding: 0 0.25rem; font-size: 0.85rem; font-family: var(--font-mono); text-align: center; border-color: var(--neon-blue); background: rgba(0,0,0,0.5); color: #fff; margin: 0; border-radius: 3px;" title="Nombre de jours restants">
             </div>
             <!-- Header HT/TTC Toggler -->
             <div class="header-tax-toggle-wrapper" style="display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--border-color); padding: 0.25rem 0.5rem; border-radius: 4px; background: rgba(0, 0, 0, 0.25); height: 38px;">
@@ -1113,6 +1111,52 @@
                 </div>
             </div>
 
+            <!-- SAGE GREEN MULTI-FAMILY SUIVI JOUR PAR JOUR SECTION (EXACT IMAGE 1 & 2 THEME) -->
+            <section class="sage-multi-section" id="v360-sage-multi-section" style="margin-top: 1.25rem; margin-bottom: 1.75rem;">
+                <!-- GLOBAL CONTROL BAR -->
+                <div class="sage-chart-card" style="padding: 1.15rem 1.5rem !important; margin-bottom: 1.25rem !important; border-radius: 18px !important;">
+                    <div class="sage-chart-header" style="margin-bottom: 0;">
+                        <div class="sage-title" style="font-size: 0.95rem;">
+                            <i class="fa-solid fa-chart-line" style="color: #4ade80;"></i>
+                            <span>SUIVI JOUR PAR JOUR PAR FAMILLE (MOIS EN COURS)</span>
+                            <span id="sage-role-badge" class="sage-family-badge sage-badge-global" style="margin-left: 0.5rem;">TOUS</span>
+                        </div>
+                        
+                        <div style="display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap;">
+                            <!-- CATEGORY PILLS (ALL / QUANTITATIF / QUALITATIF) -->
+                            <div class="sage-pill-group" style="margin-top: 0; gap: 0.4rem;">
+                                <button type="button" class="sage-pill-btn active" data-category="ALL" id="sage-pill-cat-all" style="padding: 0.45rem 1rem; font-size: 0.8rem;">TOUS</button>
+                                <button type="button" class="sage-pill-btn" data-category="QUANTITATIF" id="sage-pill-cat-quanti" style="padding: 0.45rem 1rem; font-size: 0.8rem;">QUANTITATIF</button>
+                                <button type="button" class="sage-pill-btn" data-category="QUALITATIF" id="sage-pill-cat-quali" style="padding: 0.45rem 1rem; font-size: 0.8rem;">QUALITATIF</button>
+                            </div>
+
+                            <!-- METRIC SELECT (EXACT IMAGE 2) -->
+                            <div style="display: flex; align-items: center; gap: 0.45rem;">
+                                <label style="font-size: 0.76rem; color: #bbf7d0; font-family: var(--font-mono); font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;">MÉTRIQUE:</label>
+                                <select id="sage-metric-select" class="sage-select" style="min-width: 220px;">
+                                    <option value="pct" selected>Taux de Réalisation (%)</option>
+                                    <option value="sales">Ventes Journalières (DH)</option>
+                                    <option value="real">Réalisé Cumulé (DH)</option>
+                                    <option value="obj">Objectif (DH)</option>
+                                    <option value="ecart">Écart vs Objectif (DH)</option>
+                                </select>
+                            </div>
+
+                            <!-- DAY / WEEK PILLS (SHOW ONLY DAY AND WEEK) -->
+                            <div class="sage-pill-group" style="margin-top: 0; gap: 0.4rem;">
+                                <button type="button" class="sage-pill-btn active" data-interval="1day" id="sage-pill-day" style="padding: 0.45rem 1.4rem; font-size: 0.8rem;">DAY</button>
+                                <button type="button" class="sage-pill-btn" data-interval="2days" id="sage-pill-week" style="padding: 0.45rem 1.4rem; font-size: 0.8rem;">WEEK</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DYNAMIC FAMILIES CHARTS CONTAINER -->
+                <div id="sage-families-container" class="sage-families-grid">
+                    <!-- Populated dynamically based on seller role: SOM -> (CA, LEVURE, BOUILLON, MGM) | VMM -> (CA, CONDIMENTS, CONSERVES, SAUCES) | SOM VMM -> ALL -->
+                </div>
+            </section>
+
             <!-- TOURNÉES & TAUX DE FACTURATION (FULL WIDTH CARD) -->
             <div class="cyber-card" style="width: 100%; margin-top: 1.5rem; margin-bottom: 1.5rem;">
                 <div class="card-edge"></div>
@@ -1160,15 +1204,17 @@
 
                 <!-- VIEW 2: JOURNAL DES VISITES -->
                 <div id="v360-view-journal" style="display: none; overflow-x: auto; width: 100%; max-height: 550px; padding: 0 1rem 1rem 1rem; box-sizing: border-box;">
-                    <div id="v360-journal-filter-bar" style="display: none; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; padding: 0.45rem 0.85rem; background: rgba(0, 212, 255, 0.08); border: 1px solid var(--neon-blue); border-radius: 4px; font-size: 0.82rem;">
+                    <div id="v360-journal-filter-bar" style="display: none; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; padding: 0.45rem 0.85rem; background: rgba(0, 212, 255, 0.08); border: 1px solid var(--neon-blue); border-radius: 4px; font-size: 0.82rem;">
                         <div>
                             <i class="fa-solid fa-filter neon-text-blue" style="margin-right: 0.4rem;"></i>
-                            <span>Tournée sélectionnée : <strong id="v360-journal-filter-name" class="neon-text-blue"></strong></span>
+                            <span>Filtre : <strong id="v360-journal-filter-name" class="neon-text-blue"></strong></span>
                             <span id="v360-journal-filter-count" class="badge badge-blue" style="margin-left: 0.5rem; font-size: 0.72rem;"></span>
                         </div>
-                        <button type="button" id="v360-journal-reset-filter" class="cyber-btn-small" style="font-size: 0.72rem; padding: 0.25rem 0.65rem; cursor: pointer;">
-                            <i class="fa-solid fa-xmark"></i> Afficher toutes les tournées
-                        </button>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <button type="button" id="v360-journal-reset-filter" class="cyber-btn-small" style="font-size: 0.72rem; padding: 0.25rem 0.65rem; cursor: pointer;">
+                                <i class="fa-solid fa-xmark"></i> Réinitialiser filtres
+                            </button>
+                        </div>
                     </div>
                     <table class="cyber-table" id="v360-journal-table" style="width: 100%;">
                         <thead>
@@ -1304,7 +1350,12 @@
                     <div class="card-edge"></div>
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                         <span class="tech-label" style="color: var(--neon-blue); font-weight: 800;"><i class="fa-solid fa-list-check neon-text-blue"></i> ANALYSE PAR FAMILLE DE PRODUIT (QUANTITATIF)</span>
-                        <span id="v360-quanti-table-vendeur-label" style="font-size: 0.78rem; color: var(--text-sub); font-family: var(--font-mono); font-weight: bold;"></span>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span id="v360-quanti-table-vendeur-label" style="font-size: 0.78rem; color: var(--text-sub); font-family: var(--font-mono); font-weight: bold;"></span>
+                            <button type="button" id="v360-quanti-export-excel-btn" class="cyber-btn" style="border-color: var(--neon-green); color: var(--neon-green); height: 28px; font-size: 0.7rem; padding: 0 0.6rem; font-weight: bold; display: inline-flex; align-items: center; gap: 0.35rem;" title="Exporter le tableau quantitatif en Excel">
+                                <i class="fa-solid fa-file-excel"></i> EXCEL
+                            </button>
+                        </div>
                     </div>
                     <div class="table-container" style="max-height: 380px; overflow-y: auto;">
                         <table class="cyber-table" id="v360-quanti-table">
@@ -1315,6 +1366,9 @@
                                     <th>RÉALISÉ (HT)</th>
                                     <th>OBJECTIF (HT)</th>
                                     <th>% TAUX</th>
+                                    <th>OBJECTIF GLOBAL (HT)</th>
+                                    <th>% OBJ GLOBAL</th>
+                                    <th>RAF GLOBAL (TTC)</th>
                                     <th>HISTO 2025</th>
                                     <th>% HISTO</th>
                                     <th>HISTO 2026</th>
@@ -1799,44 +1853,6 @@
                 </div>
             </div>
         </div>
-
-        <!-- WhatsApp Modal for Vendeur -->
-        <div id="af-wa-modal" class="cyber-modal-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
-            <div class="cyber-card" style="width: 540px; max-width: 92vw; padding: 1.5rem; background: var(--card-bg, #121824); border: 1px solid #25D366; box-shadow: 0 0 25px rgba(37,211,102,0.25);">
-                <div class="card-edge"></div>
-                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
-                    <h3 style="margin: 0; font-size: 1.05rem; color: #25D366; display: flex; align-items: center; gap: 0.5rem;">
-                        <i class="fa-brands fa-whatsapp" style="font-size: 1.25rem;"></i> ENVOYER LISTE CLIENTS AU VENDEUR
-                    </h3>
-                    <button type="button" id="af-wa-modal-close" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.3rem;">&times;</button>
-                </div>
-                
-                <div style="display: flex; flex-direction: column; gap: 0.85rem;">
-                    <div>
-                        <span class="tech-label" style="font-size: 0.75rem; display: block; margin-bottom: 0.35rem;"><i class="fa-solid fa-user-tie"></i> VENDEUR &amp; TÉLÉPHONE</span>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <input type="text" id="af-wa-vendeur-name" list="fdv-vendeurs-datalist" placeholder="Tapez le nom ou code vendeur..." style="flex: 1; padding: 0.45rem 0.6rem; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-main); font-weight: bold; border-radius: 4px; font-size: 0.85rem;">
-                            <input type="text" id="af-wa-vendeur-phone" placeholder="Format: 212661000000" style="flex: 1; padding: 0.45rem 0.6rem; background: var(--bg-color); border: 1px solid #25D366; color: #25D366; font-family: var(--font-mono); border-radius: 4px; font-size: 0.85rem;">
-                        </div>
-                        <datalist id="fdv-vendeurs-datalist"></datalist>
-                    </div>
-                    
-                    <div>
-                        <span class="tech-label" style="font-size: 0.75rem; display: block; margin-bottom: 0.35rem;"><i class="fa-solid fa-message"></i> MESSAGE (CODE, NOM &amp; LOCALITÉ)</span>
-                        <textarea id="af-wa-message-text" rows="11" style="width: 100%; padding: 0.65rem; background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 0.82rem; resize: vertical; border-radius: 4px; line-height: 1.45;" readonly></textarea>
-                    </div>
-                    
-                    <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.25rem;">
-                        <button type="button" id="af-wa-copy-btn" class="cyber-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); height: 38px;">
-                            <i class="fa-solid fa-copy"></i> Copier
-                        </button>
-                        <button type="button" id="af-wa-send-btn" class="cyber-btn" style="border-color: #25D366; color: #25D366; background: rgba(37,211,102,0.15); font-weight: bold; height: 38px;">
-                            <i class="fa-brands fa-whatsapp"></i> Ouvrir WhatsApp
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
         {% else %}
 
         <!-- KPI SUMMARY ROW -->
@@ -1913,9 +1929,9 @@
                             <i class="fa-solid fa-rotate-left"></i>
                             <span>RÉINITIALISER</span>
                         </button>
-                        <button id="cf-export" class="cyber-btn" type="button" title="Exporter en CSV" style="height: 42px; border-color: var(--neon-green);">
-                            <i class="fa-solid fa-file-csv"></i>
-                            <span>EXPORTER</span>
+                        <button id="cf-export" class="cyber-btn" type="button" title="Exporter en Excel (.xlsx)" style="height: 42px; border-color: var(--neon-green);">
+                            <i class="fa-solid fa-file-excel"></i>
+                            <span>EXPORTER EXCEL</span>
                         </button>
                         <button id="cf-back" class="cyber-btn" type="button" title="Retour au tableau de bord" style="height: 42px;">
                             <i class="fa-solid fa-gauge"></i>
@@ -1941,10 +1957,10 @@
                             </div>
                         </div>
                         <div class="filter-group">
-                            <label class="tech-label"><i class="fa-solid fa-map-pin"></i> LOCALITÉ</label>
+                            <label class="tech-label"><i class="fa-solid fa-route"></i> LOCALITÉ / TOURNÉE</label>
                             <div class="cf-multi-select" data-filter="localites">
                                 <button type="button" class="cf-multi-toggle cyber-select" style="text-align: left; width: 100%; cursor: pointer;">
-                                    <span class="cf-multi-label">Toutes les localités</span>
+                                    <span class="cf-multi-label">Toutes les localités / tournées</span>
                                     <i class="fa-solid fa-chevron-down" style="font-size: 0.7rem;"></i>
                                 </button>
                                 <div class="cf-multi-menu" style="display: none;"></div>
@@ -2002,7 +2018,7 @@
                             <th data-sort="code">Code</th>
                             <th data-sort="name">Nom</th>
                             <th data-sort="secteur">Secteur</th>
-                            <th data-sort="localite">Localité</th>
+                            <th data-sort="localite">Localité / Tournée</th>
                             <th data-sort="vendeur_som">Vendeur SOM</th>
                             <th data-sort="vendeur_vmm">Vendeur VMM</th>
                         </tr>
@@ -2581,13 +2597,26 @@
         </section>
 
         <!-- SUB TABS -->
-        <div class="channel-tabs" style="margin-bottom: 1.5rem; display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
-            <button class="tab-btn active" id="focus-tab-glace" style="background: transparent; border: none; color: var(--text-main); font-family: var(--font-mono); font-weight: bold; font-size: 0.95rem; cursor: pointer; padding: 0.5rem 1rem; border-bottom: 3px solid var(--neon-blue); transition: all 0.2s;">
-                <i class="fa-solid fa-ice-cream neon-text-blue"></i> FOCUS GLACE (SOM)
-            </button>
-            <button class="tab-btn" id="focus-tab-tomate" style="background: transparent; border: none; color: var(--text-muted); font-family: var(--font-mono); font-weight: bold; font-size: 0.95rem; cursor: pointer; padding: 0.5rem 1rem; border-bottom: 3px solid transparent; transition: all 0.2s;">
-                <i class="fa-solid fa-pepper-hot neon-text-pink"></i> FOCUS TOMATE FRITO (VMM)
-            </button>
+        <div class="channel-tabs" style="margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; gap: 1rem;">
+                <button class="tab-btn active" id="focus-tab-glace" style="background: transparent; border: none; color: var(--text-main); font-family: var(--font-mono); font-weight: bold; font-size: 0.95rem; cursor: pointer; padding: 0.5rem 1rem; border-bottom: 3px solid var(--neon-blue); transition: all 0.2s;">
+                    <i class="fa-solid fa-ice-cream neon-text-blue"></i> FOCUS GLACE (SOM)
+                </button>
+                <button class="tab-btn" id="focus-tab-tomate" style="background: transparent; border: none; color: var(--text-muted); font-family: var(--font-mono); font-weight: bold; font-size: 0.95rem; cursor: pointer; padding: 0.5rem 1rem; border-bottom: 3px solid transparent; transition: all 0.2s;">
+                    <i class="fa-solid fa-pepper-hot neon-text-pink"></i> FOCUS TOMATE FRITO (VMM)
+                </button>
+            </div>
+
+            <!-- Option: Auto-Add Google Sheet Terrain Sum -->
+            <div id="focus-terrain-toggle-wrapper" style="display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--border-color); padding: 0.25rem 0.65rem; border-radius: 6px; background: rgba(0, 0, 0, 0.35); height: 38px;">
+                <span class="tech-label" style="font-size: 0.74rem; color: var(--text-muted); font-weight: bold; white-space: nowrap; text-transform: uppercase;">
+                    <i class="fa-solid fa-table-cells neon-text-green"></i> CUMUL SUIVI TERRAIN :
+                </span>
+                <select id="focus-auto-add-terrain-select" class="cyber-select" style="height: 28px; padding: 0 0.5rem; font-size: 0.8rem; font-family: var(--font-mono); border-color: var(--neon-green); background: rgba(0,0,0,0.6); color: var(--neon-green); font-weight: bold; border-radius: 4px; cursor: pointer;" title="Activer ou désactiver l'ajout automatique du cumul des ventes terrain du Google Sheet">
+                    <option value="ON" selected>INCLURE (+CUMUL)</option>
+                    <option value="OFF">EXCLURE (BASE SEULE)</option>
+                </select>
+            </div>
         </div>
 
         <!-- SUMMARY STATS CARDS -->
@@ -2765,6 +2794,50 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </section>
+
+        <!-- DAILY FOCUS DETAILS PER SELLER (GOOGLE SHEET TERRAIN DATA) -->
+        <section class="cyber-card" id="focus-seller-details-card" style="margin-bottom: 2rem; padding: 1.25rem 1.5rem;">
+            <div class="card-edge"></div>
+            <div class="table-header" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <span class="tech-label" id="focus-seller-table-title">
+                        <i class="fa-solid fa-table-list neon-text-blue"></i>
+                        DÉTAIL DU FOCUS PAR VENDEUR &amp; DATE (SUIVI TERRAIN)
+                    </span>
+                    <span class="badge-blue" id="focus-seller-table-count">0 ENTRÉES</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                        <label class="tech-label" style="font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-calendar"></i> Date:</label>
+                        <select class="cyber-select" id="focus-seller-date-filter" style="height: 30px; font-size: 0.8rem; padding: 0 0.6rem; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.25); color: var(--text-main);">
+                            <option value="All">Toutes les dates</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                        <label class="tech-label" style="font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-user"></i> Vendeur:</label>
+                        <select class="cyber-select" id="focus-seller-name-filter" style="height: 30px; font-size: 0.8rem; padding: 0 0.6rem; border-radius: 4px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.25); color: var(--text-main);">
+                            <option value="All">Tous les vendeurs</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="table-container" style="overflow-x: auto; max-height: 440px;">
+                <table class="cyber-table" id="focus-seller-details-table" style="font-size: 0.85rem;">
+                    <thead>
+                        <tr id="focus-seller-details-headers">
+                            <!-- Populated dynamically based on selected focus -->
+                        </tr>
+                    </thead>
+                    <tbody id="focus-seller-details-tbody">
+                        <!-- Populated dynamically -->
+                    </tbody>
+                    <tfoot id="focus-seller-details-tfoot" style="font-weight: bold; background: rgba(0,0,0,0.2);">
+                        <!-- Dynamic totals row -->
+                    </tfoot>
+                </table>
             </div>
         </section>
 
@@ -3955,15 +4028,21 @@
                         <span>ENVOYER VENDEUR</span>
                     </button>
 
+                    <!-- Export Excel Button -->
+                    <button type="button" id="visites-btn-export-excel" class="cyber-btn" style="border-color: var(--neon-green); color: var(--neon-green); height: 32px; font-size: 0.72rem; padding: 0 0.75rem; font-weight: bold; display: flex; align-items: center; gap: 0.35rem;" title="Exporter les données (tournées ou journal) en Excel">
+                        <i class="fa-solid fa-file-excel" style="font-size: 0.95rem;"></i>
+                        <span>EXPORTER EXCEL</span>
+                    </button>
+
                     <!-- Filter Toggle Buttons matching Clients à facturer -->
                     <div class="cf-view-toggle" id="visites-view-toggle-bar" role="tablist" style="display: inline-flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 32px;">
-                        <button type="button" class="cf-view-btn is-active" id="visites-btn-all" data-filter="all" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer;">TOUS</button>
-                        <button type="button" class="cf-view-btn" id="visites-btn-ok" data-filter="ok" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-green); font-weight: bold;" title="Clients visités avec motif OK">FACTURÉ (≥1)</button>
-                        <button type="button" class="cf-view-btn" id="visites-btn-nofacture" data-filter="nofacture" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-amber); font-weight: bold;" title="Clients non facturés / NO OK">AUCUNE FACTURE</button>
-                        <button type="button" class="cf-view-btn" id="visites-btn-ferme" data-filter="ferme" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-amber);">FERMÉ</button>
-                        <button type="button" class="cf-view-btn" id="visites-btn-absent" data-filter="absent" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: #ff9966;">ABSENT</button>
-                        <button type="button" class="cf-view-btn" id="visites-btn-stock" data-filter="stock" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-blue);">STOCK SUFF.</button>
-                        <button type="button" class="cf-view-btn" id="visites-btn-anomalies" data-filter="anomalies" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-pink); font-weight: bold;" title="Visites avec anomalies">ANOMALIES</button>
+                        <button type="button" class="cf-view-btn is-active" id="visites-btn-all" data-filter="all" onclick="if(window.setVisitesActiveFilter)window.setVisitesActiveFilter('all');" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer;">TOUS</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-ok" data-filter="ok" onclick="if(window.setVisitesActiveFilter)window.setVisitesActiveFilter('ok');" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-green); font-weight: bold;" title="Clients visités avec motif OK">FACTURÉ (OK)</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-nofacture" data-filter="nofacture" onclick="if(window.setVisitesActiveFilter)window.setVisitesActiveFilter('nofacture');" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-pink); font-weight: bold;" title="Clients non facturés / NO OK">NO OK (SANS FACTURE)</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-ferme" data-filter="ferme" onclick="if(window.setVisitesActiveFilter)window.setVisitesActiveFilter('ferme');" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-amber);">FERMÉ</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-absent" data-filter="absent" onclick="if(window.setVisitesActiveFilter)window.setVisitesActiveFilter('absent');" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: #ff9966;">ABSENT</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-stock" data-filter="stock" onclick="if(window.setVisitesActiveFilter)window.setVisitesActiveFilter('stock');" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-blue);">STOCK SUFF.</button>
+                        <button type="button" class="cf-view-btn" id="visites-btn-anomalies" data-filter="anomalies" onclick="if(window.setVisitesActiveFilter)window.setVisitesActiveFilter('anomalies');" style="font-size: 0.7rem; padding: 0 0.65rem; border: none; cursor: pointer; color: var(--neon-pink); font-weight: bold;" title="Visites avec anomalies">ANOMALIES</button>
                     </div>
                 </div>
             </div>
@@ -5296,6 +5375,9 @@
                 <button type="button" class="cyber-btn-secondary" id="cancel-engagement-modal-btn">ANNULER</button>
                 <button type="button" class="cyber-btn-submit" id="save-engagement-btn"><i class="fa-solid fa-check"></i> ENREGISTRER L'ENGAGEMENT</button>
             </div>
+        </div>
+    </div>
+
     <!-- MODAL DÉTAILS VISITES TOURNÉE -->
     <div id="v360-tournee-modal" class="cyber-modal" style="display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.75); backdrop-filter: blur(6px); align-items: center; justify-content: center; padding: 1.5rem;">
         <div class="cyber-card" style="width: 100%; max-width: 900px; max-height: 85vh; display: flex; flex-direction: column; background: var(--card-bg); border: 1px solid var(--neon-blue); box-shadow: 0 0 25px rgba(0,212,255,0.25); border-radius: 8px; overflow: hidden;">
@@ -5338,22 +5420,62 @@
         </div>
     </div>
 
+    <!-- GLOBAL WhatsApp Modal for Vendeur -->
+    <div class="modal-backdrop" id="af-wa-modal" style="display: none; position: fixed; inset: 0; z-index: 999999; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); justify-content: center; align-items: center; padding: 1.5rem;">
+        <div class="cyber-card" style="width: 100%; max-width: 580px; background: var(--card-bg, #0d131f); border: 2px solid #25D366; box-shadow: 0 0 35px rgba(37,211,102,0.35); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; transform: none;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color); background: rgba(37,211,102,0.08);">
+                <h3 style="margin: 0; font-size: 1.05rem; color: #25D366; display: flex; align-items: center; gap: 0.5rem; font-weight: bold;">
+                    <i class="fa-brands fa-whatsapp" style="font-size: 1.3rem;"></i> ENVOYER LISTE CLIENTS AU VENDEUR
+                </h3>
+                <button type="button" id="af-wa-modal-close" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.5rem; line-height: 1; padding: 0.2rem 0.5rem;">&times;</button>
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 1rem; padding: 1.25rem;">
+                <div>
+                    <span class="tech-label" style="font-size: 0.75rem; display: block; margin-bottom: 0.35rem; color: var(--text-muted);"><i class="fa-solid fa-user-tie" style="color: var(--neon-blue);"></i> VENDEUR &amp; TÉLÉPHONE WHATSAPP</span>
+                    <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
+                        <input type="text" id="af-wa-vendeur-name" list="fdv-vendeurs-datalist" placeholder="Tapez le nom du vendeur..." style="flex: 1.2; min-width: 180px; padding: 0.55rem 0.75rem; background: var(--bg-color, #080c14); border: 1px solid var(--border-color); color: var(--text-main); font-weight: bold; border-radius: 4px; font-size: 0.88rem;">
+                        <input type="text" id="af-wa-vendeur-phone" placeholder="Ex: 212661000000" style="flex: 1; min-width: 150px; padding: 0.55rem 0.75rem; background: var(--bg-color, #080c14); border: 1px solid #25D366; color: #25D366; font-family: var(--font-mono); font-weight: bold; border-radius: 4px; font-size: 0.88rem;">
+                    </div>
+                    <datalist id="fdv-vendeurs-datalist"></datalist>
+                </div>
+                
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                        <span class="tech-label" style="font-size: 0.75rem; color: var(--text-muted);"><i class="fa-solid fa-message" style="color: var(--neon-blue);"></i> MESSAGE DU RAPPORT</span>
+                        <span id="af-wa-client-count-badge" class="badge badge-pink" style="font-size: 0.7rem;">0 clients</span>
+                    </div>
+                    <textarea id="af-wa-message-text" rows="12" style="width: 100%; box-sizing: border-box; padding: 0.75rem; background: rgba(0,0,0,0.5); border: 1px solid var(--border-color); color: var(--text-main); font-family: var(--font-mono); font-size: 0.82rem; resize: vertical; border-radius: 4px; line-height: 1.45;"></textarea>
+                </div>
+                
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; border-top: 1px solid var(--border-color); padding-top: 0.85rem;">
+                    <button type="button" id="af-wa-copy-btn" class="cyber-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); height: 38px; font-size: 0.82rem; padding: 0 1rem; cursor: pointer;">
+                        <i class="fa-solid fa-copy"></i> Copier le texte
+                    </button>
+                    <button type="button" id="af-wa-send-btn" class="cyber-btn" style="border-color: #25D366; color: #fff; background: #25D366; font-weight: bold; height: 38px; font-size: 0.82rem; padding: 0 1.25rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; box-shadow: 0 0 15px rgba(37,211,102,0.4);">
+                        <i class="fa-brands fa-whatsapp" style="font-size: 1.1rem;"></i> Ouvrir WhatsApp
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 
 
     <!-- Custom Script JS -->
-    <script src="/static/js/vendeur360.js?v=36.1"></script>
-    <script src="/static/js/dashboard.js?v=36.4"></script>
+    <script src="/static/js/vendeur360.js?v=65.0"></script>
+    <script src="/static/js/dashboard.js?v=49.0"></script>
     <script src="/static/js/fdv.js?v=5.0"></script>
     <script src="/static/js/bg-anim.js?v=5.0"></script>
     <script src="/static/js/terrain.js?v=5.1"></script>
-    <script src="/static/js/focus.js?v=5.5"></script>
+    <script src="/static/js/focus.js?v=13.0"></script>
 
 
     <script src="/static/js/stock.js?v=5.0"></script>
     <script src="/static/js/engagement.js?v=11.0"></script>
 
     <!-- MANDATORY LOGIN OVERLAY -->
-    <div id="madec-login-overlay" style="display: flex; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999999; backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); background: rgba(4, 9, 18, 0.94); align-items: center; justify-content: center; transition: opacity 0.4s ease, visibility 0.4s ease;">
+    <div id="madec-login-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999999; backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); background: rgba(4, 9, 18, 0.94); align-items: center; justify-content: center; transition: opacity 0.4s ease, visibility 0.4s ease;">
         <div class="madec-login-card" style="width: 420px; max-width: 92vw; background: rgba(13, 23, 42, 0.96); border: 1px solid rgba(0, 212, 255, 0.35); box-shadow: 0 0 50px rgba(0, 212, 255, 0.25), inset 0 0 25px rgba(0, 212, 255, 0.05); border-radius: 18px; padding: 2.5rem 2rem; position: relative; overflow: hidden;">
             <!-- Glowing Top Accent Bar -->
             <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple), var(--neon-amber));"></div>
@@ -5416,11 +5538,16 @@
     <script>
         function checkMadecAuth() {
             const isAuth = localStorage.getItem('madec_auth') === 'true' || sessionStorage.getItem('madec_auth') === 'true';
-            if (!isAuth) {
+            const overlay = document.getElementById('madec-login-overlay');
+            if (isAuth) {
+                if (overlay) overlay.style.display = 'none';
+            } else {
                 const isNetlify = window.location.hostname.includes('netlify.app') || window.location.protocol === 'file:';
                 const targetLogin = isNetlify ? '/login.html' : '/login';
                 if (!window.location.pathname.endsWith('/login') && !window.location.pathname.endsWith('/login.html')) {
                     window.location.href = targetLogin;
+                } else if (overlay) {
+                    overlay.style.display = 'flex';
                 }
             }
         }

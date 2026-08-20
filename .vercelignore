@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.git/
+.agents/
+scratch/
+Backup/
+Downloads/
+blog-analyser/
+seo-insights/
+*.log

@@ -1,6 +1,7 @@
 import os
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 import json
+import re
 from flask import Flask, jsonify, request, render_template, redirect, send_from_directory
 from data_processor import ExcelProcessor, get_categorie
 import pandas as pd
@@ -415,10 +416,14 @@ def api_anomalies_analysis():
 
         for (vendeur, date_visite), visits in groups.items():
             client_counts = defaultdict(int)
+            ok_clients = set()
             for visit in visits:
                 c_code = (visit.get('client_code') or '').strip().upper()
                 if c_code:
                     client_counts[c_code] += 1
+                m = (visit.get('motif') or '').strip().upper()
+                if c_code and (m == 'OK' or 'VENTE' in m or 'COMMANDE' in m):
+                    ok_clients.add(c_code)
 
             total_v = len(visits)
 
@@ -426,6 +431,8 @@ def api_anomalies_analysis():
                 c_code = (visit.get('client_code') or '').strip()
                 c_nom = (visit.get('client_nom') or '').strip()
                 heure_raw = (visit.get('heure') or '').strip()
+
+                is_client_ok = bool(c_code and c_code.upper() in ok_clients)
 
                 parts = [p.strip() for p in heure_raw.split('-')]
                 h_start = parts[0] if len(parts) > 0 else ''
@@ -450,7 +457,8 @@ def api_anomalies_analysis():
                 is_less_3min = (dur_sec < 180) if not is_closed_motif else False
 
                 total_client_visites = client_counts[c_code.upper()] if c_code else 1
-                is_closed_not_revisited = (is_closed_motif and total_client_visites < 2)
+                # If client bought on any visit, store was successfully visited/billed, so not an unvisited closed anomaly
+                is_closed_not_revisited = (is_closed_motif and total_client_visites < 2 and not is_client_ok)
                 is_multiple = (total_client_visites >= 2) if c_code else False
 
                 is_first = (idx == 0)
@@ -486,6 +494,8 @@ def api_anomalies_analysis():
                     "note": visit.get('note') or '',
                     "vendeur": vendeur,
                     "tournee": visit.get('tournee') or '',
+                    "is_client_billed": is_client_ok,
+                    "has_ok_visit": is_client_ok,
                     "is_less_3min": is_less_3min,
                     "is_closed_not_revisited": is_closed_not_revisited,
                     "is_multiple": is_multiple,
@@ -2297,25 +2307,40 @@ def get_visites_tournee_stats():
         where_str = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
         query = f"""
+        WITH client_visits AS (
+            SELECT 
+                vr.date_visite,
+                COALESCE(vr.tournee, 'Tournée non spécifiée') AS tournee_name,
+                COALESCE(vr.agence, 'Secteur non spécifié') AS secteur_name,
+                vr.vendeur AS cv_vendeur,
+                vr.client_code,
+                MAX(CASE WHEN UPPER(TRIM(vr.motif)) = 'OK' OR UPPER(TRIM(vr.motif)) LIKE '%VENTE%' OR UPPER(TRIM(vr.motif)) LIKE '%COMMANDE%' THEN 1 ELSE 0 END) as has_ok,
+                MAX(CASE WHEN UPPER(TRIM(vr.motif)) LIKE '%FERME%' OR UPPER(TRIM(vr.motif)) LIKE '%FERMÉ%' THEN 1 ELSE 0 END) as has_ferme,
+                MAX(CASE WHEN UPPER(TRIM(vr.motif)) LIKE '%RESPONSABLE%' OR UPPER(TRIM(vr.motif)) LIKE '%ABSENT%' THEN 1 ELSE 0 END) as has_absent,
+                MAX(CASE WHEN UPPER(TRIM(vr.motif)) LIKE '%STOCK%' OR UPPER(TRIM(vr.motif)) LIKE '%SUFISANT%' OR UPPER(TRIM(vr.motif)) LIKE '%SUFFISANT%' THEN 1 ELSE 0 END) as has_stock,
+                MAX(CASE WHEN UPPER(TRIM(vr.motif)) NOT IN ('OK') 
+                             AND UPPER(TRIM(vr.motif)) NOT LIKE '%FERME%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%FERMÉ%'
+                             AND UPPER(TRIM(vr.motif)) NOT LIKE '%RESPONSABLE%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%ABSENT%'
+                             AND UPPER(TRIM(vr.motif)) NOT LIKE '%STOCK%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%SUFISANT%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%SUFFISANT%'
+                             AND UPPER(TRIM(vr.motif)) NOT LIKE '%VENTE%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%COMMANDE%'
+                        THEN 1 ELSE 0 END) as has_autres
+            FROM visites_rapports vr
+            {where_str}
+            GROUP BY vr.date_visite, tournee_name, vr.client_code
+        )
         SELECT 
-            COALESCE(vr.tournee, 'Tournée non spécifiée') AS tournee_name,
-            COALESCE(vr.agence, 'Secteur non spécifié') AS secteur_name,
-            vr.vendeur AS cv_vendeur,
-            MAX(vr.date_visite) AS date_visite,
-            GROUP_CONCAT(DISTINCT vr.date_visite) AS dates_list,
-            COUNT(DISTINCT vr.client_code) AS total_visites,
-            SUM(CASE WHEN UPPER(TRIM(vr.motif)) = 'OK' THEN 1 ELSE 0 END) AS ok_count,
-            SUM(CASE WHEN UPPER(TRIM(vr.motif)) LIKE '%FERME%' OR UPPER(TRIM(vr.motif)) LIKE '%FERMÉ%' THEN 1 ELSE 0 END) AS magasin_ferme_count,
-            SUM(CASE WHEN UPPER(TRIM(vr.motif)) LIKE '%RESPONSABLE%' OR UPPER(TRIM(vr.motif)) LIKE '%ABSENT%' THEN 1 ELSE 0 END) AS responsable_absent_count,
-            SUM(CASE WHEN UPPER(TRIM(vr.motif)) LIKE '%STOCK%' OR UPPER(TRIM(vr.motif)) LIKE '%SUFISANT%' OR UPPER(TRIM(vr.motif)) LIKE '%SUFFISANT%' THEN 1 ELSE 0 END) AS stock_suffisant_count,
-            SUM(CASE WHEN UPPER(TRIM(vr.motif)) NOT IN ('OK') 
-                     AND UPPER(TRIM(vr.motif)) NOT LIKE '%FERME%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%FERMÉ%'
-                     AND UPPER(TRIM(vr.motif)) NOT LIKE '%RESPONSABLE%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%ABSENT%'
-                     AND UPPER(TRIM(vr.motif)) NOT LIKE '%STOCK%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%SUFISANT%' AND UPPER(TRIM(vr.motif)) NOT LIKE '%SUFFISANT%'
-                THEN 1 ELSE 0 END) AS autres_count
-        FROM visites_rapports vr
-        {where_str}
-        GROUP BY tournee_name
+            date_visite,
+            tournee_name,
+            secteur_name,
+            cv_vendeur,
+            COUNT(DISTINCT client_code) AS total_visites,
+            SUM(CASE WHEN has_ok = 1 THEN 1 ELSE 0 END) AS ok_count,
+            SUM(CASE WHEN has_ok = 0 AND has_ferme = 1 THEN 1 ELSE 0 END) AS magasin_ferme_count,
+            SUM(CASE WHEN has_ok = 0 AND has_ferme = 0 AND has_absent = 1 THEN 1 ELSE 0 END) AS responsable_absent_count,
+            SUM(CASE WHEN has_ok = 0 AND has_ferme = 0 AND has_absent = 0 AND has_stock = 1 THEN 1 ELSE 0 END) AS stock_suffisant_count,
+            SUM(CASE WHEN has_ok = 0 AND has_ferme = 0 AND has_absent = 0 AND has_stock = 0 AND has_autres = 1 THEN 1 ELSE 0 END) AS autres_count
+        FROM client_visits
+        GROUP BY date_visite, tournee_name
         ORDER BY date_visite DESC, total_visites DESC
         """
 
@@ -2337,7 +2362,6 @@ def get_visites_tournee_stats():
             results.append({
                 "tournee": t_name,
                 "date": r["date_visite"] or "",
-                "dates_list": r["dates_list"] or "",
                 "secteur": r["secteur_name"],
                 "vendeur": r["cv_vendeur"],
                 "total_clients_enregistres": total_registered,
@@ -3252,6 +3276,423 @@ def get_trends():
         import traceback
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/vendeur-bi-daily-trends", methods=["GET"])
+def get_vendeur_bi_daily_trends():
+    """
+    Returns day-by-day (or week) grouped trend points for all current month dates,
+    broken down by vendeur and product families, matching the sage green curved line chart design.
+    Supports individual family queries and multi-family batches based on vendor role (SOM, VMM, SOM VMM).
+    """
+    try:
+        vendeur = request.args.get("vendeur", "ALL").strip()
+        family = request.args.get("family", "ALL").strip()
+        interval = request.args.get("interval", "1day").strip().lower()
+        metric = request.args.get("metric", "sales").strip().lower()
+        
+        conn = db_manager.get_db_connection()
+        conn.row_factory = db_manager.sqlite3.Row
+        c = conn.cursor()
+        
+        c.execute("SELECT DISTINCT date FROM quantitative_data ORDER BY date ASC")
+        all_dates = [r["date"] for r in c.fetchall() if r["date"]]
+        
+        if not all_dates:
+            conn.close()
+            return jsonify({"status": "success", "points": [], "families": [], "vendeurs": [], "family_data": {}, "families_to_show": []})
+            
+        c.execute("SELECT DISTINCT famille FROM quantitative_data WHERE famille IS NOT NULL AND famille != '' ORDER BY famille ASC")
+        all_families = [r["famille"] for r in c.fetchall()]
+        
+        c.execute("SELECT DISTINCT vendeur FROM quantitative_data WHERE vendeur IS NOT NULL AND vendeur != '' ORDER BY vendeur ASC")
+        all_vendeurs = [r["vendeur"] for r in c.fetchall()]
+        
+        # Determine role of seller
+        role = ""
+        if vendeur and vendeur.upper() != "ALL":
+            c.execute("SELECT role FROM fdv WHERE UPPER(vendeur) LIKE ?", (f"%{vendeur.upper()}%",))
+            r_row = c.fetchone()
+            if r_row and r_row["role"]:
+                role = str(r_row["role"]).strip().upper()
+        
+        # Filter rows by seller
+        v_filter = ""
+        params = []
+        if vendeur and vendeur.upper() != "ALL":
+            v_filter = " WHERE UPPER(vendeur) = ? "
+            params.append(vendeur.upper())
+            
+        c.execute(f"SELECT date, UPPER(TRIM(famille)) as fam_clean, real, obj, percent, j1, encours FROM quantitative_data {v_filter} ORDER BY date ASC", params)
+        rows = c.fetchall()
+
+        # Query qualitative data before closing connection
+        q_filter = ""
+        q_params = []
+        if vendeur and vendeur.upper() != "ALL":
+            q_filter = " WHERE UPPER(vendeur) = ? "
+            q_params.append(vendeur.upper())
+            
+        c.execute(f"SELECT date, clt_programme, clt_facture, acm, tsm, line, raf_tsm, raf_acm FROM qualitative_data {q_filter} ORDER BY date ASC", q_params)
+        q_rows = c.fetchall()
+        conn.close()
+        
+        # Group rows by date -> family -> sum of real, obj
+        date_fam_map = {}
+        for r in rows:
+            d = r["date"]
+            fam = r["fam_clean"] or ""
+            if not fam:
+                continue
+            if d not in date_fam_map:
+                date_fam_map[d] = {}
+            if fam not in date_fam_map[d]:
+                date_fam_map[d][fam] = {"real": 0, "obj": 0, "j1": 0}
+            date_fam_map[d][fam]["real"] += (r["real"] or 0)
+            date_fam_map[d][fam]["obj"] += (r["obj"] or 0)
+            date_fam_map[d][fam]["j1"] += (r["j1"] or 0)
+
+        # Build buckets based on interval (DAY or WEEK)
+        buckets = []
+        day_names_fr = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
+        if interval in ("2days", "week"):
+            for i in range(0, len(all_dates), 2):
+                chunk = all_dates[i:i+2]
+                d_start = chunk[0].split("-")[2]
+                d_end = chunk[-1].split("-")[2]
+                label = f"{d_start}-{d_end}" if d_start != d_end else d_start
+                buckets.append({"label": label, "sublabel": f"{d_start}-{d_end} Août", "dates": chunk})
+        elif interval == "month":
+            d_start = all_dates[0].split("-")[2]
+            d_end = all_dates[-1].split("-")[2]
+            buckets.append({"label": "Mois Complet", "sublabel": f"05-{d_end} Août", "dates": all_dates})
+        else:  # 1day (default)
+            for d in all_dates:
+                try:
+                    dt = datetime.datetime.strptime(d, "%Y-%m-%d")
+                    day_name = day_names_fr[dt.weekday()]
+                except Exception:
+                    day_name = ""
+                d_part = d.split("-")[2]
+                label = f"{day_name} {d_part}" if day_name else f"{d_part} Août"
+                buckets.append({"label": label, "sublabel": f"{d_part} Août ({d})", "dates": [d]})
+
+        # Definition of families and their matching db names
+        FAMILY_META = {
+            "CA": {
+                "key": "CA",
+                "title": "C.A GLOBAL (TTC)",
+                "icon": "fa-solid fa-chart-line",
+                "badge": "GLOBAL",
+                "color": "#4ade80",
+                "db_names": ["C.A (HT)", "C.A (TTC)", "C.A(HT)", "C.A(TTC)"]
+            },
+            "LEVURE": {
+                "key": "LEVURE",
+                "title": "LEVURE",
+                "icon": "fa-solid fa-bread-slice",
+                "badge": "SOM",
+                "color": "#38bdf8",
+                "db_names": ["LEVURE"]
+            },
+            "BOUILLON": {
+                "key": "BOUILLON",
+                "title": "BOUILLON",
+                "icon": "fa-solid fa-bowl-food",
+                "badge": "SOM",
+                "color": "#facc15",
+                "db_names": ["BOUILLON"]
+            },
+            "MGM": {
+                "key": "MGM",
+                "title": "MGM (MARGARINE)",
+                "icon": "fa-solid fa-cubes-stacked",
+                "badge": "SOM",
+                "color": "#fb923c",
+                "db_names": ["MGM", "MARGAFRIQUE"]
+            },
+            "CONDIMENTS": {
+                "key": "CONDIMENTS",
+                "title": "CONDIMENTS",
+                "icon": "fa-solid fa-bottle-droplet",
+                "badge": "VMM",
+                "color": "#a78bfa",
+                "db_names": ["CONDIMENTS"]
+            },
+            "CONSERVES": {
+                "key": "CONSERVES",
+                "title": "CONSERVES",
+                "icon": "fa-solid fa-jar",
+                "badge": "VMM",
+                "color": "#f472b6",
+                "db_names": ["CONSERVES", "CONSERVE"]
+            },
+            "SAUCES": {
+                "key": "SAUCES",
+                "title": "SAUCES & TACOS",
+                "icon": "fa-solid fa-pepper-hot",
+                "badge": "VMM",
+                "color": "#34d399",
+                "db_names": ["SAUCES", "SAUCE", "SAUCE TACOS", "TACOS"]
+            }
+        }
+
+        # Role-based family filtering:
+        # If SOM seller -> CA, LEVURE, BOUILLON, MGM
+        # If VMM seller -> CA, CONDIMENTS, CONSERVES, SAUCES
+        # If SOM VMM / ALL -> ALL 7 FAMILIES
+        # Group qualitative rows by date
+        date_quali_map = {}
+        for r in q_rows:
+            d = r["date"]
+            if d not in date_quali_map:
+                date_quali_map[d] = {"count": 0, "clt_programme": 0, "clt_facture": 0, "acm_sum": 0, "tsm_sum": 0, "line_sum": 0}
+            date_quali_map[d]["count"] += 1
+            date_quali_map[d]["clt_programme"] += (r["clt_programme"] or 0)
+            date_quali_map[d]["clt_facture"] += (r["clt_facture"] or 0)
+            date_quali_map[d]["acm_sum"] += (r["acm"] or 0)
+            date_quali_map[d]["tsm_sum"] += (r["tsm"] or 0)
+            date_quali_map[d]["line_sum"] += (r["line"] or 0)
+
+        # Role-based family filtering:
+        # If SOM seller -> CA, LEVURE, BOUILLON, MGM
+        # If VMM seller -> CA, CONDIMENTS, CONSERVES, SAUCES
+        # If SOM VMM / ALL -> ALL 7 FAMILIES
+        role_upper = role.upper()
+        if "SOM" in role_upper and "VMM" not in role_upper:
+            quanti_families_to_show = ["CA", "LEVURE", "BOUILLON", "MGM"]
+            display_role = "SOM"
+        elif "VMM" in role_upper and "SOM" not in role_upper:
+            quanti_families_to_show = ["CA", "CONDIMENTS", "CONSERVES", "SAUCES"]
+            display_role = "VMM"
+        else:
+            quanti_families_to_show = ["CA", "LEVURE", "BOUILLON", "MGM", "CONDIMENTS", "CONSERVES", "SAUCES"]
+            display_role = "SOM & VMM" if role_upper else "TOUS"
+
+        quali_families_to_show = ["ACM", "TSM", "CLTS_FACTURE", "LINE"]
+        families_to_show = quanti_families_to_show + quali_families_to_show
+
+        # Compute trend for all quantitative families
+        family_data = {}
+        for fam_key, meta in FAMILY_META.items():
+            meta["category"] = "QUANTITATIF"
+            names_upper = [n.upper() for n in meta["db_names"]]
+            pts = []
+            prev_real = 0
+            
+            for idx, b in enumerate(buckets):
+                last_d = b["dates"][-1]
+                cum_real = 0
+                cum_obj = 0
+                
+                for fn in names_upper:
+                    val = date_fam_map.get(last_d, {}).get(fn, {})
+                    cum_real += val.get("real", 0)
+                    cum_obj += val.get("obj", 0)
+                    
+                b_sales = (cum_real - prev_real) if idx > 0 else cum_real
+                if b_sales < 0:
+                    b_sales = 0
+                prev_real = cum_real
+                
+                # Negative percentage: deviation vs objective ((real - obj) / obj * 100)
+                pct = round(((cum_real - cum_obj) / cum_obj * 100)) if cum_obj > 0 else 0
+                raw_pct = round((cum_real / cum_obj * 100)) if cum_obj > 0 else 0
+                ecart = round(cum_real - cum_obj, 2)
+                
+                val = cum_real
+                if metric == "sales":
+                    val = b_sales
+                elif metric == "obj":
+                    val = cum_obj
+                elif metric == "pct":
+                    val = pct
+                elif metric == "ecart":
+                    val = ecart
+                    
+                pts.append({
+                    "label": b["label"],
+                    "sublabel": b.get("sublabel", ""),
+                    "dates": b["dates"],
+                    "real": round(cum_real, 2),
+                    "sales": round(b_sales, 2),
+                    "obj": round(cum_obj, 2),
+                    "pct": pct,
+                    "raw_pct": raw_pct,
+                    "ecart": ecart,
+                    "value": round(val, 2)
+                })
+                
+            vals = [p["value"] for p in pts]
+            max_idx = vals.index(max(vals)) if vals else 0
+            min_idx = vals.index(min(vals)) if vals else 0
+            
+            family_data[fam_key] = {
+                "key": fam_key,
+                "meta": meta,
+                "points": pts,
+                "max_point": {
+                    "index": max_idx,
+                    "label": pts[max_idx]["label"] if pts else "",
+                    "value": pts[max_idx]["value"] if pts else 0
+                },
+                "min_point": {
+                    "index": min_idx,
+                    "label": pts[min_idx]["label"] if pts else "",
+                    "value": pts[min_idx]["value"] if pts else 0
+                },
+                "total_sales": round(sum(p["sales"] for p in pts), 2),
+                "total_real": pts[-1]["real"] if pts else 0,
+                "total_obj": pts[-1]["obj"] if pts else 0,
+                "avg_value": round(sum(vals) / len(vals), 1) if vals else 0
+            }
+
+        # Definition of qualitative KPI families
+        QUALI_FAMILY_META = {
+            "ACM": {
+                "key": "ACM",
+                "title": "COUVERTURE ACM (%)",
+                "icon": "fa-solid fa-users-viewfinder",
+                "badge": "QUALITATIF",
+                "category": "QUALITATIF",
+                "color": "#00d4ff",
+                "unit": "%",
+                "is_quali": True
+            },
+            "TSM": {
+                "key": "TSM",
+                "title": "TAUX DE SUCCÈS MOYEN (TSM %)",
+                "icon": "fa-solid fa-chart-pie",
+                "badge": "QUALITATIF",
+                "category": "QUALITATIF",
+                "color": "#a855f7",
+                "unit": "%",
+                "is_quali": True
+            },
+            "CLTS_FACTURE": {
+                "key": "CLTS_FACTURE",
+                "title": "CLIENTS FACTURÉS",
+                "icon": "fa-solid fa-file-invoice-dollar",
+                "badge": "QUALITATIF",
+                "category": "QUALITATIF",
+                "color": "#22c55e",
+                "unit": " clts",
+                "is_quali": True
+            },
+            "LINE": {
+                "key": "LINE",
+                "title": "LIGNES PAR FACTURE (LINE %)",
+                "icon": "fa-solid fa-layer-group",
+                "badge": "QUALITATIF",
+                "category": "QUALITATIF",
+                "color": "#f59e0b",
+                "unit": "%",
+                "is_quali": True
+            }
+        }
+
+        # Compute trend for qualitative KPI families
+        for q_key, q_meta in QUALI_FAMILY_META.items():
+            pts = []
+            for idx, b in enumerate(buckets):
+                last_d = b["dates"][-1]
+                q_entry = date_quali_map.get(last_d, {})
+                q_cnt = q_entry.get("count", 1) or 1
+                
+                if q_key == "ACM":
+                    val = round((q_entry.get("acm_sum", 0) / q_cnt) * 100, 1)
+                    obj = 100
+                    pct = round(val)
+                    raw_pct = round(val)
+                elif q_key == "TSM":
+                    val = round((q_entry.get("tsm_sum", 0) / q_cnt) * 100, 1)
+                    obj = 100
+                    pct = round(val)
+                    raw_pct = round(val)
+                elif q_key == "CLTS_FACTURE":
+                    val = round(q_entry.get("clt_facture", 0) / q_cnt)
+                    obj = round(q_entry.get("clt_programme", 0) / q_cnt)
+                    pct = val
+                    raw_pct = val
+                elif q_key == "LINE":
+                    val = round((q_entry.get("line_sum", 0) / q_cnt) * 100, 1)
+                    obj = 100
+                    pct = round(val)
+                    raw_pct = round(val)
+                
+                pts.append({
+                    "label": b["label"],
+                    "sublabel": b.get("sublabel", ""),
+                    "dates": b["dates"],
+                    "real": val,
+                    "sales": val,
+                    "obj": obj,
+                    "pct": pct,
+                    "raw_pct": raw_pct,
+                    "ecart": round(val - obj, 2),
+                    "value": val
+                })
+                
+            vals = [p["value"] for p in pts]
+            max_idx = vals.index(max(vals)) if vals else 0
+            min_idx = vals.index(min(vals)) if vals else 0
+            
+            family_data[q_key] = {
+                "key": q_key,
+                "meta": q_meta,
+                "points": pts,
+                "max_point": {
+                    "index": max_idx,
+                    "label": pts[max_idx]["label"] if pts else "",
+                    "value": pts[max_idx]["value"] if pts else 0
+                },
+                "min_point": {
+                    "index": min_idx,
+                    "label": pts[min_idx]["label"] if pts else "",
+                    "value": pts[min_idx]["value"] if pts else 0
+                },
+                "total_sales": pts[-1]["real"] if pts else 0,
+                "total_real": pts[-1]["real"] if pts else 0,
+                "total_obj": pts[-1]["obj"] if pts else 0,
+                "avg_value": round(sum(vals) / len(vals), 1) if vals else 0
+            }
+
+        # Legacy / single-family fallback points
+        legacy_key = "CA"
+        for k, m in {**FAMILY_META, **QUALI_FAMILY_META}.items():
+            if family.upper() == k or family.upper() in [x.upper() for x in m.get("db_names", [])]:
+                legacy_key = k
+                break
+        legacy_entry = family_data.get(legacy_key, family_data.get("CA", {}))
+        
+        return jsonify({
+            "status": "success",
+            "vendeur": vendeur,
+            "role": display_role,
+            "raw_role": role,
+            "family": family,
+            "metric": metric,
+            "interval": interval,
+            "points": legacy_entry.get("points", []),
+            "max_point": legacy_entry.get("max_point", {}),
+            "min_point": legacy_entry.get("min_point", {}),
+            "total_real": legacy_entry.get("total_real", 0),
+            "total_sales": legacy_entry.get("total_sales", 0),
+            "total_obj": legacy_entry.get("total_obj", 0),
+            "avg_value": legacy_entry.get("avg_value", 0),
+            "family_data": family_data,
+            "families_to_show": families_to_show,
+            "quanti_families": quanti_families_to_show,
+            "quali_families": quali_families_to_show,
+            "families": sorted(list(set(all_families))),
+            "vendeurs": sorted(list(set(all_vendeurs)))
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/reload-check", methods=["GET"])
 def reload_check():
     import os
@@ -3892,9 +4333,10 @@ def list_clients_full():
 @app.route("/api/clients_full/filters", methods=["GET"])
 def clients_full_filters():
     try:
+        secteurs = _parse_csv_list(request.args.get("secteurs"))
         return jsonify({
             "status": "success",
-            "filters": db_manager.get_clients_full_filters(),
+            "filters": db_manager.get_clients_full_filters(secteurs=secteurs),
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -3913,10 +4355,13 @@ def clients_full_stats():
 
 @app.route("/api/clients_full/export", methods=["GET"])
 def clients_full_export():
-    """Export the (filtered) clients_full list to CSV."""
+    """Export the (filtered) clients_full list to Excel (.xlsx)."""
     try:
-        import csv
         import io
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+        from flask import send_file
 
         search = request.args.get("search", "").strip() or None
         secteurs = _parse_csv_list(request.args.get("secteurs"))
@@ -3929,8 +4374,6 @@ def clients_full_export():
         else:
             is_repeat = is_repeat_raw in ("1", "true", "True", "yes", "oui", "OUI")
 
-        # Pull every row that matches (server-side paginated internally
-        # with a large per_page to keep things simple)
         result = db_manager.get_clients_full(
             search=search,
             secteurs=secteurs,
@@ -3941,32 +4384,67 @@ def clients_full_export():
             sort_by="row_index",
             sort_dir="ASC",
             page=1,
-            per_page=10000,
+            per_page=100000,
         )
 
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow([
-            "Code", "Nom", "Secteur", "Localité",
-            "Vendeur SOM", "Vendeur VMM",
-        ])
-        for r in result["rows"]:
-            writer.writerow([
-                r["code"],
-                r["name"],
-                r["secteur"],
-                r["localite"],
-                r["vendeur_som"],
-                r["vendeur_vmm"],
-            ])
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Clients"
 
-        from flask import Response
-        return Response(
-            buf.getvalue(),
-            mimetype="text/csv; charset=utf-8",
-            headers={
-                "Content-Disposition": 'attachment; filename="clients_full.csv"'
-            },
+        headers = [
+            "Code Client", "Nom Client", "Secteur", "Localité",
+            "Vendeur SOM", "Vendeur VMM"
+        ]
+        ws.append(headers)
+
+        # Styling
+        header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        thin_border = Border(
+            left=Side(style='thin', color='E2E8F0'),
+            right=Side(style='thin', color='E2E8F0'),
+            top=Side(style='thin', color='E2E8F0'),
+            bottom=Side(style='thin', color='E2E8F0')
+        )
+
+        for col_num in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        for row_idx, r in enumerate(result["rows"], start=2):
+            row_data = [
+                r.get("code") or "",
+                r.get("name") or "",
+                r.get("secteur") or "",
+                r.get("localite") or "",
+                r.get("vendeur_som") or "",
+                r.get("vendeur_vmm") or "",
+            ]
+            ws.append(row_data)
+            for col_num in range(1, len(headers) + 1):
+                cell = ws.cell(row=row_idx, column=col_num)
+                cell.border = thin_border
+                cell.alignment = Alignment(vertical="center")
+
+        # Auto-adjust column widths
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        filename = f"export_clients_{datetime.date.today().strftime('%Y%m%d')}.xlsx"
+
+        return send_file(
+            buf,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=filename
         )
     except Exception as e:
         import traceback
@@ -4877,53 +5355,155 @@ def api_fdv_whatsapp_link():
         elif vendeur:
             row = db_manager.get_fdv_by_vendeur(vendeur)
 
-        if not row:
-            return jsonify({"status": "error", "message": "Vendeur introuvable."}), 404
+        # Fallback vendor lookup if row not directly found
+        if not row and vendeur:
+            v_code_m = re.search(r'\b([A-Za-z0-9]{2,4})\b', str(vendeur))
+            if v_code_m:
+                v_c = v_code_m.group(1).upper()
+                conn = db_manager.get_db_connection()
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM fdv WHERE UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ?", (f"%{v_c} %", f"{v_c}%"))
+                f_row = cur.fetchone()
+                if f_row:
+                    row = dict(f_row)
+                conn.close()
 
-        phone = row.get("whatsapp") or row.get("telephone")
-        url = db_manager.build_whatsapp_url(phone, "Bonjour")
-        if not url:
+        phone = (row.get("whatsapp") or row.get("telephone") or "") if row else ""
+        if not phone and vendeur:
+            phone = db_manager.get_vendeur_phone_from_fdv(vendeur) or ""
+
+        url = db_manager.build_whatsapp_url(phone, "Bonjour") if phone else ""
+        if not url and include_rapport:
             return jsonify({"status": "error", "message": "Numéro WhatsApp manquant."}), 400
 
         message = None
         rapport_used = False
+        v_name = (row.get("vendeur") if row else "") or vendeur or "Vendeur"
         if include_rapport:
             try:
                 rapport, summary_data = generate_report(
-                    vendeur=row["vendeur"], date="default", options=None, return_data=True
+                    vendeur=v_name, date="default", options=None, return_data=True
                 )
-                message = _build_rapport_text(row["vendeur"], summary_data)
+                message = _build_rapport_text(v_name, summary_data)
                 rapport_used = True
             except Exception as ex:
                 import traceback
                 traceback.print_exc()
                 # Fall back to a short generic message.
                 message = (
-                    f"Bonjour {row['vendeur']},\n\n"
+                    f"Bonjour {v_name},\n\n"
                     f"Votre rapport de performance est prêt.\n"
                     f"Bonne continuation !\n\n— KPI Analytics"
                 )
         else:
             message = (
-                f"Bonjour {row['vendeur']},\n\n"
+                f"Bonjour {v_name},\n\n"
                 f"Voici votre rapport de performance pour la période en cours.\n"
                 f"Bonne continuation !\n\n— KPI Analytics"
             )
 
-        url = db_manager.build_whatsapp_url(phone, message)
-        clean_phone = db_manager.normalize_whatsapp_phone(phone)
+        # Lookup real RAF ACM from qualitative_data
+        raf_acm = 20
+        v_target = v_name
+        date_param = data.get("date", "").strip() if isinstance(data, dict) else ""
+        date_match = re.search(r'\d{4}-\d{2}-\d{2}', date_param)
+        clean_date = date_match.group(0) if date_match else ""
+
+        if v_target:
+            try:
+                conn_q = db_manager.get_db_connection()
+                cur_q = conn_q.cursor()
+                v_c_m = re.search(r'\b([A-Za-z0-9]{2,4})\b', v_target)
+                v_code = v_c_m.group(1).upper() if v_c_m else v_target.split()[0].upper()
+
+                if clean_date:
+                    cur_q.execute("""
+                        SELECT raf_acm FROM qualitative_data 
+                        WHERE (vendeur = ? OR vendeur LIKE ? OR UPPER(vendeur) LIKE ?) AND (date = ? OR date LIKE ?)
+                        ORDER BY date DESC LIMIT 1
+                    """, (v_target, f"%{v_code}%", f"{v_code}%", clean_date, f"%{clean_date}%"))
+                    q_row = cur_q.fetchone()
+                    if q_row and q_row["raf_acm"] is not None:
+                        raf_acm = int(round(q_row["raf_acm"]))
+                    else:
+                        cur_q.execute("""
+                            SELECT raf_acm FROM qualitative_data 
+                            WHERE (vendeur = ? OR vendeur LIKE ? OR UPPER(vendeur) LIKE ?)
+                            ORDER BY date DESC LIMIT 1
+                        """, (v_target, f"%{v_code}%", f"{v_code}%"))
+                        q_row2 = cur_q.fetchone()
+                        if q_row2 and q_row2["raf_acm"] is not None:
+                            raf_acm = int(round(q_row2["raf_acm"]))
+                else:
+                    cur_q.execute("""
+                        SELECT raf_acm FROM qualitative_data 
+                        WHERE (vendeur = ? OR vendeur LIKE ? OR UPPER(vendeur) LIKE ?)
+                        ORDER BY date DESC LIMIT 1
+                    """, (v_target, f"%{v_code}%", f"{v_code}%"))
+                    q_row = cur_q.fetchone()
+                    if q_row and q_row["raf_acm"] is not None:
+                        raf_acm = int(round(q_row["raf_acm"]))
+                conn_q.close()
+            except Exception as e:
+                pass
+
+        clean_phone = db_manager.normalize_whatsapp_phone(phone) if phone else ""
         return jsonify({
             "status": "success",
             "url": url,
             "phone": clean_phone,
-            "vendeur": row["vendeur"],
+            "vendeur": v_name,
             "message": message,
             "rapport_used": rapport_used,
+            "raf_acm": raf_acm
         })
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/vendeurs/raf_acm", methods=["GET"])
+def api_vendeurs_raf_acm():
+    try:
+        vendeur = request.args.get("vendeur", "").strip()
+        date_val = request.args.get("date", "").strip()
+        raf_acm = 20
+        if vendeur:
+            conn = db_manager.get_db_connection()
+            cur = conn.cursor()
+            v_code = vendeur.split()[0].upper()
+            if date_val and date_val not in ("All", "default", ""):
+                cur.execute("""
+                    SELECT raf_acm FROM qualitative_data 
+                    WHERE (vendeur = ? OR vendeur LIKE ? OR UPPER(vendeur) LIKE ?) AND (date = ? OR date LIKE ?)
+                    ORDER BY date DESC LIMIT 1
+                """, (vendeur, f"%{v_code}%", f"{v_code}%", date_val, f"%{date_val}%"))
+                row = cur.fetchone()
+                if row and row["raf_acm"] is not None:
+                    raf_acm = int(round(row["raf_acm"]))
+                else:
+                    cur.execute("""
+                        SELECT raf_acm FROM qualitative_data 
+                        WHERE (vendeur = ? OR vendeur LIKE ? OR UPPER(vendeur) LIKE ?)
+                        ORDER BY date DESC LIMIT 1
+                    """, (vendeur, f"%{v_code}%", f"{v_code}%"))
+                    row2 = cur.fetchone()
+                    if row2 and row2["raf_acm"] is not None:
+                        raf_acm = int(round(row2["raf_acm"]))
+            else:
+                cur.execute("""
+                    SELECT raf_acm FROM qualitative_data 
+                    WHERE (vendeur = ? OR vendeur LIKE ? OR UPPER(vendeur) LIKE ?)
+                    ORDER BY date DESC LIMIT 1
+                """, (vendeur, f"%{v_code}%", f"{v_code}%"))
+                row = cur.fetchone()
+                if row and row["raf_acm"] is not None:
+                    raf_acm = int(round(row["raf_acm"]))
+            conn.close()
+        return jsonify({"status": "success", "vendeur": vendeur, "date": date_val, "raf_acm": raf_acm})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e), "raf_acm": 20}), 500
 
 
 # ------------------------------------------------------------------
@@ -6000,7 +6580,14 @@ def get_focus_data_api():
         cursor = conn.cursor()
         cursor.execute("SELECT rest_days FROM settings WHERE date = ?", (upload_date,))
         row = cursor.fetchone()
-        rest_days = row[0] if row else 15
+        if row and row[0] is not None:
+            rest_days = row[0]
+        else:
+            try:
+                day_num = int(upload_date.split('-')[2]) if '-' in upload_date else 18
+                rest_days = max(1, 24 - day_num)
+            except:
+                rest_days = 10
         conn.close()
         
         workdays_info = db_manager.get_workdays_info(rest_days)
@@ -6012,7 +6599,8 @@ def get_focus_data_api():
             "agence": agence,
             "data": data,
             "workdays": workdays_info,
-            "focus_names": focus_names
+            "focus_names": focus_names,
+            "terrain_records": db_manager.get_terrain_sheet_focus_data()
         })
     except Exception as e:
         import traceback
@@ -6037,13 +6625,23 @@ def get_focus_trend_api():
         workdays_info = db_manager.get_workdays_info(20)
         total_days = workdays_info.get("total", 24)
         
+        # Fetch latest DB upload date
+        conn = db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(upload_date) FROM focus_rankings")
+        latest_row = cursor.fetchone()
+        latest_db_upload_date = latest_row[0] if latest_row else "2026-08-17"
+        conn.close()
+        
         return jsonify({
             "status": "success",
             "agence": agence,
             "data": history,
             "settings": settings_data,
             "total_days": total_days,
-            "focus_names": db_manager.get_focus_names()
+            "focus_names": db_manager.get_focus_names(),
+            "latest_db_upload_date": latest_db_upload_date,
+            "terrain_records": db_manager.get_terrain_sheet_focus_data()
         })
     except Exception as e:
         import traceback

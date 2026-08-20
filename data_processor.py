@@ -217,26 +217,21 @@ def calculate_calendar_workdays(date_str=None):
     
     _, total_days_in_month = calendar.monthrange(year, month)
     
-    # Total workdays in month (excluding Sundays)
+    # Total workdays in month (excluding Sundays and excluding last day of month)
     total_workdays = 0
-    for d in range(1, total_days_in_month + 1):
+    for d in range(1, total_days_in_month):
         curr_date = datetime.date(year, month, d)
         if curr_date.weekday() != 6:
             total_workdays += 1
             
-    # Elapsed workdays (before today if current month, or all/none if past/future)
-    if today.year > year or (today.year == year and today.month > month):
-        elapsed_workdays = total_workdays
-    elif today.year < year or (today.year == year and today.month < month):
-        elapsed_workdays = 0
-    else:
-        elapsed_workdays = 0
-        for d in range(1, today.day + 1):
-            curr_date = datetime.date(year, month, d)
-            if curr_date.weekday() != 6:
-                elapsed_workdays += 1
-                
-    remaining_workdays = max(0, total_workdays - elapsed_workdays)
+    # Remaining workdays (current day included, excluding Sundays, excluding last day of month)
+    remaining_workdays = 0
+    for d in range(dt.day, total_days_in_month):
+        curr_date = datetime.date(year, month, d)
+        if curr_date.weekday() != 6:
+            remaining_workdays += 1
+            
+    elapsed_workdays = max(0, total_workdays - remaining_workdays)
     return {
         "total": total_workdays,
         "elapsed": elapsed_workdays,
@@ -250,8 +245,6 @@ class ExcelProcessor:
         self.focus_path = focus_path
         self.rest_days = rest_days
         self.exclude_families = exclude_families or []
-        if "MISWAK" not in [f.strip().upper() for f in self.exclude_families]:
-            self.exclude_families.append("MISWAK")
         self.ttc_rate = 1.2
         self.output_path = output_path or "excel/finale_jour.xlsx"
         self.date = date

@@ -962,9 +962,6 @@ def get_quantitative_data(date, exclude_families=None):
         exclude_families = []
     else:
         exclude_families = list(exclude_families)
-    
-    if "MISWAK" not in [f.strip().upper() for f in exclude_families]:
-        exclude_families.append("MISWAK")
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1371,33 +1368,15 @@ def get_all_suivi_dates():
     conn.close()
     return dates
 
-def get_workdays_info(rest_days, date_str=None):
+def get_workdays_info(rest_days=None, date_str=None):
     from data_processor import calculate_calendar_workdays
     
-    if date_str:
-        try:
-            dynamic_days = calculate_calendar_workdays(date_str)
-            total = dynamic_days["total"]
-            elapsed = dynamic_days["elapsed"]
-            rest = dynamic_days["rest"]
-            
-            # Respect manual override if it is not the default fallback (15) and differs from dynamic calculation
-            if rest_days is not None:
-                try:
-                    custom_rest = int(rest_days)
-                    if custom_rest != 15 and custom_rest != rest:
-                        rest = custom_rest
-                        elapsed = max(0, total - rest)
-                except ValueError:
-                    pass
-            return {"elapsed": elapsed, "total": total, "rest": rest}
-        except Exception as e:
-            print(f"Error in dynamic get_workdays_info: {e}")
-
-    total = 24
-    # Always compute elapsed from total - rest_days for accuracy
-    elapsed = max(0, total - int(rest_days))
-    return {"elapsed": elapsed, "total": total, "rest": rest_days}
+    try:
+        dynamic_days = calculate_calendar_workdays(date_str)
+        return dynamic_days
+    except Exception as e:
+        print(f"Error in get_workdays_info: {e}")
+        return {"elapsed": 15, "total": 25, "rest": 10}
 
 def get_all_suivi_data_records():
     """Get one record per date (bulk-fetched)."""
@@ -1886,7 +1865,7 @@ def get_clients_full(
     }
 
 
-def get_clients_full_filters():
+def get_clients_full_filters(secteurs=None):
     """Return distinct values for filterable fields from secteurs, localites, and clients."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1894,14 +1873,60 @@ def get_clients_full_filters():
     cursor.execute("SELECT DISTINCT name FROM secteurs WHERE name IS NOT NULL AND name != '' ORDER BY name ASC")
     secteurs_list = [r["name"] for r in cursor.fetchall()]
 
-    cursor.execute("SELECT DISTINCT name FROM localites WHERE name IS NOT NULL AND name != '' ORDER BY name ASC")
-    localites_list = [r["name"] for r in cursor.fetchall()]
+    # Full mapping of each secteur to its localités
+    cursor.execute("""
+        SELECT s.name AS secteur_name, l.name AS localite_name
+        FROM localites l
+        JOIN secteurs s ON l.secteur_id = s.id
+        WHERE l.name IS NOT NULL AND l.name != ''
+        ORDER BY s.name ASC, l.name ASC
+    """)
+    secteur_localites_map = {}
+    for r in cursor.fetchall():
+        s_name = r["secteur_name"]
+        l_name = r["localite_name"]
+        if s_name not in secteur_localites_map:
+            secteur_localites_map[s_name] = []
+        if l_name not in secteur_localites_map[s_name]:
+            secteur_localites_map[s_name].append(l_name)
 
-    cursor.execute("SELECT DISTINCT vendeur_som FROM clients WHERE vendeur_som IS NOT NULL AND vendeur_som != '' ORDER BY vendeur_som ASC")
-    vendeurs_som_list = [r["vendeur_som"] for r in cursor.fetchall()]
+    if secteurs and len(secteurs) > 0:
+        placeholders = ",".join("?" for _ in secteurs)
+        cursor.execute(f"""
+            SELECT DISTINCT l.name 
+            FROM localites l 
+            JOIN secteurs s ON l.secteur_id = s.id 
+            WHERE s.name IN ({placeholders}) AND l.name IS NOT NULL AND l.name != '' 
+            ORDER BY l.name ASC
+        """, secteurs)
+        localites_list = [r["name"] for r in cursor.fetchall()]
 
-    cursor.execute("SELECT DISTINCT vendeur_vmm FROM clients WHERE vendeur_vmm IS NOT NULL AND vendeur_vmm != '' ORDER BY vendeur_vmm ASC")
-    vendeurs_vmm_list = [r["vendeur_vmm"] for r in cursor.fetchall()]
+        cursor.execute(f"""
+            SELECT DISTINCT c.vendeur_som 
+            FROM clients c 
+            JOIN secteurs s ON c.secteur_id = s.id 
+            WHERE s.name IN ({placeholders}) AND c.vendeur_som IS NOT NULL AND c.vendeur_som != '' 
+            ORDER BY c.vendeur_som ASC
+        """, secteurs)
+        vendeurs_som_list = [r["vendeur_som"] for r in cursor.fetchall()]
+
+        cursor.execute(f"""
+            SELECT DISTINCT c.vendeur_vmm 
+            FROM clients c 
+            JOIN secteurs s ON c.secteur_id = s.id 
+            WHERE s.name IN ({placeholders}) AND c.vendeur_vmm IS NOT NULL AND c.vendeur_vmm != '' 
+            ORDER BY c.vendeur_vmm ASC
+        """, secteurs)
+        vendeurs_vmm_list = [r["vendeur_vmm"] for r in cursor.fetchall()]
+    else:
+        cursor.execute("SELECT DISTINCT name FROM localites WHERE name IS NOT NULL AND name != '' ORDER BY name ASC")
+        localites_list = [r["name"] for r in cursor.fetchall()]
+
+        cursor.execute("SELECT DISTINCT vendeur_som FROM clients WHERE vendeur_som IS NOT NULL AND vendeur_som != '' ORDER BY vendeur_som ASC")
+        vendeurs_som_list = [r["vendeur_som"] for r in cursor.fetchall()]
+
+        cursor.execute("SELECT DISTINCT vendeur_vmm FROM clients WHERE vendeur_vmm IS NOT NULL AND vendeur_vmm != '' ORDER BY vendeur_vmm ASC")
+        vendeurs_vmm_list = [r["vendeur_vmm"] for r in cursor.fetchall()]
 
     conn.close()
     return {
@@ -1909,6 +1934,7 @@ def get_clients_full_filters():
         "localites": localites_list,
         "vendeurs_som": vendeurs_som_list,
         "vendeurs_vmm": vendeurs_vmm_list,
+        "secteur_localites_map": secteur_localites_map
     }
 
 
@@ -2802,7 +2828,17 @@ def get_focus_names():
 
 
 def get_latest_focus_upload_date():
-    """Retrieve the latest upload date from rankings"""
+    """Retrieve the latest upload date from rankings or merged Google Sheet history"""
+    try:
+        hist = get_focus_history('AGADIR')
+        all_d = set()
+        for r in hist.get('glace', {}).get('reps', []) + hist.get('tomate', {}).get('reps', []):
+            if r.get('upload_date'):
+                all_d.add(r['upload_date'][:10])
+        if all_d:
+            return sorted(list(all_d))[-1]
+    except Exception:
+        pass
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT MAX(upload_date) FROM focus_rankings")
@@ -2813,6 +2849,25 @@ def get_latest_focus_upload_date():
 
 def get_focus_data(upload_date, agence='AGADIR'):
     """Fetch focus representative rankings and CDZ rankings for a specific upload date and agence."""
+    # Use merged history directly so Google Sheet extension dates are included seamlessly
+    history = get_focus_history(agence)
+    glace_reps = [r for r in history.get('glace', {}).get('reps', []) if r.get('upload_date', '').startswith(upload_date)]
+    tomate_reps = [r for r in history.get('tomate', {}).get('reps', []) if r.get('upload_date', '').startswith(upload_date)]
+    glace_cdz = [r for r in history.get('glace', {}).get('cdz', []) if r.get('upload_date', '').startswith(upload_date)]
+    tomate_cdz = [r for r in history.get('tomate', {}).get('cdz', []) if r.get('upload_date', '').startswith(upload_date)]
+    
+    if glace_reps or tomate_reps:
+        return {
+            'glace': {
+                'reps': glace_reps,
+                'cdz': glace_cdz
+            },
+            'tomate': {
+                'reps': tomate_reps,
+                'cdz': tomate_cdz
+            }
+        }
+
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -2935,8 +2990,80 @@ def get_focus_data(upload_date, agence='AGADIR'):
     }
 
 
+def get_terrain_sheet_focus_data():
+    """Load terrain sheet data from cache or directly from Google Sheet CSV URL."""
+    cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "terrain_cache.json")
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                content = json.load(f)
+                if isinstance(content, dict) and "data" in content and len(content.get("data", [])) > 0:
+                    return content.get("data", [])
+                elif isinstance(content, list) and len(content) > 0:
+                    return content
+        except Exception:
+            pass
+            
+    # Direct fetch from Google Sheet
+    try:
+        import urllib.request
+        import csv
+        import io
+        url = "https://docs.google.com/spreadsheets/d/1-w2F47ig_DJ9xwW1mJDQISdwC1bNeUXIi-eR4Qtok4A/export?format=csv"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            csv_data = response.read().decode('utf-8')
+            
+        reader = csv.DictReader(io.StringIO(csv_data))
+        records = []
+        for row in reader:
+            cleaned_row = {}
+            for k, v in row.items():
+                if not k: continue
+                k_clean = k.strip().lower()
+                v_clean = v.strip() if v else ""
+                
+                if "timestamp" in k_clean:
+                    key = "timestamp"
+                elif "tomate" in k_clean or "pescada" in k_clean:
+                    key = "tomate_frito"
+                elif "glass" in k_clean or "glace" in k_clean or "chantilly" in k_clean or "bechamel" in k_clean:
+                    key = "glass_ca"
+                elif "vendeur" in k_clean:
+                    key = "vendeur"
+                elif "date" in k_clean:
+                    key = "date"
+                else:
+                    key = k_clean.replace(" ", "_")
+                
+                if key in ["tomate_frito", "glass_ca"]:
+                    try:
+                        cleaned_row[key] = float(v_clean) if v_clean else 0.0
+                    except:
+                        cleaned_row[key] = 0.0
+                else:
+                    cleaned_row[key] = v_clean
+                    
+            if cleaned_row.get("date") and cleaned_row.get("vendeur"):
+                records.append(cleaned_row)
+                
+        if records:
+            try:
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump({"headers": list(reader.fieldnames or []), "data": records}, f, ensure_ascii=False, indent=2)
+            except:
+                pass
+        return records
+    except Exception as e:
+        print("Error fetching Google Sheet in get_terrain_sheet_focus_data:", e)
+        return []
+
+
 def get_focus_history(agence='AGADIR'):
-    """Fetch historical focus representative rankings and CDZ rankings for all upload dates for an agence."""
+    """Fetch historical focus representative rankings and CDZ rankings for all upload dates for an agence,
+    seamlessly extending with live Google Sheet terrain data (Chantilly CA & Pescada Algerienne CA) for dates
+    after the latest database baseline upload date.
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -3494,6 +3621,46 @@ def resolve_vendeur_full_name(vendeur_code_or_filename):
     return clean_str
 
 
+def normalize_ok_visites(conn=None):
+    """
+    If a client has multiple visits on the same date by the same vendor,
+    and AT LEAST ONE visit has motif 'OK', then all visits for that client
+    on that date are updated to 'OK' (so the client is considered Facturé / OK).
+    """
+    targets = []
+    if conn is not None:
+        targets.append((conn, False))
+    else:
+        try:
+            targets.append((get_uploads_db_connection(), True))
+        except Exception:
+            pass
+        try:
+            targets.append((get_db_connection(), True))
+        except Exception:
+            pass
+
+    for db_c, should_close in targets:
+        try:
+            db_c.execute("""
+                UPDATE visites_rapports
+                SET motif = 'OK'
+                WHERE (date_visite, vendeur, client_code) IN (
+                    SELECT date_visite, vendeur, client_code
+                    FROM visites_rapports
+                    WHERE UPPER(TRIM(motif)) = 'OK'
+                      AND client_code IS NOT NULL AND client_code != ''
+                )
+                AND UPPER(TRIM(motif)) != 'OK'
+            """)
+            db_c.commit()
+        except Exception as e:
+            print(f"Error in normalize_ok_visites: {e}", flush=True)
+        finally:
+            if should_close:
+                db_c.close()
+
+
 def clear_all_visites_rapports():
     """Delete all records from visites_rapports table in both uploads.db and database.db."""
     try:
@@ -3591,6 +3758,11 @@ def save_visites_rapport(file_name, vendeur, date_visite, tournee, agence, recor
             db_conn.close()
         except Exception as sync_e:
             print(f"Sync to database.db notice: {sync_e}", flush=True)
+
+        try:
+            normalize_ok_visites(conn)
+        except Exception:
+            pass
 
         return True
     except Exception as e:
