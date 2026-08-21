@@ -12469,15 +12469,15 @@ function initClientsView() {
         });
     }
 
-    // View toggle: TOUS / UNIQUES
-    document.querySelectorAll('.cf-view-btn').forEach(btn => {
+    // View toggle: TOUS / UNIQUES (only for Clients tab)
+    document.querySelectorAll('#clients-view-toggle .cf-view-btn, .clients-tab-content .cf-view-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const newView = btn.dataset.view;
-            if (newView === cfState.view) return;
+            if (!newView || newView === cfState.view) return;
             cfState.view = newView;
             cfState.page = 1;
             // Update toggle UI
-            document.querySelectorAll('.cf-view-btn').forEach(b => {
+            document.querySelectorAll('#clients-view-toggle .cf-view-btn, .clients-tab-content .cf-view-btn').forEach(b => {
                 b.classList.toggle('is-active', b.dataset.view === newView);
             });
             loadClientsData();
@@ -15509,6 +15509,12 @@ async function loadVisitesTabFilters() {
     }
 }
 
+function isVisitOkMotif(motif) {
+    if (!motif) return false;
+    const m = String(motif).trim().toUpperCase();
+    return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || m.includes('FACTURE');
+}
+
 let visitesActiveFilter = 'all';
 
 window.setVisitesActiveFilter = function(filterName) {
@@ -15630,33 +15636,23 @@ function setupVisitesTabEventListeners() {
                 }
             });
 
-            const isOkMotif = (motif) => {
-                const m = (motif || '').toUpperCase();
-                return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || m.includes('FACTURE');
-            };
-
-            // Filter strictly for NO OK / Non Facturés clients (never include a client who has OK on any visit)
+            // Filter strictly based on active filter
             let filtered = (visites || []).filter(v => {
-                const cCode = (v.client_code || '').trim().toUpperCase();
-                const isClientBilled = cCode && okClientCodes.has(cCode);
-                const m = (v.motif || '').toUpperCase();
+                const m = (v.motif || '').trim().toUpperCase();
+                const isOk = isVisitOkMotif(v.motif);
 
                 if (visitesActiveFilter === 'ok') {
-                    return isOkMotif(v.motif) || isClientBilled;
+                    return isOk;
                 } else if (visitesActiveFilter === 'ferme') {
-                    if (isClientBilled) return false;
-                    return m.includes('FERM');
+                    return m.includes('FERM') && !isOk;
                 } else if (visitesActiveFilter === 'absent') {
-                    if (isClientBilled) return false;
-                    return m.includes('ABSENT');
+                    return m.includes('ABSENT') && !isOk;
                 } else if (visitesActiveFilter === 'stock') {
-                    if (isClientBilled) return false;
-                    return m.includes('STOCK') || m.includes('SUFF');
+                    return (m.includes('STOCK') || m.includes('SUFF')) && !isOk;
                 } else if (visitesActiveFilter === 'anomalies') {
                     return v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0);
                 } else {
-                    if (isClientBilled) return false;
-                    return !isOkMotif(v.motif);
+                    return !isOk;
                 }
             });
 
@@ -15694,8 +15690,8 @@ function setupVisitesTabEventListeners() {
             filtered = Array.from(seenWaClients.values());
 
             if (filtered.length === 0) {
-                if (typeof showToast === 'function') showToast("Aucun client non facturé (NO OK) trouvé pour ce filtre.", "info");
-                else alert("Aucun client non facturé (NO OK) trouvé pour ce filtre.");
+                if (typeof showToast === 'function') showToast("Aucun client trouvé pour ce filtre.", "info");
+                else alert("Aucun client trouvé pour ce filtre.");
                 return;
             }
 
@@ -15812,14 +15808,13 @@ function setupVisitesTabEventListeners() {
                         const matchesSearch = (v.client_code || '').toLowerCase().includes(searchVal) || (v.client_nom || '').toLowerCase().includes(searchVal) || (v.vendeur || '').toLowerCase().includes(searchVal) || (v.tournee || '').toLowerCase().includes(searchVal) || (v.motif || '').toLowerCase().includes(searchVal);
                         if (!matchesSearch) return false;
                     }
-                    const m = (v.motif || '').toUpperCase();
-                    const cCode = (v.client_code || '').trim().toUpperCase();
-                    const isClientBilled = cCode && okClientCodes.has(cCode);
-                    if (visitesActiveFilter === 'ok') return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || isClientBilled;
-                    else if (visitesActiveFilter === 'nofacture') return !isClientBilled && m !== 'OK' && !m.includes('VENTE') && !m.includes('COMMANDE');
-                    else if (visitesActiveFilter === 'ferme') return !isClientBilled && m.includes('FERM');
-                    else if (visitesActiveFilter === 'absent') return !isClientBilled && m.includes('ABSENT');
-                    else if (visitesActiveFilter === 'stock') return !isClientBilled && (m.includes('STOCK') || m.includes('SUFF'));
+                    const m = (v.motif || '').trim().toUpperCase();
+                    const isOk = isVisitOkMotif(v.motif);
+                    if (visitesActiveFilter === 'ok') return isOk;
+                    else if (visitesActiveFilter === 'nofacture') return !isOk;
+                    else if (visitesActiveFilter === 'ferme') return m.includes('FERM') && !isOk;
+                    else if (visitesActiveFilter === 'absent') return m.includes('ABSENT') && !isOk;
+                    else if (visitesActiveFilter === 'stock') return (m.includes('STOCK') || m.includes('SUFF')) && !isOk;
                     else if (visitesActiveFilter === 'anomalies') return v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0);
                     return true;
                 });
@@ -16000,15 +15995,6 @@ function renderVisitesTabContent(hasVendorSelected) {
     const totalCount = stats.total_visites || visites.length || 0;
     const totalAnomalies = stats.total_anomalies || 0;
 
-    const okClientCodes = new Set();
-    visites.forEach(v => {
-        const c = (v.client_code || '').trim().toUpperCase();
-        const m = (v.motif || '').toUpperCase();
-        if (c && (m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || v.facture_status === 'AVEC FACTURE' || v.has_facture || v.is_client_billed || v.has_ok_visit)) {
-            okClientCodes.add(c);
-        }
-    });
-
     let btnTotalCount = visites.length;
     let btnOkCount = 0;
     let btnNoFactureCount = 0;
@@ -16017,38 +16003,20 @@ function renderVisitesTabContent(hasVendorSelected) {
     let btnStockCount = 0;
     let btnAnomaliesCount = 0;
 
-    const seenNoOkClientsForBtn = new Set();
-    const seenFermeClientsForBtn = new Set();
-    const seenAbsentClientsForBtn = new Set();
-    const seenStockClientsForBtn = new Set();
-
     visites.forEach(v => {
-        const cCode = (v.client_code || '').trim().toUpperCase();
-        const isClientBilled = cCode && okClientCodes.has(cCode);
-        const m = (v.motif || '').toUpperCase();
+        const m = (v.motif || '').trim().toUpperCase();
+        const isOk = isVisitOkMotif(v.motif);
 
-        if (m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || isClientBilled) {
+        if (isOk) {
             btnOkCount++;
         } else {
-            if (!cCode || !seenNoOkClientsForBtn.has(cCode)) {
-                if (cCode) seenNoOkClientsForBtn.add(cCode);
-                btnNoFactureCount++;
-            }
+            btnNoFactureCount++;
             if (m.includes('FERM')) {
-                if (!cCode || !seenFermeClientsForBtn.has(cCode)) {
-                    if (cCode) seenFermeClientsForBtn.add(cCode);
-                    btnFermeCount++;
-                }
+                btnFermeCount++;
             } else if (m.includes('ABSENT')) {
-                if (!cCode || !seenAbsentClientsForBtn.has(cCode)) {
-                    if (cCode) seenAbsentClientsForBtn.add(cCode);
-                    btnAbsentCount++;
-                }
+                btnAbsentCount++;
             } else if (m.includes('STOCK') || m.includes('SUFF')) {
-                if (!cCode || !seenStockClientsForBtn.has(cCode)) {
-                    if (cCode) seenStockClientsForBtn.add(cCode);
-                    btnStockCount++;
-                }
+                btnStockCount++;
             }
         }
         if (v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0)) {
@@ -16250,58 +16218,26 @@ function renderVisitesTabContent(hasVendorSelected) {
                     if (!matchesSearch) return false;
                 }
 
-                // 2. Filter toggle pills matching Clients à facturer
+                // 2. Filter toggle
                 const m = (v.motif || '').trim().toUpperCase();
-                const cCode = (v.client_code || '').trim().toUpperCase();
-                const isClientBilled = (cCode && okClientCodes.has(cCode)) || v.is_client_billed || v.has_ok_visit || v.facture_status === 'AVEC FACTURE' || v.has_facture;
+                const isOk = isVisitOkMotif(v.motif);
 
                 if (visitesActiveFilter === 'ok') {
-                    return m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE') || isClientBilled;
+                    return isOk;
                 } else if (visitesActiveFilter === 'nofacture') {
-                    // MUST NEVER BE BILLED AND MOTIF MUST NEVER BE OK / VENTE / COMMANDE
-                    if (isClientBilled) return false;
-                    if (m === 'OK' || m.includes('VENTE') || m.includes('COMMANDE')) return false;
-                    return true;
+                    // Strictly NOT OK
+                    return !isOk;
                 } else if (visitesActiveFilter === 'ferme') {
-                    if (isClientBilled || m === 'OK') return false;
-                    return m.includes('FERM');
+                    return m.includes('FERM') && !isOk;
                 } else if (visitesActiveFilter === 'absent') {
-                    if (isClientBilled || m === 'OK') return false;
-                    return m.includes('ABSENT');
+                    return m.includes('ABSENT') && !isOk;
                 } else if (visitesActiveFilter === 'stock') {
-                    if (isClientBilled || m === 'OK') return false;
-                    return m.includes('STOCK') || m.includes('SUFF');
+                    return (m.includes('STOCK') || m.includes('SUFF')) && !isOk;
                 } else if (visitesActiveFilter === 'anomalies') {
                     return v.has_anomaly === true || (Array.isArray(v.anomalies) && v.anomalies.length > 0);
                 }
                 return true;
             });
-
-            // If in non-OK filter modes (nofacture, ferme, absent, stock), deduplicate so each client appears only once
-            if (['nofacture', 'ferme', 'absent', 'stock'].includes(visitesActiveFilter)) {
-                const seenNoOkMap = new Map();
-                filteredVisites.forEach(v => {
-                    const code = (v.client_code || '').trim().toUpperCase();
-                    if (!code) {
-                        seenNoOkMap.set(v.id || Math.random(), v);
-                        return;
-                    }
-                    if (!seenNoOkMap.has(code)) {
-                        seenNoOkMap.set(code, v);
-                    } else {
-                        const existing = seenNoOkMap.get(code);
-                        const existingMotif = (existing.motif || '').trim().toUpperCase();
-                        const currentMotif = (v.motif || '').trim().toUpperCase();
-                        const isCurrentBetter = (existingMotif.includes('ERREUR') || existingMotif.includes('MANIP')) &&
-                            (!currentMotif.includes('ERREUR') && !currentMotif.includes('MANIP'));
-                        const isCurrentLonger = (v.duree_seconds || 0) > (existing.duree_seconds || 0);
-                        if (isCurrentBetter || (isCurrentLonger && !currentMotif.includes('ERREUR'))) {
-                            seenNoOkMap.set(code, v);
-                        }
-                    }
-                });
-                filteredVisites = Array.from(seenNoOkMap.values());
-            }
 
             if (filteredVisites.length === 0) {
                 journalTbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucun enregistrement de visite trouvé pour ce filtre</td></tr>`;
@@ -16317,14 +16253,17 @@ function renderVisitesTabContent(hasVendorSelected) {
 
                 journalTbody.innerHTML = filteredVisites.map(v => {
                     const dureeStr = v.duree_formatted || (v.duree_minutes ? `${v.duree_minutes} min` : (v.heure || 'N/A'));
-                    const motif = v.motif || 'OK';
+                    const rawMotif = (v.motif && v.motif.trim()) ? v.motif.trim() : '';
+                    const motif = rawMotif || (visitesActiveFilter === 'ok' ? 'OK' : 'Non spécifié');
                     const hasAnom = v.has_anomaly;
                     const anomList = Array.isArray(v.anomalies) ? v.anomalies : (v.anomalies_list || v.anomaly_reasons || []);
                     const anomReasons = anomList.join(', ');
                     
                     let motifClass = 'badge-blue';
-                    if (motif.toUpperCase() === 'OK') motifClass = 'badge-green';
+                    if (motif.toUpperCase() === 'OK' || motif.toUpperCase().includes('VENTE')) motifClass = 'badge-green';
                     else if (motif.toUpperCase().includes('FERM') || motif.toUpperCase().includes('ABSENT')) motifClass = 'badge-amber';
+                    else if (motif.toUpperCase().includes('STOCK') || motif.toUpperCase().includes('SUFF')) motifClass = 'badge-blue';
+                    else motifClass = 'badge-pink';
 
                     const cCode = (v.client_code || '').trim().toUpperCase();
                     const totalVisitesForClient = clientVisitsCountMap[cCode] || 1;

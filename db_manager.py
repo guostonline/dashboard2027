@@ -1373,10 +1373,18 @@ def get_workdays_info(rest_days=None, date_str=None):
     
     try:
         dynamic_days = calculate_calendar_workdays(date_str)
+        if rest_days is not None:
+            try:
+                r_val = int(rest_days)
+                if r_val >= 0:
+                    dynamic_days["rest"] = r_val
+                    dynamic_days["elapsed"] = max(0, dynamic_days["total"] - r_val)
+            except Exception:
+                pass
         return dynamic_days
     except Exception as e:
         print(f"Error in get_workdays_info: {e}")
-        return {"elapsed": 15, "total": 25, "rest": 10}
+        return {"elapsed": 17, "total": 25, "rest": 8}
 
 def get_all_suivi_data_records():
     """Get one record per date (bulk-fetched)."""
