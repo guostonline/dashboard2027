@@ -9853,11 +9853,13 @@ function renderTableHtml(rows) {
     let dataRows = rows.slice(1);
     
     // Check type of table by checking header terms
-    let isCdzWeeklyTable = headers.some(h => /cdz|équipe/i.test(h)) && headers.some(h => /semaine dernière|s-1|sem\./i.test(h));
-    let isVendorWeeklyTable = headers.some(h => /vendeur/i.test(h)) && headers.some(h => /semaine dernière|s-1|sem\./i.test(h));
-    let isQuantiTable = !isCdzWeeklyTable && !isVendorWeeklyTable && headers.some(h => h.toLowerCase().includes('famille')) && headers.some(h => h.toLowerCase().includes('réalisé'));
-    let isQualiTable = !isCdzWeeklyTable && !isVendorWeeklyTable && headers.some(h => h.toLowerCase().includes('facturé') || h.toLowerCase().includes('commandes') || h.toLowerCase().includes('acm') || h.toLowerCase().includes('tsm'));
-    let isRankTable = !isCdzWeeklyTable && !isVendorWeeklyTable && headers.some(h => h.toLowerCase().includes('vendeur')) && headers.some(h => h.toLowerCase().includes('taux') || h.toLowerCase().includes('statut') || h.toLowerCase().includes('écart'));
+    let isCdzMultiWeekTable = headers.some(h => /cdz|équipe/i.test(h)) && (headers.some(h => /semaine 1|s1\b/i.test(h)) || headers.some(h => /semaine 2|s2\b/i.test(h)));
+    let isVendorMultiWeekTable = headers.some(h => /vendeur/i.test(h)) && (headers.some(h => /semaine 1|s1\b/i.test(h)) || headers.some(h => /semaine 2|s2\b/i.test(h)));
+    let isCdzWeeklyTable = !isCdzMultiWeekTable && headers.some(h => /cdz|équipe/i.test(h)) && headers.some(h => /semaine dernière|s-1|sem\./i.test(h));
+    let isVendorWeeklyTable = !isVendorMultiWeekTable && headers.some(h => /vendeur/i.test(h)) && headers.some(h => /semaine dernière|s-1|sem\./i.test(h));
+    let isQuantiTable = !isCdzWeeklyTable && !isVendorWeeklyTable && !isCdzMultiWeekTable && !isVendorMultiWeekTable && headers.some(h => h.toLowerCase().includes('famille')) && headers.some(h => h.toLowerCase().includes('réalisé'));
+    let isQualiTable = !isCdzWeeklyTable && !isVendorWeeklyTable && !isCdzMultiWeekTable && !isVendorMultiWeekTable && headers.some(h => h.toLowerCase().includes('facturé') || h.toLowerCase().includes('commandes') || h.toLowerCase().includes('acm') || h.toLowerCase().includes('tsm'));
+    let isRankTable = !isCdzWeeklyTable && !isVendorWeeklyTable && !isCdzMultiWeekTable && !isVendorMultiWeekTable && headers.some(h => h.toLowerCase().includes('vendeur')) && headers.some(h => h.toLowerCase().includes('taux') || h.toLowerCase().includes('statut') || h.toLowerCase().includes('écart'));
     let isDailySalesTable = headers.some(h => h.toLowerCase().includes('date')) && headers.some(h => h.toLowerCase().includes('ventes réelles')) && headers.some(h => h.toLowerCase().includes('objectif du jour'));
     
     let tableId = "report-table-" + Math.random().toString(36).substring(2, 9);
@@ -9866,8 +9868,94 @@ function renderTableHtml(rows) {
     
     let html = '';
     
-    // 1. CDZ Weekly Comparison Table (Chakib vs Boutmezguine vs Globale)
-    if (isCdzWeeklyTable && dataRows.length > 0) {
+    // 0. CDZ Multi-Week Evolution Table (S1, S2, S3, S4)
+    if (isCdzMultiWeekTable && dataRows.length > 0) {
+        let weekCols = [];
+        headers.forEach((h, idx) => {
+            if (/semaine \d+|s\d+\b/i.test(h) && !/dernière|actuelle|préc/i.test(h)) {
+                weekCols.push({ name: h.replace(/\*\*/g, '').trim(), idx: idx });
+            }
+        });
+        
+        if (weekCols.length > 0) {
+            let weekLabels = weekCols.map(w => w.name);
+            let series = [];
+            
+            dataRows.forEach(row => {
+                let teamName = row[0].replace(/\*\*/g, '').trim();
+                let vals = weekCols.map(w => cleanReportNumber(row[w.idx]));
+                if (teamName) {
+                    series.push({ name: teamName, vals: vals });
+                }
+            });
+            
+            if (series.length > 0) {
+                html += `
+                <div class="report-chart-card">
+                    <div class="report-chart-header">
+                        <span class="tech-label"><i class="fa-solid fa-chart-line neon-text-blue"></i> DYNAMIQUE MULTI-SEMAINES DES ÉQUIPES CDZ (${weekLabels.join(', ')})</span>
+                    </div>
+                    <div class="report-chart-body" style="height: 270px;">
+                        <canvas id="${chartCanvasId}"></canvas>
+                    </div>
+                </div>
+                `;
+                
+                if (!window.reportChartsToRender) window.reportChartsToRender = [];
+                window.reportChartsToRender.push({
+                    id: chartCanvasId,
+                    type: 'cdzMultiWeek',
+                    data: { weekLabels, series }
+                });
+            }
+        }
+    }
+    // 0.bis Vendor Multi-Week Evolution Table (S1, S2, S3, S4)
+    else if (isVendorMultiWeekTable && dataRows.length > 0) {
+        let weekCols = [];
+        headers.forEach((h, idx) => {
+            if (/semaine \d+|s\d+\b/i.test(h) && !/dernière|actuelle|préc/i.test(h)) {
+                weekCols.push({ name: h.replace(/\*\*/g, '').trim(), idx: idx });
+            }
+        });
+        
+        if (weekCols.length > 0) {
+            let weekLabels = weekCols.map(w => w.name);
+            let vendors = [];
+            
+            dataRows.forEach(row => {
+                let vName = row[0].replace(/\*\*/g, '').trim();
+                if (vName.toUpperCase().includes('TOTAL') || vName.toUpperCase().includes('MOYENNE')) return;
+                let vals = weekCols.map(w => cleanReportNumber(row[w.idx]));
+                if (vName) {
+                    vendors.push({ name: vName, vals: vals });
+                }
+            });
+            
+            if (vendors.length > 0) {
+                const chartH = Math.min(420, Math.max(260, vendors.length * 20 + 70));
+                html += `
+                <div class="report-chart-card rank-chart-card">
+                    <div class="report-chart-header">
+                        <span class="tech-label"><i class="fa-solid fa-layer-group neon-text-green"></i> RÉPARTITION MULTI-SEMAINES VENDEUR PAR VENDEUR (${weekLabels.join(', ')})</span>
+                    </div>
+                    <div class="report-chart-body" style="height: ${chartH}px;">
+                        <canvas id="${chartCanvasId}"></canvas>
+                    </div>
+                </div>
+                `;
+                
+                if (!window.reportChartsToRender) window.reportChartsToRender = [];
+                window.reportChartsToRender.push({
+                    id: chartCanvasId,
+                    type: 'vendorMultiWeek',
+                    data: { weekLabels, vendors }
+                });
+            }
+        }
+    }
+    // 1. CDZ Weekly Comparison Table (Chakib vs Boutmezguine vs Globale - S-1 vs S)
+    else if (isCdzWeeklyTable && dataRows.length > 0) {
         let labels = [];
         let prevVals = [];
         let curVals = [];
@@ -9914,7 +10002,7 @@ function renderTableHtml(rows) {
             });
         }
     }
-    // 2. Vendor-by-Vendor Weekly Comparison Table
+    // 2. Vendor-by-Vendor Weekly Comparison Table (S-1 vs S)
     else if (isVendorWeeklyTable && dataRows.length > 0) {
         let labels = [];
         let prevVals = [];
@@ -10765,6 +10853,117 @@ function renderReportCharts(forcePrintColors = false) {
                                 }
                             },
                             y: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                            }
+                        }
+                    }
+                });
+            } else if (chartConfig.type === 'cdzMultiWeek') {
+                const { weekLabels, series } = chartConfig.data;
+                if (!weekLabels || weekLabels.length === 0 || !series) return;
+                const palette = [
+                    { bg: neonBlue + '85', border: neonBlue },
+                    { bg: neonAmber + '85', border: neonAmber },
+                    { bg: neonGreen + '85', border: neonGreen },
+                    { bg: neonPink + '85', border: neonPink }
+                ];
+                const datasets = series.map((s, idx) => {
+                    const col = palette[idx % palette.length];
+                    const isTotal = s.name.toUpperCase().includes('AGENCE') || s.name.toUpperCase().includes('GLOBAL');
+                    return {
+                        label: s.name,
+                        data: s.vals,
+                        backgroundColor: col.bg,
+                        borderColor: col.border,
+                        borderWidth: isTotal ? 2 : 1.5,
+                        borderRadius: 4,
+                        borderDash: isTotal ? [3, 3] : undefined
+                    };
+                });
+
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: weekLabels,
+                        datasets: datasets
+                    },
+                    options: {
+                        animation: { duration: 0 },
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'Inter', size: 10, weight: 'bold' } }
+                            },
+                            y: {
+                                grid: { color: gridColor },
+                                ticks: {
+                                    color: textColor,
+                                    font: { family: 'JetBrains Mono', size: 9 },
+                                    callback: function(value) { return (value >= 1000 ? (value/1000).toLocaleString() + 'k' : value) + ' DH'; }
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                            }
+                        }
+                    }
+                });
+            } else if (chartConfig.type === 'vendorMultiWeek') {
+                const { weekLabels, vendors } = chartConfig.data;
+                if (!weekLabels || !vendors || vendors.length === 0) return;
+                const weekPalette = [
+                    '#0284c7', // S1
+                    '#06b6d4', // S2
+                    '#10b981', // S3
+                    '#f59e0b', // S4
+                    '#ec4899', // S5
+                    '#8b5cf6'  // S6
+                ];
+                const datasets = weekLabels.map((wName, wIdx) => {
+                    const col = weekPalette[wIdx % weekPalette.length];
+                    return {
+                        label: wName,
+                        data: vendors.map(v => v.vals[wIdx] || 0),
+                        backgroundColor: col + 'c0',
+                        borderColor: col,
+                        borderWidth: 1,
+                        borderRadius: 2
+                    };
+                });
+
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: vendors.map(v => v.name),
+                        datasets: datasets
+                    },
+                    options: {
+                        animation: { duration: 0 },
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                stacked: true,
+                                grid: { color: gridColor },
+                                ticks: {
+                                    color: textColor,
+                                    font: { family: 'JetBrains Mono', size: 9 },
+                                    callback: function(value) { return (value >= 1000 ? (value/1000).toLocaleString() + 'k' : value) + ' DH'; }
+                                }
+                            },
+                            y: {
+                                stacked: true,
                                 grid: { color: gridColor },
                                 ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
                             }

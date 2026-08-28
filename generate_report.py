@@ -446,10 +446,127 @@ def get_weekly_comparison_data(date=None, tax_mode="TTC", filter_vendeur=None, f
         tot_acm_c = sum(x["acm_cur"] for x in cdz_summary) / len(cdz_summary) if cdz_summary else 0.0
         tot_acm_p = sum(x["acm_prev"] for x in cdz_summary) / len(cdz_summary) if cdz_summary else 0.0
 
+        # --- Compute Complete Multi-Week Progression (Semaine par Semaine: S1, S2, S3, S4...) ---
+        all_sorted_dates = sorted(dates)
+        weeks_dict = {}
+        for d in all_sorted_dates:
+            try:
+                dt = datetime.strptime(d, "%Y-%m-%d")
+                w_num = dt.isocalendar()[1]
+                weeks_dict.setdefault(w_num, []).append(d)
+            except:
+                pass
+
+        sorted_week_nums = sorted(weeks_dict.keys())
+        week_keys = [f"S{i+1}" for i in range(len(sorted_week_nums))]
+        week_endpoints = [max(weeks_dict[w]) for w in sorted_week_nums]
+
+        multi_weekly_cumuls = {}
+        for w_lbl, ep in zip(week_keys, week_endpoints):
+            sd = db_manager.get_suivi_data(ep) or {}
+            for r in sd.get("quantitative", []):
+                v = r.get("vendeur", "").strip().upper()
+                if v not in allowed_vendeurs or r.get("famille") not in ("C.A (ht)", "C.A (TTC)"):
+                    continue
+                r_val = r.get("real", 0) or 0
+                o_val = r.get("obj", 0) or 0
+                if tax_mode == "HT":
+                    r_val = int(round(r_val / 1.2))
+                    o_val = int(round(o_val / 1.2))
+                multi_weekly_cumuls.setdefault(v, {})[w_lbl] = r_val
+                multi_weekly_cumuls[v]["obj"] = o_val
+
+        vendor_multi_week = []
+        for v in sorted(allowed_vendeurs):
+            cumuls = multi_weekly_cumuls.get(v, {})
+            discrete = {}
+            prev_val = 0
+            for w_lbl in week_keys:
+                cur_val = cumuls.get(w_lbl, prev_val)
+                discrete[w_lbl] = max(0, cur_val - prev_val)
+                prev_val = cur_val
+            tot_val = prev_val
+            obj_val = cumuls.get("obj", 0)
+            rate_val = ((tot_val - obj_val) / obj_val * 100) if obj_val > 0 else -100.0
+
+            vals = [discrete[w] for w in week_keys]
+            if len(vals) >= 2:
+                if vals[-1] > vals[-2] * 1.15:
+                    dyn = "🚀 Accélération"
+                elif vals[-1] < vals[-2] * 0.85:
+                    dyn = "📉 Ralentissement"
+                else:
+                    dyn = "➡️ Régulier"
+            else:
+                dyn = "➡️ Stable"
+
+            vendor_multi_week.append({
+                "vendeur": v,
+                "cdz": v_to_cdz.get(v, "AUTRE"),
+                "weeks": discrete,
+                "total": tot_val,
+                "obj": obj_val,
+                "rate": rate_val,
+                "trend": dyn
+            })
+
+        vendor_multi_week.sort(key=lambda x: x["total"], reverse=True)
+
+        cdz_multi_week = []
+        for target_cdz_name in ["CHAKIB ELFIL", "BOUTMEZGUINE EL MOSTAFA"]:
+            reps = [x for x in vendor_multi_week if x["cdz"] == target_cdz_name]
+            c_discrete = {}
+            for w_lbl in week_keys:
+                c_discrete[w_lbl] = sum(x["weeks"].get(w_lbl, 0) for x in reps)
+            c_tot = sum(x["total"] for x in reps)
+            c_obj = sum(x["obj"] for x in reps)
+            c_rate = ((c_tot - c_obj) / c_obj * 100) if c_obj > 0 else -100.0
+            
+            c_vals = [c_discrete[w] for w in week_keys]
+            if len(c_vals) >= 2:
+                if c_vals[-1] > c_vals[-2] * 1.1:
+                    c_dyn = "🚀 Forte dynamique"
+                elif c_vals[-1] < c_vals[-2] * 0.85:
+                    c_dyn = "📉 Fléchissement"
+                else:
+                    c_dyn = "➡️ Régulier"
+            else:
+                c_dyn = "➡️ Stable"
+
+            cdz_multi_week.append({
+                "cdz": f"Équipe {target_cdz_name.title()}",
+                "cdz_raw": target_cdz_name,
+                "reps_count": len(reps),
+                "weeks": c_discrete,
+                "total": c_tot,
+                "obj": c_obj,
+                "rate": c_rate,
+                "trend": c_dyn
+            })
+
+        tot_multi_discrete = {}
+        for w_lbl in week_keys:
+            tot_multi_discrete[w_lbl] = sum(c["weeks"].get(w_lbl, 0) for c in cdz_multi_week)
+        tot_multi_total = sum(c["total"] for c in cdz_multi_week)
+        tot_multi_obj = sum(c["obj"] for c in cdz_multi_week)
+        tot_multi_rate = ((tot_multi_total - tot_multi_obj) / tot_multi_obj * 100) if tot_multi_obj > 0 else -100.0
+
+        agency_multi_week = {
+            "cdz": "AGENCE GLOBALE",
+            "weeks": tot_multi_discrete,
+            "total": tot_multi_total,
+            "obj": tot_multi_obj,
+            "rate": tot_multi_rate,
+            "trend": "➡️ Global"
+        }
+
         return {
             "current_date": cur_date,
             "previous_date": prev_date or "Semaine Précédente",
+            "week_keys": week_keys,
+            "week_endpoints": week_endpoints,
             "cdz_summary": cdz_summary,
+            "cdz_multi_week": cdz_multi_week,
             "agency_total": {
                 "cdz": "AGENCE GLOBALE",
                 "real_cur": tot_c,
@@ -461,7 +578,9 @@ def get_weekly_comparison_data(date=None, tax_mode="TTC", filter_vendeur=None, f
                 "acm_cur": tot_acm_c,
                 "acm_prev": tot_acm_p
             },
-            "vendeurs": vendeurs_list
+            "agency_multi_week": agency_multi_week,
+            "vendeurs": vendeurs_list,
+            "vendor_multi_week": vendor_multi_week
         }
     except Exception as e:
         print("Error calculating weekly comparison:", e)
@@ -489,6 +608,27 @@ def build_cdz_weekly_table(weekly_data):
         diff_pct_sign = "+" if tot["diff_pct"] >= 0 else ""
         tot_rate_sign = "+" if tot["rate"] >= 0 else ""
         md += f"| **{tot['cdz']}** | **{tot['real_prev']:,.0f}** | **{tot['real_cur']:,.0f}** | **{diff_sign}{tot['diff_dh']:,.0f}** | **{diff_pct_sign}{tot['diff_pct']:.1f}%** | **{tot['obj']:,.0f}** | **{tot_rate_sign}{tot['rate']:.1f}%** | **{tot['acm_cur']:.1f}%** |\n"
+
+    # Also append the multi-week progression table across S1, S2, S3, S4
+    cdz_multi = weekly_data.get("cdz_multi_week", [])
+    week_keys = weekly_data.get("week_keys", [])
+    if cdz_multi and len(week_keys) > 1:
+        md += f"\n### 📊 Évolution Hebdomadaire des Équipes CDZ (Semaine par Semaine : {', '.join(week_keys)})\n\n"
+        headers_str = " | ".join([f"Semaine {w.replace('S','')}" for w in week_keys])
+        md += f"| Équipe CDZ | {headers_str} | Cumul Réalisé (DH) | Objectif (DH) | Écart vs Obj (%) | Dynamique |\n"
+        align_str = " | ".join([":---:" for _ in week_keys])
+        md += f"| :--- | {align_str} | :---: | :---: | :---: | :---: |\n"
+
+        for c in cdz_multi:
+            w_vals_str = " | ".join([f"{c['weeks'].get(w, 0):,.0f}" for w in week_keys])
+            rate_sign = "+" if c["rate"] >= 0 else ""
+            md += f"| **{c['cdz']}** | {w_vals_str} | **{c['total']:,.0f}** | {c['obj']:,.0f} | {rate_sign}{c['rate']:.1f}% | {c['trend']} |\n"
+
+        tot_m = weekly_data.get("agency_multi_week", {})
+        if tot_m:
+            w_vals_str = " | ".join([f"**{tot_m['weeks'].get(w, 0):,.0f}**" for w in week_keys])
+            tot_rate_sign = "+" if tot_m["rate"] >= 0 else ""
+            md += f"| **{tot_m['cdz']}** | {w_vals_str} | **{tot_m['total']:,.0f}** | **{tot_m['obj']:,.0f}** | **{tot_rate_sign}{tot_m['rate']:.1f}%** | {tot_m['trend']} |\n"
 
     return md
 
@@ -519,6 +659,30 @@ def build_vendor_weekly_table(weekly_data, target_vendeur=None, target_cdz=None)
         rate_sign = "+" if v["rate"] >= 0 else ""
         cdz_short = "Chakib" if "CHAKIB" in v["cdz"] else "Boutmezguine"
         md += f"| **{v['vendeur']}** | {cdz_short} | {v['real_prev']:,.0f} | {v['real_cur']:,.0f} | {diff_sign}{v['diff_dh']:,.0f} | **{diff_pct_sign}{v['diff_pct']:.1f}%** | {v['obj']:,.0f} | {rate_sign}{v['rate']:.1f}% | {v['trend']} |\n"
+
+    # Also append the multi-week progression table across S1, S2, S3, S4
+    vendor_multi = weekly_data.get("vendor_multi_week", [])
+    week_keys = weekly_data.get("week_keys", [])
+    if vendor_multi and len(week_keys) > 1:
+        if target_vendeur:
+            v_upper = target_vendeur.strip().upper()
+            vendor_multi = [v for v in vendor_multi if v["vendeur"].strip().upper() == v_upper]
+        elif target_cdz and target_cdz != "All":
+            cdz_key = "CHAKIB" if "CHAKIB" in target_cdz.upper() else "BOUTMEZGUINE"
+            vendor_multi = [v for v in vendor_multi if cdz_key in v["cdz"].upper()]
+
+        if vendor_multi:
+            md += f"\n### 📈 Évolution Hebdomadaire Détaillée Vendeur par Vendeur ({', '.join(week_keys)})\n\n"
+            headers_str = " | ".join([f"Semaine {w.replace('S','')}" for w in week_keys])
+            md += f"| Vendeur | Équipe CDZ | {headers_str} | Cumul Réalisé (DH) | Objectif (DH) | Écart vs Obj (%) | Dynamique |\n"
+            align_str = " | ".join([":---:" for _ in week_keys])
+            md += f"| :--- | :--- | {align_str} | :---: | :---: | :---: | :---: |\n"
+
+            for v in vendor_multi:
+                w_vals_str = " | ".join([f"{v['weeks'].get(w, 0):,.0f}" for w in week_keys])
+                rate_sign = "+" if v["rate"] >= 0 else ""
+                cdz_short = "Chakib" if "CHAKIB" in v["cdz"] else "Boutmezguine"
+                md += f"| **{v['vendeur']}** | {cdz_short} | {w_vals_str} | **{v['total']:,.0f}** | {v['obj']:,.0f} | {rate_sign}{v['rate']:.1f}% | {v['trend']} |\n"
 
     return md
 
