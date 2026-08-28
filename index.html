@@ -18,7 +18,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=3.5">
+    <link rel="stylesheet" href="/static/css/style.css?v=3.6">
     <!-- Global Safe Fetch Interceptor for Static Netlify Host -->
     <script>
         (function() {
@@ -331,7 +331,7 @@
                             </label>
                             <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
                                 <input type="checkbox" id="toggle-familles-grid" checked style="accent-color: var(--neon-blue);">
-                                <span>Synthèse 3-Col Familles</span>
+                                <span>Synthèse Par Famille</span>
                             </label>
                             <label class="layout-toggle-item" style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none;">
                                 <input type="checkbox" id="toggle-quanti-table" checked style="accent-color: var(--neon-blue);">
@@ -728,7 +728,7 @@
                 <div class="cyber-card table-card" id="familles-grid-card" style="margin-bottom: 1.5rem;">
                     <div class="card-edge"></div>
                     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <span class="tech-label"><i class="fa-solid fa-boxes-stacked neon-text-blue"></i> SYNTHÈSE PAR FAMILLE (3 PAR LIGNE)</span>
+                        <span class="tech-label"><i class="fa-solid fa-boxes-stacked neon-text-blue"></i> SYNTHÈSE PAR FAMILLE</span>
                         <span class="badge-blue" id="familles-count-badge">0 Familles</span>
                     </div>
                     <div class="familles-3col-grid" id="familles-3col-container">
@@ -781,10 +781,12 @@
                                     <th id="th-quanti-vendeurs">Vendeurs</th>
                                     <th id="th-quanti-real">Réalisé (HT)</th>
                                     <th id="th-quanti-obj">Objectif (HT)</th>
+                                    <th id="th-quanti-objglobal">Objectif Global (HT)</th>
                                     <th>% Taux</th>
                                     <th id="th-quanti-real2025">Histo 2025</th>
                                     <th id="th-quanti-hpct">% Histo</th>
                                     <th id="th-quanti-objmois">Histo 2026</th>
+                                    <th id="th-quanti-rafglobal">RAF Global</th>
                                     <th id="th-quanti-rafjour">RAF Jour</th>
                                 </tr>
                             </thead>
@@ -2713,6 +2715,7 @@
                                 <th>Rang</th>
                                 <th>Chef de Zone</th>
                                 <th>Agence</th>
+                                <th>% Partiel</th>
                                 <th>Écart (%)</th>
                             </tr>
                         </thead>
@@ -2876,6 +2879,24 @@
                     <div class="sidebar-section" style="position: relative; z-index: 200;">
                         <h4 class="sidebar-section-title"><i class="fa-solid fa-user-tie"></i> Cible d'Analyse</h4>
                         
+                        <!-- CDZ Quick Selector -->
+                        <div class="rp-cdz-selector-group" style="margin-bottom: 0.75rem;">
+                            <label class="tech-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-crown"></i> Chef de Zone (CDZ)</label>
+                            <div class="rp-segmented-control rp-cdz-control" style="width: 100%; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
+                                <button type="button" class="rp-cdz-btn active" data-cdz="All" id="cdz-btn-all" onclick="selectCdzForReport('All')">
+                                    <i class="fa-solid fa-globe"></i> Tous
+                                </button>
+                                <button type="button" class="rp-cdz-btn" data-cdz="CHAKIB ELFIL" id="cdz-btn-chakib" onclick="selectCdzForReport('CHAKIB ELFIL')">
+                                    <i class="fa-solid fa-user-tie"></i> Chakib
+                                </button>
+                                <button type="button" class="rp-cdz-btn" data-cdz="BOUTMEZGUINE EL MOSTAFA" id="cdz-btn-boutmezguine" onclick="selectCdzForReport('BOUTMEZGUINE EL MOSTAFA')">
+                                    <i class="fa-solid fa-user-tie"></i> Boutmez.
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Vendeur Dropdown -->
+                        <label class="tech-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.72rem; color: var(--text-muted);"><i class="fa-solid fa-user"></i> Vendeur Spécifique (Optionnel)</label>
                         <div class="dropdown-container rp-dropdown-wrap" id="vendeur-dropdown-container">
                             <button class="rp-dropdown-btn" id="vendeur-dropdown-toggle" type="button" aria-expanded="false" aria-label="Sélectionner la cible du rapport">
                                 <span class="rp-dropdown-icon"><i class="fa-solid fa-user-tie"></i></span>
@@ -2953,7 +2974,7 @@
                                 <input type="checkbox" id="check-quali" checked>
                                 <span class="rp-toggle-track">
                                     <span class="rp-toggle-icon"><i class="fa-solid fa-comments"></i></span>
-                                    <span class="rp-toggle-label">Synthèse Qualitative</span>
+                                    <span class="rp-toggle-label">Synthèse Qualitative (ACM/TSM)</span>
                                     <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
                                 </span>
                             </label>
@@ -2961,23 +2982,39 @@
                                 <input type="checkbox" id="check-focus" checked>
                                 <span class="rp-toggle-track">
                                     <span class="rp-toggle-icon"><i class="fa-solid fa-bullseye"></i></span>
-                                    <span class="rp-toggle-label">Atteinte des Objectifs Focus</span>
+                                    <span class="rp-toggle-label">Objectifs Focus (Glace &amp; Tomate)</span>
+                                    <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
+                                </span>
+                            </label>
+                            <label class="rp-toggle" data-option="terrain">
+                                <input type="checkbox" id="check-terrain" checked>
+                                <span class="rp-toggle-track">
+                                    <span class="rp-toggle-icon"><i class="fa-solid fa-truck-ramp-box"></i></span>
+                                    <span class="rp-toggle-label">Suivi Terrain &amp; Commandes</span>
+                                    <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
+                                </span>
+                            </label>
+                            <label class="rp-toggle" data-option="visites">
+                                <input type="checkbox" id="check-visites" checked>
+                                <span class="rp-toggle-track">
+                                    <span class="rp-toggle-icon"><i class="fa-solid fa-route"></i></span>
+                                    <span class="rp-toggle-label">Visites &amp; Tournées FDV</span>
                                     <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
                                 </span>
                             </label>
                             <label class="rp-toggle" data-option="anomali">
-                                <input type="checkbox" id="check-anomali">
+                                <input type="checkbox" id="check-anomali" checked>
                                 <span class="rp-toggle-track">
                                     <span class="rp-toggle-icon"><i class="fa-solid fa-triangle-exclamation"></i></span>
-                                    <span class="rp-toggle-label">Anomalies &amp; Écarts</span>
+                                    <span class="rp-toggle-label">Anomalies &amp; Dérives</span>
                                     <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
                                 </span>
                             </label>
                             <label class="rp-toggle" data-option="rappel">
-                                <input type="checkbox" id="check-rappel">
+                                <input type="checkbox" id="check-rappel" checked>
                                 <span class="rp-toggle-track">
                                     <span class="rp-toggle-icon"><i class="fa-solid fa-bell"></i></span>
-                                    <span class="rp-toggle-label">Rappels &amp; Actions Terrain</span>
+                                    <span class="rp-toggle-label">Plan d'Action &amp; Recommandations</span>
                                     <span class="rp-toggle-check"><i class="fa-solid fa-check"></i></span>
                                 </span>
                             </label>
@@ -3025,28 +3062,67 @@
                             </div>
                         </div>
                         <h3>Espace d'Analyse IA Prêt</h3>
-                        <p>Sélectionnez un vendeur dans le panneau latéral ou conservez <strong>Agence globale</strong> pour une synthèse générale, puis lancez le générateur IA.</p>
+                        <p>Sélectionnez un Chef de Zone (CDZ) ou un vendeur dans le panneau latéral, ou lancez directement un rapport en 1-clic ci-dessous :</p>
                         
+                        <!-- 1-CLICK CDZ QUICK CARDS -->
+                        <div class="rp-cdz-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin: 1.25rem 0 1.75rem 0; width: 100%;">
+                            <div class="rp-cdz-card" onclick="triggerCdzReport('CHAKIB ELFIL')" style="background: rgba(0, 212, 255, 0.05); border: 1px solid rgba(0, 212, 255, 0.25); border-radius: 12px; padding: 1.25rem; cursor: pointer; transition: all 0.3s ease; text-align: left;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                                    <span style="font-size: 1.3rem; color: var(--neon-blue);"><i class="fa-solid fa-user-tie"></i></span>
+                                    <span style="font-size: 0.7rem; padding: 3px 8px; border-radius: 12px; background: rgba(0,212,255,0.15); color: var(--neon-blue); font-weight: 700; letter-spacing: 0.05em;">1-CLIC CDZ</span>
+                                </div>
+                                <h4 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0 0 0.35rem 0;">Équipe Chakib Elfil</h4>
+                                <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 1rem 0; line-height: 1.4;">Analyse complète : Quanti (CA), Quali (ACM/TSM), Focus (Glace/Tomate), Suivi Terrain, Visites et Anomalies.</p>
+                                <button class="btn btn-sm" style="width: 100%; border-radius: 8px; font-weight: 700; font-size: 0.8rem; background: rgba(0, 212, 255, 0.15); border: 1px solid var(--neon-blue); color: var(--neon-blue); pointer-events: none; padding: 0.5rem;">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Analyser l'Équipe Chakib
+                                </button>
+                            </div>
+
+                            <div class="rp-cdz-card" onclick="triggerCdzReport('BOUTMEZGUINE EL MOSTAFA')" style="background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 12px; padding: 1.25rem; cursor: pointer; transition: all 0.3s ease; text-align: left;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                                    <span style="font-size: 1.3rem; color: #c084fc;"><i class="fa-solid fa-user-tie"></i></span>
+                                    <span style="font-size: 0.7rem; padding: 3px 8px; border-radius: 12px; background: rgba(168,85,247,0.15); color: #c084fc; font-weight: 700; letter-spacing: 0.05em;">1-CLIC CDZ</span>
+                                </div>
+                                <h4 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0 0 0.35rem 0;">Équipe Boutmezguine</h4>
+                                <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 1rem 0; line-height: 1.4;">Analyse complète : Quanti (CA), Quali (ACM/TSM), Focus (Glace/Tomate), Suivi Terrain, Visites et Anomalies.</p>
+                                <button class="btn btn-sm" style="width: 100%; border-radius: 8px; font-weight: 700; font-size: 0.8rem; background: rgba(168, 85, 247, 0.15); border: 1px solid #c084fc; color: #c084fc; pointer-events: none; padding: 0.5rem;">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Analyser l'Équipe Boutmezguine
+                                </button>
+                            </div>
+
+                            <div class="rp-cdz-card" onclick="triggerCdzReport('All')" style="background: rgba(34, 197, 94, 0.05); border: 1px solid rgba(34, 197, 94, 0.25); border-radius: 12px; padding: 1.25rem; cursor: pointer; transition: all 0.3s ease; text-align: left;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                                    <span style="font-size: 1.3rem; color: #4ade80;"><i class="fa-solid fa-globe"></i></span>
+                                    <span style="font-size: 0.7rem; padding: 3px 8px; border-radius: 12px; background: rgba(34,197,94,0.15); color: #4ade80; font-weight: 700; letter-spacing: 0.05em;">AGENCE GLOBALE</span>
+                                </div>
+                                <h4 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0 0 0.35rem 0;">Toute l'Agence Agadir</h4>
+                                <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 1rem 0; line-height: 1.4;">Synthèse macro-commerciale consolidée de l'ensemble de la force de vente et analyse comparative.</p>
+                                <button class="btn btn-sm" style="width: 100%; border-radius: 8px; font-weight: 700; font-size: 0.8rem; background: rgba(34, 197, 94, 0.15); border: 1px solid #4ade80; color: #4ade80; pointer-events: none; padding: 0.5rem;">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Rapport Global Agence
+                                </button>
+                            </div>
+                        </div>
+
                         <div class="empty-state-steps">
                             <div class="step-item">
                                 <span class="step-num">1</span>
                                 <div class="step-text">
-                                    <strong>Paramétrage Cible &amp; Modules</strong>
-                                    <span>Choisissez la cible et activez les modules souhaités (CA, Quali, Focus).</span>
+                                    <strong>Cible CDZ / Vendeur &amp; 6 Dimensions</strong>
+                                    <span>Sélectionnez la zone et cochez les 6 modules (Quanti, Quali, Focus, Terrain, Visites, Anomalies).</span>
                                 </div>
                             </div>
                             <div class="step-item">
                                 <span class="step-num">2</span>
                                 <div class="step-text">
-                                    <strong>Calcul des Dérives &amp; Prédictions</strong>
-                                    <span>L'IA analyse les ventes, les écarts d'objectifs et la dynamique d'équipe.</span>
+                                    <strong>Calcul des Dérives &amp; Prédictions IA</strong>
+                                    <span>L'IA analyse les ventes, les écarts d'objectifs, le RAF/Jour et la discipline terrain.</span>
                                 </div>
                             </div>
                             <div class="step-item">
                                 <span class="step-num">3</span>
                                 <div class="step-text">
                                     <strong>Consolidation &amp; Exportation</strong>
-                                    <span>Générez un rapport exécutif ou envoyez la version Mini directement par WhatsApp.</span>
+                                    <span>Rapport exécutif Markdown structuré ou version Mini exportable sur WhatsApp.</span>
                                 </div>
                             </div>
                         </div>
@@ -3087,7 +3163,7 @@
                     <!-- Top bar -->
                     <div class="ai-loader-topbar">
                         <span class="ai-loader-dot"></span>
-                        <span class="ai-loader-title font-mono">AI_REPORT_ENGINE &nbsp;·&nbsp; GEMINI 2.5</span>
+                        <span id="ai-loader-title" class="ai-loader-title font-mono">AI_REPORT_ENGINE &nbsp;·&nbsp; <span id="ai-loader-model-name">GEMINI 3.5 FLASH</span></span>
                         <span id="ai-loader-timer" class="ai-loader-timer font-mono">00:00</span>
                     </div>
 
@@ -4559,10 +4635,12 @@
                             <div class="form-group" style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
                                 <label class="tech-label"><i class="fa-solid fa-microchip"></i> MODÈLE OPENROUTER</label>
                                 <select id="openrouter-model-select" class="cyber-select" style="width: 100%; margin-top: 0.5rem;">
+                                    <option value="google/gemini-3.5-flash">Gemini 3.5 Flash (Google)</option>
+                                    <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (Google)</option>
+                                    <option value="google/gemini-2.5-pro">Gemini 2.5 Pro (Google)</option>
                                     <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet (Anthropic)</option>
                                     <option value="openai/gpt-4o">GPT-4o (OpenAI)</option>
                                     <option value="openai/gpt-4o-mini">GPT-4o Mini (OpenAI)</option>
-                                    <option value="google/gemini-3.5-flash">Gemini 3.5 Flash (Google)</option>
                                     <option value="google/gemini-1.5-pro">Gemini 1.5 Pro (Google)</option>
                                     <option value="google/gemini-1.5-flash">Gemini 1.5 Flash (Google)</option>
                                     <option value="meta-llama/llama-3.1-70b-instruct">Llama 3.1 70B (Meta)</option>
@@ -5464,11 +5542,11 @@
 
     <!-- Custom Script JS -->
     <script src="/static/js/vendeur360.js?v=66.0"></script>
-    <script src="/static/js/dashboard.js?v=52.0"></script>
+    <script src="/static/js/dashboard.js?v=61.0"></script>
     <script src="/static/js/fdv.js?v=5.0"></script>
     <script src="/static/js/bg-anim.js?v=5.0"></script>
     <script src="/static/js/terrain.js?v=5.1"></script>
-    <script src="/static/js/focus.js?v=13.0"></script>
+    <script src="/static/js/focus.js?v=15.0"></script>
 
 
     <script src="/static/js/stock.js?v=5.0"></script>

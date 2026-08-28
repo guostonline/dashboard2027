@@ -3790,10 +3790,14 @@ def save_relational_acm(df):
         col_map = {}
         for c in df.columns:
             cl = str(c).strip().lower()
-            if "role" in cl: col_map["role"] = c
-            elif "tourne" in cl: col_map["tournee"] = c
-            elif "code" in cl: col_map["code"] = c
-            elif "nom" in cl: col_map["name"] = c
+            if "code" in cl:
+                col_map["code"] = c
+            elif "nom" in cl or ("client" in cl and "code" not in cl and "nbr" not in cl and "%" not in cl):
+                col_map["name"] = c
+            elif "role" in cl or "secteur" in cl:
+                col_map["role"] = c
+            elif "tourne" in cl or "localite" in cl:
+                col_map["tournee"] = c
 
         # Clear old ACM upload data in uploads.db
         cursor.execute("DELETE FROM clients")
@@ -3802,36 +3806,39 @@ def save_relational_acm(df):
         cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('clients', 'localites', 'secteurs')")
 
         # 1. Populate Secteurs
-        unique_secteurs = sorted([str(s).strip() for s in df[col_map["role"]].dropna().unique() if str(s).strip()])
-        for sec in unique_secteurs:
-            cursor.execute("INSERT OR IGNORE INTO secteurs (name) VALUES (?)", (sec,))
-        conn.commit()
+        secteur_id_map = {}
+        if "role" in col_map:
+            unique_secteurs = sorted([str(s).strip() for s in df[col_map["role"]].dropna().unique() if str(s).strip()])
+            for sec in unique_secteurs:
+                cursor.execute("INSERT OR IGNORE INTO secteurs (name) VALUES (?)", (sec,))
+            conn.commit()
 
-        cursor.execute("SELECT name, id FROM secteurs")
-        secteur_id_map = {r["name"]: r["id"] for r in cursor.fetchall()}
+            cursor.execute("SELECT name, id FROM secteurs")
+            secteur_id_map = {r["name"]: r["id"] for r in cursor.fetchall()}
 
         # 2. Populate Localites
-        localite_pairs = df[[col_map["tournee"], col_map["role"]]].drop_duplicates().dropna()
         localite_id_map = {}
-        for _, row in localite_pairs.iterrows():
-            loc_name = str(row[col_map["tournee"]]).strip()
-            sec_name = str(row[col_map["role"]]).strip()
-            if loc_name and sec_name in secteur_id_map:
-                sec_id = secteur_id_map[sec_name]
-                try:
-                    cursor.execute("INSERT OR IGNORE INTO localites (name, secteur_id) VALUES (?, ?)", (loc_name, sec_id))
-                except Exception:
-                    pass
+        if "tournee" in col_map and "role" in col_map:
+            localite_pairs = df[[col_map["tournee"], col_map["role"]]].drop_duplicates().dropna()
+            for _, row in localite_pairs.iterrows():
+                loc_name = str(row[col_map["tournee"]]).strip()
+                sec_name = str(row[col_map["role"]]).strip()
+                if loc_name and sec_name in secteur_id_map:
+                    sec_id = secteur_id_map[sec_name]
+                    try:
+                        cursor.execute("INSERT OR IGNORE INTO localites (name, secteur_id) VALUES (?, ?)", (loc_name, sec_id))
+                    except Exception:
+                        pass
 
-        conn.commit()
+            conn.commit()
 
-        cursor.execute("""
-            SELECT l.id, l.name, s.name as sec_name
-            FROM localites l
-            JOIN secteurs s ON l.secteur_id = s.id
-        """)
-        for r in cursor.fetchall():
-            localite_id_map[(r["name"], r["sec_name"])] = r["id"]
+            cursor.execute("""
+                SELECT l.id, l.name, s.name as sec_name
+                FROM localites l
+                JOIN secteurs s ON l.secteur_id = s.id
+            """)
+            for r in cursor.fetchall():
+                localite_id_map[(r["name"], r["sec_name"])] = r["id"]
 
         # 3. Populate Clients (code, name, secteur_id, localite_id)
         client_rows = []
@@ -3852,10 +3859,11 @@ def save_relational_acm(df):
             if sec_id and loc_id:
                 client_rows.append((c_code, c_name, sec_id, loc_id))
 
-        cursor.executemany("""
-            INSERT INTO clients (code, name, secteur_id, localite_id)
-            VALUES (?, ?, ?, ?)
-        """, client_rows)
+        if client_rows:
+            cursor.executemany("""
+                INSERT OR REPLACE INTO clients (code, name, secteur_id, localite_id)
+                VALUES (?, ?, ?, ?)
+            """, client_rows)
 
         conn.commit()
         return len(client_rows)

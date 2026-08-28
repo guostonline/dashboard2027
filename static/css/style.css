@@ -6102,18 +6102,18 @@ body.light-mode .anomaly-date-chip {
 }
 
 /* ====================================================
-   SYNTHÈSE PAR FAMILLE (3 COLUMNS GRID)
+   SYNTHÈSE PAR FAMILLE (1 PAR LIGNE / PLEINE LARGEUR)
    ==================================================== */
 .familles-3col-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
     padding: 1rem;
 }
 
 @media (max-width: 1200px) {
     .familles-3col-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: 1fr;
     }
 }
 

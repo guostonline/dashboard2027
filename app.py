@@ -86,7 +86,9 @@ def load_config():
         "theme": "theme-1",
         "light_mode": True,
         "excluded_dates": [],
-        "google_sheet_url": ""
+        "google_sheet_url": "",
+        "model": "anthropic/claude-3.5-sonnet",
+        "openrouter_model": "anthropic/claude-3.5-sonnet"
     }
     if not os.path.exists(CONFIG_PATH):
         save_config(defaults)
@@ -940,6 +942,11 @@ def update_settings():
             config["rest_days"] = rest_days
             config["exclude_families"] = exclude_families
             
+            model = req_data.get("model") or req_data.get("openrouter_model")
+            if model:
+                config["model"] = model
+                config["openrouter_model"] = model
+            
             # Save config
             save_config(config)
             
@@ -968,12 +975,19 @@ def run_ai_analysis():
     try:
         vendeur = request.args.get("vendeur")
         category = request.args.get("category")
+        cdz = request.args.get("cdz")
         date = request.args.get("date")
         options_str = request.args.get("options")
         tax_mode = request.args.get("tax_mode", "TTC")
         report_type = request.args.get("report_type", "complet")
         language = request.args.get("language", "fr")
-        model = request.args.get("model", "anthropic/claude-3.5-sonnet")
+        
+        saved_config = load_config()
+        configured_model = saved_config.get("model") or saved_config.get("openrouter_model") or "anthropic/claude-3.5-sonnet"
+        
+        model = request.args.get("model")
+        if not model or model == "default":
+            model = configured_model
         
         # Parse options if provided
         options = None
@@ -983,16 +997,18 @@ def run_ai_analysis():
                 "quanti": "quanti" in selected_options,
                 "quali": "quali" in selected_options,
                 "focus": "focus" in selected_options,
+                "terrain": "terrain" in selected_options,
+                "visites": "visites" in selected_options,
                 "anomali": "anomali" in selected_options,
                 "rappel": "rappel" in selected_options
             }
 
-        report_content, summary_data = generate_report(vendeur=vendeur, category=category, date=date, options=options, tax_mode=tax_mode, report_type=report_type, language=language, model=model, return_data=True)
+        report_content, summary_data = generate_report(vendeur=vendeur, category=category, cdz=cdz, date=date, options=options, tax_mode=tax_mode, report_type=report_type, language=language, model=model, return_data=True)
         focus_names = db_manager.get_focus_names()
         if report_content:
             return jsonify({"status": "success", "report": report_content, "summary_data": summary_data, "focus_names": focus_names})
         else:
-            return jsonify({"status": "error", "message": "Erreur lors de la génération du rapport via OpenRouter."}), 500
+            return jsonify({"status": "error", "message": "Erreur lors de la génération du rapport."}), 500
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -3736,6 +3752,12 @@ def post_app_config():
             config["light_mode"] = bool(req_data["light_mode"])
         if "excluded_dates" in req_data:
             config["excluded_dates"] = req_data["excluded_dates"]
+        if "model" in req_data:
+            config["model"] = req_data["model"]
+            config["openrouter_model"] = req_data["model"]
+        if "openrouter_model" in req_data:
+            config["model"] = req_data["openrouter_model"]
+            config["openrouter_model"] = req_data["openrouter_model"]
             
         save_config(config)
         return jsonify({"status": "success", "config": config})

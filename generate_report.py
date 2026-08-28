@@ -1,22 +1,209 @@
 import os
 import json
 import urllib.request
+import sqlite3
+from collections import defaultdict
+from datetime import datetime
 from dotenv import load_dotenv
 from data_processor import ExcelProcessor, get_categorie
 
 load_dotenv(override=True)
 
+def get_db():
+    import db_manager
+    return db_manager.get_db_connection()
+
+def get_visites_and_anomalies_data(allowed_sellers=None, date=None):
+    """Fetch and calculate visit stats and anomalies from visites_rapports table."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        where_clauses = ["heure IS NOT NULL AND heure != ''"]
+        params = []
+        
+        if date and date != "default":
+            where_clauses.append("(date_visite = ? OR date_visite LIKE ?)")
+            params.extend([date, f"%{date}%"])
+            
+        where_str = " WHERE " + " AND ".join(where_clauses)
+        cursor.execute(f"""
+            SELECT id, vendeur, date_visite, tournee, client_code, client_nom, heure, motif, note
+            FROM visites_rapports
+            {where_str}
+            ORDER BY date_visite DESC, vendeur ASC, heure ASC
+        """, params)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        # Filter by allowed_sellers if provided
+        if allowed_sellers:
+            allowed_upper = {s.strip().upper() for s in allowed_sellers if s}
+            filtered_rows = []
+            for r in rows:
+                v = (r['vendeur'] or '').strip().upper()
+                v_code = v.split(" ")[0] if " " in v else v
+                if v in allowed_upper or any(s.startswith(v_code) for s in allowed_upper) or any(v.startswith(s.split(" ")[0]) for s in allowed_upper):
+                    filtered_rows.append(r)
+            rows = filtered_rows
+
+        groups = defaultdict(list)
+        for r in rows:
+            v = (r['vendeur'] or '').strip()
+            d = (r['date_visite'] or '').strip()
+            groups[(v, d)].append(dict(r))
+
+        total_visites = len(rows)
+        count_less_3min = 0
+        count_multiple = 0
+        count_first_late = 0
+        count_last_early = 0
+        
+        seller_visit_stats = defaultdict(lambda: {
+            "total_visites": 0,
+            "days_active": set(),
+            "anomalies_count": 0,
+            "less_3min": 0,
+            "first_late": 0,
+            "last_early": 0,
+            "multiple": 0
+        })
+
+        for (vendeur, date_visite), visits in groups.items():
+            seller_visit_stats[vendeur]["days_active"].add(date_visite)
+            seller_visit_stats[vendeur]["total_visites"] += len(visits)
+            
+            client_counts = defaultdict(int)
+            for visit in visits:
+                c_code = (visit.get('client_code') or '').strip().upper()
+                if c_code:
+                    client_counts[c_code] += 1
+                    if client_counts[c_code] == 2:
+                        count_multiple += 1
+                        seller_visit_stats[vendeur]["multiple"] += 1
+                        seller_visit_stats[vendeur]["anomalies_count"] += 1
+
+                h_str = visit.get('heure') or ''
+                if ' - ' in h_str:
+                    parts = h_str.split(' - ')
+                    if len(parts) == 2:
+                        try:
+                            t1 = datetime.strptime(parts[0].strip(), '%H:%M:%S')
+                            t2 = datetime.strptime(parts[1].strip(), '%H:%M:%S')
+                            dur_secs = (t2 - t1).total_seconds()
+                            if 0 < dur_secs < 180:
+                                count_less_3min += 1
+                                seller_visit_stats[vendeur]["less_3min"] += 1
+                                seller_visit_stats[vendeur]["anomalies_count"] += 1
+                        except:
+                            pass
+
+            if visits:
+                h0 = visits[0].get('heure', '')
+                if ' - ' in h0:
+                    p0 = h0.split(' - ')[0].strip()
+                    if p0 > '08:40:00':
+                        count_first_late += 1
+                        seller_visit_stats[vendeur]["first_late"] += 1
+                        seller_visit_stats[vendeur]["anomalies_count"] += 1
+                h_last = visits[-1].get('heure', '')
+                if ' - ' in h_last:
+                    p_last = h_last.split(' - ')[1].strip()
+                    if p_last < '14:45:00':
+                        count_last_early += 1
+                        seller_visit_stats[vendeur]["last_early"] += 1
+                        seller_visit_stats[vendeur]["anomalies_count"] += 1
+
+        total_anomalies = count_less_3min + count_multiple + count_first_late + count_last_early
+
+        reps_visites = []
+        for v, s in seller_visit_stats.items():
+            num_days = len(s["days_active"])
+            avg_per_day = round(s["total_visites"] / num_days, 1) if num_days > 0 else 0
+            reps_visites.append({
+                "vendeur": v,
+                "total_visites": s["total_visites"],
+                "active_days": num_days,
+                "avg_visites_per_day": avg_per_day,
+                "anomalies_total": s["anomalies_count"],
+                "less_3min": s["less_3min"],
+                "first_late": s["first_late"],
+                "last_early": s["last_early"],
+                "multiple": s["multiple"]
+            })
+        reps_visites.sort(key=lambda x: x["total_visites"], reverse=True)
+
+        return {
+            "total_visites": total_visites,
+            "total_anomalies": total_anomalies,
+            "count_less_3min": count_less_3min,
+            "count_multiple": count_multiple,
+            "count_first_late": count_first_late,
+            "count_last_early": count_last_early,
+            "reps_visites": reps_visites
+        }
+    except Exception as e:
+        print("Error fetching visites and anomalies:", e)
+        return {
+            "total_visites": 0,
+            "total_anomalies": 0,
+            "count_less_3min": 0,
+            "count_multiple": 0,
+            "count_first_late": 0,
+            "count_last_early": 0,
+            "reps_visites": []
+        }
+
+def get_terrain_orders_data(allowed_sellers=None):
+    """Fetch field entries and commands from tracking table."""
+    try:
+        import app
+        res = app.get_suivi_terrain_data()
+        if isinstance(res, tuple):
+            records = res[0]
+        else:
+            records = res or []
+            
+        if allowed_sellers:
+            allowed_upper = {s.strip().upper() for s in allowed_sellers if s}
+            filtered = []
+            for r in records:
+                v = (r.get("vendeur") or "").strip().upper()
+                v_code = v.split(" ")[0] if " " in v else v
+                if v in allowed_upper or any(s.startswith(v_code) for s in allowed_upper) or any(v.startswith(s.split(" ")[0]) for s in allowed_upper):
+                    filtered.append(r)
+            records = filtered
+
+        total_orders = len(records)
+        vendeur_counts = defaultdict(int)
+        for r in records:
+            v = r.get("vendeur") or "Inconnu"
+            vendeur_counts[v] += 1
+
+        reps_terrain = [{"vendeur": v, "commandes_count": c} for v, c in vendeur_counts.items()]
+        reps_terrain.sort(key=lambda x: x["commandes_count"], reverse=True)
+
+        return {
+            "total_commandes_terrain": total_orders,
+            "active_reps_count": len(reps_terrain),
+            "reps_terrain": reps_terrain
+        }
+    except Exception as e:
+        print("Error fetching terrain data:", e)
+        return {
+            "total_commandes_terrain": 0,
+            "active_reps_count": 0,
+            "reps_terrain": []
+        }
+
 def build_daily_sales_table(vendeur=None, category=None):
     try:
         import db_manager
-        from data_processor import get_categorie
         
-        # 1. Fetch history records
         records = db_manager.get_all_suivi_data_records()
         if not records:
             return ""
             
-        # 2. Get allowed sellers
         fdv_list = db_manager.get_fdv_list()
         db_sellers = {r["vendeur"].strip().upper() for r in fdv_list if r.get("cdz") in ("CHAKIB ELFIL", "BOUTMEZGUINE EL MOSTAFA")}
         
@@ -30,10 +217,7 @@ def build_daily_sales_table(vendeur=None, category=None):
         else:
             allowed_set = db_sellers
             
-        # 3. Sum up cumulative real and obj for each date
         date_sums = []
-        
-        # Sort records by date in chronological order
         records = sorted(records, key=lambda x: x["date"])
         
         for r in records:
@@ -53,7 +237,6 @@ def build_daily_sales_table(vendeur=None, category=None):
                     
             date_sums.append((date_str, date_real, date_obj))
             
-        # 4. Compute daily sales from cumulative
         daily_sales = []
         for i in range(len(date_sums)):
             date_str, real, obj = date_sums[i]
@@ -75,7 +258,6 @@ def build_daily_sales_table(vendeur=None, category=None):
                 daily_obj = d_obj if d_obj >= 0 else obj
                 daily_sales.append((date_str, daily_real, daily_obj))
                 
-        # 5. Format as Markdown Table
         table = "\n\n### Historique des Ventes Quotidiennes (Non cumulées)\n\n"
         table += "| Date | Ventes Réelles (DH) | Objectif du Jour (DH) |\n"
         table += "| :--- | :---: | :---: |\n"
@@ -92,13 +274,268 @@ def build_daily_sales_table(vendeur=None, category=None):
         print("Error building daily sales table:", e)
         return ""
 
+def get_weekly_comparison_data(date=None, tax_mode="TTC", filter_vendeur=None, filter_cdz=None):
+    """Calculate week-over-week performance comparison by CDZ team and vendor by vendor."""
+    try:
+        import db_manager
+        from datetime import datetime, timedelta
+
+        dates = db_manager.get_all_suivi_dates()
+        if not dates:
+            return {}
+            
+        cur_date = date if (date and date != "default") else dates[0]
+        try:
+            cur_dt = datetime.strptime(cur_date, "%Y-%m-%d")
+        except:
+            cur_dt = datetime.now()
+
+        # Find prior week date (~7 days before)
+        prev_date = None
+        target_prev = (cur_dt - timedelta(days=7)).strftime("%Y-%m-%d")
+        if target_prev in dates:
+            prev_date = target_prev
+        else:
+            for d in dates:
+                try:
+                    dt = datetime.strptime(d, "%Y-%m-%d")
+                    diff = (cur_dt - dt).days
+                    if 4 <= diff <= 10:
+                        prev_date = d
+                        break
+                except:
+                    pass
+            if not prev_date and len(dates) > 1:
+                for d in dates:
+                    if d < cur_date:
+                        prev_date = d
+                        break
+
+        d_cur = db_manager.get_suivi_data(cur_date) or {}
+        d_prev = db_manager.get_suivi_data(prev_date) if prev_date else {}
+
+        fdv = db_manager.get_fdv_list()
+        v_to_cdz = {r["vendeur"].strip().upper(): (r.get("cdz") or "AUTRE").strip().upper() for r in fdv}
+        allowed_vendeurs = {r["vendeur"].strip().upper() for r in fdv if r.get("cdz") in ("CHAKIB ELFIL", "BOUTMEZGUINE EL MOSTAFA")}
+
+        def extract_quanti(data):
+            res = {}
+            for r in data.get("quantitative", []):
+                v = r.get("vendeur", "").strip().upper()
+                if not v or "TOTAL" in v:
+                    continue
+                if v not in res:
+                    res[v] = {"real": 0, "obj": 0, "obj_mois": 0, "raf": 0}
+                real_val = r.get("real", 0) or 0
+                obj_val = r.get("obj", 0) or 0
+                if tax_mode == "HT":
+                    real_val = int(round(real_val / 1.2))
+                    obj_val = int(round(obj_val / 1.2))
+                res[v]["real"] += real_val
+                res[v]["obj"] += obj_val
+            return res
+
+        def extract_quali(data):
+            res = {}
+            for r in data.get("qualitative", []):
+                v = r.get("vendeur", "").strip().upper()
+                if not v:
+                    continue
+                acm_v = r.get("acm", 0)
+                tsm_v = r.get("tsm", 0)
+                if isinstance(acm_v, str):
+                    try:
+                        acm_v = float(acm_v.replace('%', '')) / 100.0
+                    except:
+                        acm_v = 0.0
+                if isinstance(tsm_v, str):
+                    try:
+                        tsm_v = float(tsm_v.replace('%', '')) / 100.0
+                    except:
+                        tsm_v = 0.0
+                res[v] = {"acm": float(acm_v or 0), "tsm": float(tsm_v or 0)}
+            return res
+
+        q_cur = extract_quanti(d_cur)
+        q_prev = extract_quanti(d_prev)
+        ql_cur = extract_quali(d_cur)
+        ql_prev = extract_quali(d_prev)
+
+        vendeurs_list = []
+        for v in sorted(allowed_vendeurs):
+            c_val = q_cur.get(v, {}).get("real", 0)
+            p_val = q_prev.get(v, {}).get("real", 0)
+            obj_val = q_cur.get(v, {}).get("obj", 0)
+            diff_dh = c_val - p_val
+            diff_pct = ((c_val - p_val) / p_val * 100) if p_val > 0 else (100.0 if c_val > 0 else 0.0)
+            rate = ((c_val - obj_val) / obj_val * 100) if obj_val > 0 else -100.0
+
+            acm_c = ql_cur.get(v, {}).get("acm", 0.0) * 100
+            acm_p = ql_prev.get(v, {}).get("acm", 0.0) * 100
+            tsm_c = ql_cur.get(v, {}).get("tsm", 0.0) * 100
+            tsm_p = ql_prev.get(v, {}).get("tsm", 0.0) * 100
+
+            cdz_name = v_to_cdz.get(v, "AUTRE")
+
+            if diff_pct >= 20:
+                trend = "🚀 Forte hausse"
+            elif diff_pct >= 5:
+                trend = "📈 En progression"
+            elif diff_pct >= -5:
+                trend = "➡️ Stable"
+            elif diff_pct >= -15:
+                trend = "📉 En baisse"
+            else:
+                trend = "⚠️ Décrochage"
+
+            vendeurs_list.append({
+                "vendeur": v,
+                "cdz": cdz_name,
+                "real_cur": c_val,
+                "real_prev": p_val,
+                "diff_dh": diff_dh,
+                "diff_pct": diff_pct,
+                "obj": obj_val,
+                "rate": rate,
+                "acm_cur": acm_c,
+                "acm_prev": acm_p,
+                "tsm_cur": tsm_c,
+                "tsm_prev": tsm_p,
+                "trend": trend
+            })
+
+        vendeurs_list.sort(key=lambda x: x["real_cur"], reverse=True)
+
+        cdz_summary = []
+        for target_cdz_name in ["CHAKIB ELFIL", "BOUTMEZGUINE EL MOSTAFA"]:
+            reps = [x for x in vendeurs_list if x["cdz"] == target_cdz_name]
+            c_tot = sum(x["real_cur"] for x in reps)
+            p_tot = sum(x["real_prev"] for x in reps)
+            o_tot = sum(x["obj"] for x in reps)
+            d_dh = c_tot - p_tot
+            d_pct = ((c_tot - p_tot) / p_tot * 100) if p_tot > 0 else 0.0
+            r_tot = ((c_tot - o_tot) / o_tot * 100) if o_tot > 0 else -100.0
+
+            avg_acm_c = sum(x["acm_cur"] for x in reps) / len(reps) if reps else 0.0
+            avg_acm_p = sum(x["acm_prev"] for x in reps) / len(reps) if reps else 0.0
+            avg_tsm_c = sum(x["tsm_cur"] for x in reps) / len(reps) if reps else 0.0
+            avg_tsm_p = sum(x["tsm_prev"] for x in reps) / len(reps) if reps else 0.0
+
+            cdz_summary.append({
+                "cdz": f"Équipe {target_cdz_name.title()}",
+                "cdz_raw": target_cdz_name,
+                "reps_count": len(reps),
+                "real_cur": c_tot,
+                "real_prev": p_tot,
+                "diff_dh": d_dh,
+                "diff_pct": d_pct,
+                "obj": o_tot,
+                "rate": r_tot,
+                "acm_cur": avg_acm_c,
+                "acm_prev": avg_acm_p,
+                "tsm_cur": avg_tsm_c,
+                "tsm_prev": avg_tsm_p
+            })
+
+        tot_c = sum(x["real_cur"] for x in cdz_summary)
+        tot_p = sum(x["real_prev"] for x in cdz_summary)
+        tot_o = sum(x["obj"] for x in cdz_summary)
+        tot_d_dh = tot_c - tot_p
+        tot_d_pct = ((tot_c - tot_p) / tot_p * 100) if tot_p > 0 else 0.0
+        tot_rate = ((tot_c - tot_o) / tot_o * 100) if tot_o > 0 else -100.0
+        tot_acm_c = sum(x["acm_cur"] for x in cdz_summary) / len(cdz_summary) if cdz_summary else 0.0
+        tot_acm_p = sum(x["acm_prev"] for x in cdz_summary) / len(cdz_summary) if cdz_summary else 0.0
+
+        return {
+            "current_date": cur_date,
+            "previous_date": prev_date or "Semaine Précédente",
+            "cdz_summary": cdz_summary,
+            "agency_total": {
+                "cdz": "AGENCE GLOBALE",
+                "real_cur": tot_c,
+                "real_prev": tot_p,
+                "diff_dh": tot_d_dh,
+                "diff_pct": tot_d_pct,
+                "obj": tot_o,
+                "rate": tot_rate,
+                "acm_cur": tot_acm_c,
+                "acm_prev": tot_acm_p
+            },
+            "vendeurs": vendeurs_list
+        }
+    except Exception as e:
+        print("Error calculating weekly comparison:", e)
+        return {}
+
+def build_cdz_weekly_table(weekly_data):
+    if not weekly_data or not weekly_data.get("cdz_summary"):
+        return ""
+    cur_date = weekly_data.get("current_date", "")
+    prev_date = weekly_data.get("previous_date", "S-1")
+
+    md = f"\n### 📊 Comparaison des Équipes CDZ (Semaine Dernière vs Semaine Actuelle)\n\n"
+    md += f"| Équipe CDZ | Semaine Dernière ({prev_date}) | Semaine Actuelle ({cur_date}) | Évolution (DH) | Évolution (%) | Objectif (DH) | Écart Actuel (%) | ACM Moyen (%) |\n"
+    md += "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n"
+
+    for c in weekly_data["cdz_summary"]:
+        diff_sign = "+" if c["diff_dh"] >= 0 else ""
+        diff_pct_sign = "+" if c["diff_pct"] >= 0 else ""
+        rate_sign = "+" if c["rate"] >= 0 else ""
+        md += f"| **{c['cdz']}** | {c['real_prev']:,.0f} | {c['real_cur']:,.0f} | {diff_sign}{c['diff_dh']:,.0f} | **{diff_pct_sign}{c['diff_pct']:.1f}%** | {c['obj']:,.0f} | {rate_sign}{c['rate']:.1f}% | {c['acm_cur']:.1f}% |\n"
+
+    tot = weekly_data.get("agency_total", {})
+    if tot:
+        diff_sign = "+" if tot["diff_dh"] >= 0 else ""
+        diff_pct_sign = "+" if tot["diff_pct"] >= 0 else ""
+        tot_rate_sign = "+" if tot["rate"] >= 0 else ""
+        md += f"| **{tot['cdz']}** | **{tot['real_prev']:,.0f}** | **{tot['real_cur']:,.0f}** | **{diff_sign}{tot['diff_dh']:,.0f}** | **{diff_pct_sign}{tot['diff_pct']:.1f}%** | **{tot['obj']:,.0f}** | **{tot_rate_sign}{tot['rate']:.1f}%** | **{tot['acm_cur']:.1f}%** |\n"
+
+    return md
+
+def build_vendor_weekly_table(weekly_data, target_vendeur=None, target_cdz=None):
+    if not weekly_data or not weekly_data.get("vendeurs"):
+        return ""
+    cur_date = weekly_data.get("current_date", "")
+    prev_date = weekly_data.get("previous_date", "S-1")
+
+    vendeurs = weekly_data["vendeurs"]
+    if target_vendeur:
+        v_upper = target_vendeur.strip().upper()
+        vendeurs = [v for v in vendeurs if v["vendeur"].strip().upper() == v_upper]
+    elif target_cdz and target_cdz != "All":
+        cdz_key = "CHAKIB" if "CHAKIB" in target_cdz.upper() else "BOUTMEZGUINE"
+        vendeurs = [v for v in vendeurs if cdz_key in v["cdz"].upper()]
+
+    if not vendeurs:
+        return ""
+
+    md = f"\n### 📈 Évolution Hebdomadaire Vendeur par Vendeur ({prev_date} vs {cur_date})\n\n"
+    md += f"| Vendeur | Équipe CDZ | Semaine Dernière (DH) | Semaine Actuelle (DH) | Évolution (DH) | Évolution (%) | Objectif (DH) | Écart vs Obj (%) | Tendance |\n"
+    md += "| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n"
+
+    for v in vendeurs:
+        diff_sign = "+" if v["diff_dh"] >= 0 else ""
+        diff_pct_sign = "+" if v["diff_pct"] >= 0 else ""
+        rate_sign = "+" if v["rate"] >= 0 else ""
+        cdz_short = "Chakib" if "CHAKIB" in v["cdz"] else "Boutmezguine"
+        md += f"| **{v['vendeur']}** | {cdz_short} | {v['real_prev']:,.0f} | {v['real_cur']:,.0f} | {diff_sign}{v['diff_dh']:,.0f} | **{diff_pct_sign}{v['diff_pct']:.1f}%** | {v['obj']:,.0f} | {rate_sign}{v['rate']:.1f}% | {v['trend']} |\n"
+
+    return md
+
+def tax_mode_label(summary_data):
+    return summary_data.get("tax_mode", "TTC")
+
 def generate_fallback_report_vendeur(vendeur, summary_data):
     workdays = summary_data["workdays"]
     ca_ttc = summary_data["agency_totals"]["total_real_ca_ttc"]
     obj_ttc = summary_data["agency_totals"]["total_obj_ca_ttc"]
     rate = summary_data["agency_totals"]["achievement_rate_ca"]
+    variance = summary_data["agency_totals"]["variance_rate_ca"]
+    full_month_obj = summary_data["agency_totals"]["full_month_obj"]
+    total_raf = summary_data["agency_totals"]["total_raf"]
+    raf_per_day = summary_data["agency_totals"]["raf_per_day"]
+    rest_days = workdays["rest"]
 
-    # Positioning context (rank, average, peers)
     pos = summary_data.get("positioning", {})
     positioning_section = ""
     if pos:
@@ -106,349 +543,390 @@ def generate_fallback_report_vendeur(vendeur, summary_data):
         total = pos["total_sellers"]
         v_pct = pos["vendeur_pct"]
         avg_pct = pos["agency_average_pct"]
-        ecart = pos["ecart_vs_moyenne"]
         top = pos.get("top_performer", {}) or {}
         bottom = pos.get("bottom_performer", {}) or {}
         top_name = top.get("vendeur", "-")
         top_pct = top.get("pct_str", "-")
         bottom_name = bottom.get("vendeur", "-")
         bottom_pct = bottom.get("pct_str", "-")
-        # Verdict
+        
         if pos.get("ecart_vs_moyenne_float", 0) > 5:
-            verdict = f"{vendeur} se positionne **en avance** sur la moyenne de l'agence."
+            verdict = f"{vendeur} est **en nette avance** sur la moyenne de l'équipe."
         elif pos.get("ecart_vs_moyenne_float", 0) < -5:
-            verdict = f"{vendeur} se positionne **en retard** par rapport à la moyenne de l'agence et doit accélérer."
+            verdict = f"{vendeur} est **en retard** par rapport à l'équipe et nécessite une accélération immédiate."
         else:
-            verdict = f"{vendeur} se positionne **dans la moyenne** de l'agence."
+            verdict = f"{vendeur} est **dans la moyenne** de l'équipe."
+            
         positioning_section = f"""
-**1.5. POSITIONNEMENT DU VENDEUR (Comparaison agence)**
-*   **Classement :** {vendeur} est **#{rank} sur {total} vendeurs** actifs de l'agence.
-*   **Taux d'écart objectif :** **{v_pct}** | **Moyenne agence :** **{avg_pct}** | **Écart vs moyenne :** **{ecart}**
-*   **Meilleur performer :** {top_name} ({top_pct}) | **Plus en retard :** {bottom_name} ({bottom_pct})
-*   **Verdict :** {verdict}
+> [!NOTE]
+> **Positionnement dans l'équipe :** {vendeur} est classé **#{rank} sur {total} vendeurs**. Écart : **{v_pct}** (Moyenne équipe : {avg_pct}). {verdict}
 """
 
+    visites_info = summary_data.get("visites_summary", {})
+    anomalies_info = summary_data.get("anomalies_summary", {})
+    terrain_info = summary_data.get("terrain_summary", {})
+
+    report = f"""# 📊 Rapport d'Analyse Exécutif & Coaching
+## Vendeur : **{vendeur}**
+**Période : Mois en cours ({workdays['elapsed']} jours écoulés / {workdays['total']} jours ouvrés)**
+
+{positioning_section}
+
+### 1. Synthèse des Résultats Commerciaux (CA)
+* **Chiffre d'Affaires Réalisé :** **{ca_ttc:,.0f} MAD** ({tax_mode_label(summary_data)})
+* **Objectif Partiel Proratisé :** {obj_ttc:,.0f} MAD
+* **Objectif Mensuel Global :** **{full_month_obj:,.0f} MAD**
+* **Taux d'Atteinte :** **{rate}** (Écart : **{variance}**)
+* **Reste à Faire (RAF) Global :** **{total_raf:,.0f} MAD**
+* **🎯 Effort Quotidien Requis :** **{raf_per_day:,.0f} MAD / jour** sur les **{rest_days} jours restants**.
+
+### 2. Répartition par Famille de Produits (Quantitatif)
+| Famille | Réalisé (DH) | Objectif (DH) | % Écart | Obj Mois (DH) | RAF / Jour (DH) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+"""
+    for f in summary_data.get("families_performance", []):
+        pct_sign = "+" if f["pct"] >= 0 else ""
+        report += f"| **{f['famille']}** | {f['real']:,.0f} | {f['obj']:,.0f} | {pct_sign}{f['pct']:.1f}% | {f.get('obj_mois', 0):,.0f} | {f.get('raf', 0):,.0f} |\n"
+
+    vq = summary_data.get("vendeur_qualitative", {})
+    weekly_comp = summary_data.get("weekly_comparison", {})
+    vendor_weekly_md = build_vendor_weekly_table(weekly_comp, target_vendeur=vendeur)
+
+    report += f"""
+### 3. Couverture Clientèle & Qualitatif (ACM / TSM)
+| Clients Programmés | Clients Facturés | Couverture ACM (%) | Transformation TSM (%) | Lignes/Client |
+| :---: | :---: | :---: | :---: | :---: |
+| {vq.get('clt_programme', 0)} | {vq.get('clt_facture', 0)} | **{vq.get('acm', '0.0%')}** | **{vq.get('tsm', '0.0%')}** | {vq.get('line', '-')} |
+
+{vendor_weekly_md}
+
+### 4. Progression sur les Produits Focus
+"""
+    focus_som = summary_data.get("focus_som_summary", [])
+    focus_vmm = summary_data.get("focus_vmm_summary", [])
+    
+    if focus_som:
+        report += "* **Focus Glace / Mousse Chantilly (SOM) :**\n"
+        for f in focus_som:
+            report += f"  - Secteur {f['secteur']} : Réalisé **{f['realise']:,.0f} DH** sur obj **{f['ttc']:,.0f} DH** (Taux : **{f['percent']}**)\n"
+    if focus_vmm:
+        report += "* **Focus Tomate Frito (VMM) :**\n"
+        for f in focus_vmm:
+            report += f"  - Secteur {f['secteur']} : Réalisé **{f['realise']:,.0f}** sur obj ACM **{f['obj_acm']:,.0f}** (Taux : **{f['percent']}**)\n"
+
+    report += f"""
+### 5. Discipline Terrain, Visites & Détection d'Anomalies
+* **Activité Visites Enregistrées :** {visites_info.get('total_visites', 0)} visites effectuées.
+* **Commandes Terrain Saisies :** {terrain_info.get('total_commandes_terrain', 0)} commandes enregistrées.
+* **Anomalies Détectées :** {anomalies_info.get('total_anomalies', 0)} alertes ({anomalies_info.get('count_less_3min', 0)} visites < 3min, {anomalies_info.get('count_first_late', 0)} départs après 8h40).
+
+> [!TIP]
+> ### 🚀 Plan d'Action & Priorités Terrain pour {vendeur}
+> 1. **Priorité Chiffre d'Affaires :** Maintenir un rythme de facturation de **{raf_per_day:,.0f} MAD / jour** en poussant les familles à fort volume et en retard.
+> 2. **Couverture & Visites :** Visiter 100% des clients de la tournée quotidienne dès 08h30 pour maximiser le taux de frappe ACM.
+> 3. **Focus Produits :** Placer systématiquement au moins 2 unités des produits focus par visite client.
+"""
+    return report
+
+def generate_fallback_report_cdz(cdz_name, summary_data):
+    workdays = summary_data["workdays"]
+    ca_ttc = summary_data["agency_totals"]["total_real_ca_ttc"]
+    obj_ttc = summary_data["agency_totals"]["total_obj_ca_ttc"]
+    rate = summary_data["agency_totals"]["achievement_rate_ca"]
+    variance = summary_data["agency_totals"]["variance_rate_ca"]
     full_month_obj = summary_data["agency_totals"]["full_month_obj"]
     total_raf = summary_data["agency_totals"]["total_raf"]
     raf_per_day = summary_data["agency_totals"]["raf_per_day"]
+    rest_days = workdays["rest"]
 
-    report = f"""**RAPPORT DE PERFORMANCE INDIVIDUEL - VENDEUR : {vendeur}**
-**Période : En cours ({workdays['elapsed']} jours écoulés sur {workdays['total']} jours)**
+    visites_info = summary_data.get("visites_summary", {})
+    anomalies_info = summary_data.get("anomalies_summary", {})
+    terrain_info = summary_data.get("terrain_summary", {})
+    weekly_comp = summary_data.get("weekly_comparison", {})
 
-**1. INTRODUCTION ET CHIFFRE D'AFFAIRES INDIVIDUEL**
-Pour la période active, le vendeur {vendeur} a réalisé les performances de chiffre d'affaires suivantes :
-*   **Chiffre d'Affaires Réel (TTC) :** {ca_ttc:,.0f} MAD
-*   **Objectif Mensuel Complet (TTC) :** {full_month_obj:,.0f} MAD (= {summary_data['agency_totals']['total_obj_ca_ttc']:,.0f} × {workdays['total']}/{workdays['elapsed']} jours)
-*   **Taux d'Atteinte :** {rate}
-*   **Reste à Faire Total (RAF) :** {total_raf:,.0f} MAD → soit **{raf_per_day:,.0f} MAD / jour** sur les {workdays['rest']} jours restants.
-{positioning_section}
-**2. ANALYSE DE LA PERFORMANCE PAR FAMILLE DE PRODUIT (QUANTITATIF)**
-Voici le tableau des réalisations quantitatives par famille de produits, avec le Reste à Faire (RAF) à combler :
+    cdz_weekly_md = build_cdz_weekly_table(weekly_comp)
+    vendor_weekly_md = build_vendor_weekly_table(weekly_comp, target_cdz=cdz_name)
 
-| Famille | Réalisé (DH) | Parcial (DH) | Taux | Réal 2025 (DH) | Obj Mois (DH) | Reste à Faire (RAF) |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+    report = f"""# 👑 Rapport de Pilotage Exécutif CDZ
+## Chef de Zone : **{cdz_name}**
+**Période : Mois en cours ({workdays['elapsed']} jours écoulés / {workdays['total']} jours ouvrés)**
+
+> [!IMPORTANT]
+> **Diagnostic Macro Équipe {cdz_name} :**
+> * **CA Réalisé :** **{ca_ttc:,.0f} MAD** ({tax_mode_label(summary_data)})
+> * **Objectif Mensuel Complet :** **{full_month_obj:,.0f} MAD**
+> * **Taux d'Atteinte :** **{rate}** (Écart : **{variance}**)
+> * **Reste à Faire Global :** **{total_raf:,.0f} MAD**
+> * **🎯 Cible Quotidienne Équipe :** **{raf_per_day:,.0f} MAD / jour** sur les {rest_days} jours restants.
+
+---
+
+{cdz_weekly_md}
+
+---
+
+### 1. 🏆 Classement & Performance des Vendeurs de la Zone
+
+#### Top Performers (Locomotives) :
+| Vendeur | Réalisé (DH) | Objectif (DH) | Écart (%) | Statut |
+| :--- | :---: | :---: | :---: | :---: |
 """
-    for f in summary_data["families_performance"]:
-        pct_sign = "+" if f["pct"] >= 0 else ""
-        report += f"| **{f['famille']}** | {f['real']:,.0f} | {f['obj']:,.0f} | {pct_sign}{f['pct']:.1f}% | {f.get('real_2025', 0):,.0f} | {f.get('obj_mois', 0):,.0f} | {f.get('raf', 0):,.0f} |\n"
-
-    vq = summary_data.get("vendeur_qualitative", {})
-    report += f"""
-**3. INDICATEURS QUALITATIFS (SUIVI CLIENTS)**
-Voici les performances de couverture et de commande du vendeur :
-
-| Clients Programmés | Clients Facturés | ACM | TSM | LINE | RAF TSM | RAF ACM |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| {vq.get('clt_programme', 0)} | {vq.get('clt_facture', 0)} | {vq.get('acm', '0.0%')} | {vq.get('tsm', '0.0%')} | {vq.get('line', '-')} | {vq.get('raf_tsm', 0)} | {vq.get('raf_acm', 0)} |
-
-**4. ANALYSE DES PRODUITS FOCUS**
-*   **Focus Tomate Frito (VMM) :**
-"""
-    if summary_data["focus_vmm_summary"]:
-        for f in summary_data["focus_vmm_summary"]:
-            report += f"    *   Secteur {f['secteur']} : Réalisé {f['realise']:,.0f} (Objectif ACM {f['obj_acm']:,.0f}) - Taux : {f['percent']}\n"
-    else:
-        report += "    *   Aucun focus Tomate Frito configuré ou réalisé pour ce vendeur.\n"
+    for v in summary_data.get("top_performing_sellers", [])[:4]:
+        pct_sign = "+" if v["pct"] >= 0 else ""
+        badge = "🟢 En avance" if v["pct"] >= 0 else ("🟡 En vigilance" if v["pct"] >= -15 else "🔴 En retard")
+        report += f"| **{v['vendeur']}** | {v['real']:,.0f} | {v['obj']:,.0f} | {pct_sign}{v['pct']:.1f}% | {badge} |\n"
 
     report += """
-*   **Focus Glace (SOM) :**
+#### Bottom Performers (Cibles Coaching Prioritaires) :
+| Vendeur | Réalisé (DH) | Objectif (DH) | Écart (%) | Statut |
+| :--- | :---: | :---: | :---: | :---: |
 """
-    if summary_data["focus_som_summary"]:
-        for f in summary_data["focus_som_summary"]:
-            report += f"    *   Secteur {f['secteur']} : Réalisé {f['realise']:,.0f} MAD (Objectif Glace TTC {f['ttc']:,.0f} MAD) - Taux : {f['percent']}\n"
-    else:
-        report += "    *   Aucun focus Glace configuré ou réalisé pour ce vendeur.\n"
+    for v in summary_data.get("bottom_performing_sellers", [])[-4:]:
+        pct_sign = "+" if v["pct"] >= 0 else ""
+        badge = "🟢 En avance" if v["pct"] >= 0 else ("🟡 En vigilance" if v["pct"] >= -15 else "🔴 En retard critique")
+        report += f"| **{v['vendeur']}** | {v['real']:,.0f} | {v['obj']:,.0f} | {pct_sign}{v['pct']:.1f}% | {badge} |\n"
 
     report += f"""
-**5. PLAN D'ACTION ET RECOMMANDATIONS (Sous {workdays['rest']} jours restants)**
-*   **🎯 Objectif quotidien :** Réaliser en moyenne **{raf_per_day:,.0f} MAD / jour** pour atteindre l'objectif (RAF total : {total_raf:,.0f} MAD).
-1.  **Visites clients (ACM) :** Augmenter la couverture terrain en planifiant rigoureusement les tournées pour visiter l'ensemble des clients programmés.
-2.  **Transformation (TSM) :** Améliorer la conversion lors des visites par une argumentation commerciale ciblée et en s'assurant de la disponibilité des produits.
-3.  **Relance des focus :** Mettre l'accent sur les familles de produits en retard, en particulier la Tomate Frito et la Glace, en proposant des offres adaptées aux clients du secteur.
+---
+
+{vendor_weekly_md}
+
+---
+
+### 2. 📦 Synthèse par Famille de Produits (Mix Produit)
+| Famille | Réalisé (DH) | Objectif (DH) | % Écart | Obj Mensuel (DH) | RAF Quotidien (DH/J) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+"""
+    for f in summary_data.get("families_performance", []):
+        pct_sign = "+" if f["pct"] >= 0 else ""
+        report += f"| **{f['famille']}** | {f['real']:,.0f} | {f['obj']:,.0f} | {pct_sign}{f['pct']:.1f}% | {f.get('obj_mois', 0):,.0f} | {f.get('raf', 0):,.0f} |\n"
+
+    report += f"""
+---
+
+### 3. 👥 Portefeuille Clients, ACM & Couverture Terrain
+* **Taux Moyen de Couverture (ACM) :** **{summary_data.get('qualitative_averages', {}).get('average_acm_rate', '0%')}**
+* **Taux Moyen de Succès / Commande (TSM) :** **{summary_data.get('qualitative_averages', {}).get('average_tsm_rate', '0%')}**
+
+| Vendeur | Clients Programmés | Clients Facturés | ACM (%) | TSM (%) | LINE |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+"""
+    for r in summary_data.get("sellers_qualitative", [])[:6]:
+        report += f"| **{r['vendeur']}** | {r['clt_programme']} | {r['clt_facture']} | {r['acm']} | {r['tsm']} | {r['line']} |\n"
+
+    report += f"""
+---
+
+### 4. 🎯 Performance Focus Produits
+* **Focus Glace / Chantilly (SOM) :** {len(summary_data.get('focus_som_summary', []))} secteurs suivis.
+* **Focus Tomate Frito (VMM) :** {len(summary_data.get('focus_vmm_summary', []))} secteurs suivis.
+
+---
+
+### 5. ⚠️ Audit des Visites, Suivi Terrain & Détection des Anomalies
+* **Volume Total de Visites Effectuées :** **{visites_info.get('total_visites', 0):,}** visites
+* **Total Commandes Terrain :** **{terrain_info.get('total_commandes_terrain', 0)}**
+* **Anomalies Critiques Détectées :** **{anomalies_info.get('total_anomalies', 0)}** alertes
+  - Visites ultra-courtes (< 3 min) : **{anomalies_info.get('count_less_3min', 0)}**
+  - Démarrage tardif après 08h40 : **{anomalies_info.get('count_first_late', 0)}**
+  - Fin précoce avant 14h45 : **{anomalies_info.get('count_last_early', 0)}**
+  - Visites multiples sur même client : **{anomalies_info.get('count_multiple', 0)}**
+
+---
+
+### 6. 🧭 Plan d'Action Managérial Recommandé pour {cdz_name}
+1. **Accompagnement Terrain Ciblé (Duo Coaching) :** Programmer 2 jours d'accompagnement terrain en priorité avec les vendeurs en bas de tableau.
+2. **Discipline des Départs de Tournée :** Fixer le premier passage client impérativement à 08h30 pour éliminer les retards de démarrage.
+3. **Chantier Focus & Rattrapage RAF :** Instaurer un point d'étape chaque matin à 08h00 pour suivre l'atteinte des **{raf_per_day:,.0f} MAD / jour** requis.
 """
     return report
+
+def generate_fallback_report_category(category, summary_data):
+    cdz_name = "CHAKIB ELFIL" if "CHAKIB" in category.upper() else ("BOUTMEZGUINE EL MOSTAFA" if "BOUTMEZGUINE" in category.upper() else category)
+    return generate_fallback_report_cdz(cdz_name, summary_data)
 
 def generate_fallback_report_global(summary_data):
     workdays = summary_data["workdays"]
     ca_ttc = summary_data["agency_totals"]["total_real_ca_ttc"]
     obj_ttc = summary_data["agency_totals"]["total_obj_ca_ttc"]
     rate = summary_data["agency_totals"]["achievement_rate_ca"]
-    full_month_obj = summary_data["agency_totals"]["full_month_obj"]
-    total_raf = summary_data["agency_totals"]["total_raf"]
-    raf_per_day = summary_data["agency_totals"]["raf_per_day"]
-    rest_days = workdays["rest"]
-    
-    report = f"""**RAPPORT DE PERFORMANCE GLOBAL DE L'AGENCE (AGADIR)**
-**Période : En cours ({workdays['elapsed']} jours écoulés sur {workdays['total']} jours)**
-
-**1. INTRODUCTION ET ANALYSE GLOBALE DU CHIFFRE D'AFFAIRES**
-L'analyse de performance globale pour la région d'Agadir, couvrant {workdays['elapsed']} jours écoulés sur {workdays['total']} jours de travail pour le mois en cours, révèle les résultats suivants :
-*   **Chiffre d'Affaires Réel Global (TTC) :** {ca_ttc:,.0f} MAD
-*   **Objectif Global (TTC) :** {obj_ttc:,.0f} MAD (Proratisé) / **{full_month_obj:,.0f} MAD** (Mensuel Complet)
-*   **Taux d'Atteinte Global :** {rate}
-*   **Reste à Faire Global (RAF) :** {total_raf:,.0f} MAD → soit **{raf_per_day:,.0f} MAD / jour** sur les {rest_days} jours restants.
-
-**2. PERFORMANCE DES VENDEURS**
-**2.1. Top Performers (Taux d'atteinte le plus élevé) :**
-
-| Vendeur | Réalisé (DH) | Objectif (DH) | Taux de réalisation (%) |
-| :--- | :---: | :---: | :---: |
-"""
-    for v in summary_data["top_performing_sellers"][:5]:
-        pct_sign = "+" if v["pct"] >= 0 else ""
-        report += f"| **{v['vendeur']}** | {v['real']:,.0f} | {v['obj']:,.0f} | {pct_sign}{v['pct']:.1f}% |\n"
-
-    report += """
-**2.2. Bottom Performers (Vendeurs nécessitant un suivi) :**
-
-| Vendeur | Réalisé (DH) | Objectif (DH) | Taux de réalisation (%) |
-| :--- | :---: | :---: | :---: |
-"""
-    for v in summary_data["bottom_performing_sellers"][:5]:
-        pct_sign = "+" if v["pct"] >= 0 else ""
-        report += f"| **{v['vendeur']}** | {v['real']:,.0f} | {v['obj']:,.0f} | {pct_sign}{v['pct']:.1f}% |\n"
-
-    report += """
-**3. PERFORMANCE PAR FAMILLE DE PRODUIT**
-Classement des familles de produits par taux de réalisation :
-
-| Famille | Réalisé (DH) | Parcial (DH) | Taux de réalisation (%) |
-| :--- | :---: | :---: | :---: |
-"""
-    for f in summary_data["families_performance"]:
-        pct_sign = "+" if f["pct"] >= 0 else ""
-        report += f"| **{f['famille']}** | {f['real']:,.0f} | {f['obj']:,.0f} | {pct_sign}{f['pct']:.1f}% |\n"
-
-    report += f"""
-**4. ANALYSE QUALITATIVE GLOBALE**
-Voici les taux de visite et de commande consolidés pour l'agence :
-
-| Indicateur | Valeur Moyenne |
-| :--- | :---: |
-| **Taux de visite moyen (ACM)** | {summary_data['qualitative_averages']['average_acm_rate']} |
-| **Taux de commande moyen (TSM)** | {summary_data['qualitative_averages']['average_tsm_rate']} |
-
-**4.2. Performance Qualitative par Vendeur (ACM / TSM) :**
-
-| Vendeur | Clients Programmés | Clients Facturés | ACM | TSM | LINE |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-"""
-    for r in summary_data.get("sellers_qualitative", []):
-        report += f"| **{r['vendeur']}** | {r['clt_programme']} | {r['clt_facture']} | {r['acm']} | {r['tsm']} | {r['line']} |\n"
-
-    report += """
-**5. PERFORMANCE DES FOCUS PRODUITS**
-*   **Focus Tomate Frito (VMM) :**
-"""
-    if summary_data["focus_vmm_summary"]:
-        report += "| Vendeur | Secteur | Réalisé | Objectif ACM | Taux |\n| :--- | :--- | :---: | :---: | :---: |\n"
-        for f in summary_data["focus_vmm_summary"][:5]:
-            report += f"| **{f['vendeur']}** | {f['secteur']} | {f['realise']:,.0f} | {f['obj_acm']:,.0f} | {f['percent']} |\n"
-    else:
-        report += "Aucune donnée focus VMM.\n"
-
-    report += """
-*   **Focus Glace (SOM) :**
-"""
-    if summary_data["focus_som_summary"]:
-        report += "| Vendeur | Secteur | Réalisé (DH) | Objectif (DH) | Taux |\n| :--- | :--- | :---: | :---: | :---: |\n"
-        for f in summary_data["focus_som_summary"][:5]:
-            report += f"| **{f['vendeur']}** | {f['secteur']} | {f['realise']:,.0f} | {f['ttc']:,.0f} | {f['percent']} |\n"
-    else:
-        report += "Aucune donnée focus SOM.\n"
-
-    report += f"""
-**6. RECOMMANDATIONS STRATÉGIQUES POUR LES {workdays['rest']} JOURS RESTANTS**
-1.  **Fiabilisation et suivi quotidien :** Identifier les vendeurs n'ayant réalisé aucune vente et effectuer des coachings terrain ciblés pour relancer l'activité.
-2.  **Amélioration du taux de conversion (TSM) :** Mettre en place des argumentaires produit simples et efficaces pour les familles en retard comme la Levure et les Condiments.
-3.  **Relance active des focus :** Suivre de près les approvisionnements et la distribution des produits focus (Tomate Frito et Glace) auprès des principaux points de vente de la région.
-"""
-    return report
-
-def generate_fallback_report_category(category, summary_data):
-    workdays = summary_data["workdays"]
-    ca_ttc = summary_data["agency_totals"]["total_real_ca_ttc"]
-    obj_ttc = summary_data["agency_totals"]["total_obj_ca_ttc"]
-    rate = summary_data["agency_totals"]["achievement_rate_ca"]
+    variance = summary_data["agency_totals"]["variance_rate_ca"]
     full_month_obj = summary_data["agency_totals"]["full_month_obj"]
     total_raf = summary_data["agency_totals"]["total_raf"]
     raf_per_day = summary_data["agency_totals"]["raf_per_day"]
     rest_days = workdays["rest"]
 
-    report = f"""**RAPPORT DE PERFORMANCE - CATÉGORIE : {category}**
-**Période : En cours ({workdays['elapsed']} jours écoulés sur {workdays['total']} jours)**
+    visites_info = summary_data.get("visites_summary", {})
+    anomalies_info = summary_data.get("anomalies_summary", {})
+    terrain_info = summary_data.get("terrain_summary", {})
+    weekly_comp = summary_data.get("weekly_comparison", {})
 
-**1. INTRODUCTION ET ANALYSE GLOBALE DE LA CATÉGORIE**
-L'analyse de performance pour la catégorie de vendeurs "{category}" (région d'Agadir), couvrant {workdays['elapsed']} jours de travail sur {workdays['total']}, donne les indicateurs consolidés suivants :
-*   **Chiffre d'Affaires Réel Consolidé (TTC) :** {ca_ttc:,.0f} MAD
-*   **Objectif Consolidé (TTC) :** {obj_ttc:,.0f} MAD (Proratisé) / **{full_month_obj:,.0f} MAD** (Mensuel Complet)
-*   **Taux d'Atteinte Consolidé :** {rate}
-*   **Reste à Faire Consolidé (RAF) :** {total_raf:,.0f} MAD → soit **{raf_per_day:,.0f} MAD / jour** sur les {rest_days} jours restants.
+    cdz_weekly_md = build_cdz_weekly_table(weekly_comp)
+    vendor_weekly_md = build_vendor_weekly_table(weekly_comp)
 
-**2. CLASSEMENT DES PERFORMANCE DES VENDEURS DE LA CATÉGORIE**
-**2.1. Top Performers :**
+    report = f"""# 🌐 Rapport d'Analyse Commerciale Globale - Agence Agadir
+**Période : Mois en cours ({workdays['elapsed']} jours écoulés / {workdays['total']} jours ouvrés)**
 
-| Vendeur | Réalisé (DH) | Objectif (DH) | Taux de réalisation (%) |
-| :--- | :---: | :---: | :---: |
+> [!NOTE]
+> **Synthèse Globale Agence :**
+> * **CA Réalisé Total :** **{ca_ttc:,.0f} MAD** ({tax_mode_label(summary_data)})
+> * **Objectif Mensuel Global :** **{full_month_obj:,.0f} MAD**
+> * **Taux de Réalisation Global :** **{rate}** (Écart : **{variance}**)
+> * **Reste à Faire Global :** **{total_raf:,.0f} MAD**
+> * **🎯 Effort Quotidien Global :** **{raf_per_day:,.0f} MAD / jour** sur les {rest_days} jours restants.
+
+---
+
+{cdz_weekly_md}
+
+---
+
+### 1. 🏆 Classement Général des Représentants (Top & Flop)
+
+#### Top 5 Vendeurs (Moteurs de Croissance) :
+| Vendeur | Réalisé (DH) | Objectif (DH) | Écart (%) | Statut |
+| :--- | :---: | :---: | :---: | :---: |
 """
-    for v in summary_data["top_performing_sellers"][:5]:
+    for v in summary_data.get("top_performing_sellers", [])[:5]:
         pct_sign = "+" if v["pct"] >= 0 else ""
-        report += f"| **{v['vendeur']}** | {v['real']:,.0f} | {v['obj']:,.0f} | {pct_sign}{v['pct']:.1f}% |\n"
+        report += f"| **{v['vendeur']}** | {v['real']:,.0f} | {v['obj']:,.0f} | {pct_sign}{v['pct']:.1f}% | 🟢 En avance |\n"
 
     report += """
-**2.2. Bottom Performers (Vendeurs en retard) :**
-
-| Vendeur | Réalisé (DH) | Objectif (DH) | Taux de réalisation (%) |
-| :--- | :---: | :---: | :---: |
+#### 5 Vendeurs sous Surveillance :
+| Vendeur | Réalisé (DH) | Objectif (DH) | Écart (%) | Statut |
+| :--- | :---: | :---: | :---: | :---: |
 """
-    for v in summary_data["bottom_performing_sellers"][-5:]:
+    for v in summary_data.get("bottom_performing_sellers", [])[-5:]:
         pct_sign = "+" if v["pct"] >= 0 else ""
-        report += f"| **{v['vendeur']}** | {v['real']:,.0f} | {v['obj']:,.0f} | {pct_sign}{v['pct']:.1f}% |\n"
-
-    report += """
-**3. PERFORMANCE PAR FAMILLE DE PRODUIT**
-Réalisation par famille de produits triée par performance pour cette catégorie :
-
-| Famille | Réalisé (DH) | Parcial (DH) | Taux de réalisation (%) |
-| :--- | :---: | :---: | :---: |
-"""
-    for f in summary_data["families_performance"]:
-        pct_sign = "+" if f["pct"] >= 0 else ""
-        report += f"| **{f['famille']}** | {f['real']:,.0f} | {f['obj']:,.0f} | {pct_sign}{f['pct']:.1f}% |\n"
+        report += f"| **{v['vendeur']}** | {v['real']:,.0f} | {v['obj']:,.0f} | {pct_sign}{v['pct']:.1f}% | 🔴 En retard |\n"
 
     report += f"""
-**4. INDICATEURS QUALITATIFS COMMERCIAUX**
-Voici les taux de visite et de commande consolidés pour cette catégorie :
+---
 
-| Indicateur | Valeur Moyenne |
-| :--- | :---: |
-| **Taux de couverture moyen (ACM)** | {summary_data['qualitative_averages']['average_acm_rate']} |
-| **Taux de commande moyen (TSM)** | {summary_data['qualitative_averages']['average_tsm_rate']} |
+{vendor_weekly_md}
 
-**4.2. Performance Qualitative par Vendeur (ACM / TSM) :**
+---
 
-| Vendeur | Clients Programmés | Clients Facturés | ACM | TSM | LINE |
+### 2. 📦 Synthèse Globale par Famille de Produits
+| Famille | Réalisé (DH) | Objectif (DH) | % Écart | Obj Mois (DH) | RAF Quotidien (DH/J) |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 """
-    for r in summary_data.get("sellers_qualitative", []):
-        report += f"| **{r['vendeur']}** | {r['clt_programme']} | {r['clt_facture']} | {r['acm']} | {r['tsm']} | {r['line']} |\n"
-
-    report += """
-**5. PERFORMANCE DES FOCUS DE LA CATÉGORIE**
-*   **Focus Tomate Frito (VMM) :**
-"""
-    if summary_data["focus_vmm_summary"]:
-        report += "| Vendeur | Secteur | Réalisé | Objectif ACM | Taux |\n| :--- | :--- | :---: | :---: | :---: |\n"
-        for f in summary_data["focus_vmm_summary"]:
-            report += f"| **{f['vendeur']}** | {f['secteur']} | {f['realise']:,.0f} | {f['obj_acm']:,.0f} | {f['percent']} |\n"
-    else:
-        report += "Aucun focus Tomate Frito configuré pour cette catégorie.\n"
-
-    report += """
-*   **Focus Glace (SOM) :**
-"""
-    if summary_data["focus_som_summary"]:
-        report += "| Vendeur | Secteur | Réalisé (DH) | Objectif (DH) | Taux |\n| :--- | :--- | :---: | :---: | :---: |\n"
-        for f in summary_data["focus_som_summary"]:
-            report += f"| **{f['vendeur']}** | {f['secteur']} | {f['realise']:,.0f} | {f['ttc']:,.0f} | {f['percent']} |\n"
-    else:
-        report += "Aucun focus Glace configuré pour cette catégorie.\n"
+    for f in summary_data.get("families_performance", []):
+        pct_sign = "+" if f["pct"] >= 0 else ""
+        report += f"| **{f['famille']}** | {f['real']:,.0f} | {f['obj']:,.0f} | {pct_sign}{f['pct']:.1f}% | {f.get('obj_mois', 0):,.0f} | {f.get('raf', 0):,.0f} |\n"
 
     report += f"""
-**6. RECOMMANDATIONS POUR LES {workdays['rest']} JOURS RESTANTS**
-1.  **Suivi individualisé :** Accompagner en priorité les vendeurs du bas de classement de la catégorie "{category}" pour redresser leur chiffre d'affaires.
-2.  **Animation qualitative :** Augmenter le nombre moyen de visites (ACM) et le taux de succès (TSM) au sein de cette catégorie.
-3.  **Alignement sur les focus :** Relancer les ventes de Tomate Frito et de Glace en affectant des objectifs de placement quotidiens aux vendeurs.
+---
+
+### 3. 👥 Indicateurs Qualitatifs Consolidés
+* **Taux Moyen ACM :** **{summary_data.get('qualitative_averages', {}).get('average_acm_rate', '0%')}**
+* **Taux Moyen TSM :** **{summary_data.get('qualitative_averages', {}).get('average_tsm_rate', '0%')}**
+
+---
+
+### 4. ⚠️ Activité Terrain, Visites & Anomalies Détectées
+* **Total Visites Enregistrées :** **{visites_info.get('total_visites', 0):,}** visites
+* **Total Commandes Terrain Saisies :** **{terrain_info.get('total_commandes_terrain', 0)}**
+  - Visites courtes (< 3min) : **{anomalies_info.get('count_less_3min', 0)}**
+  - Retards au démarrage (> 08h40) : **{anomalies_info.get('count_first_late', 0)}**
+  - Arrêts précoces (< 14h45) : **{anomalies_info.get('count_last_early', 0)}**
 """
     return report
 
-def build_prompt_sections(options, is_vendeur=False):
+def build_prompt_sections(options, is_vendeur=False, is_cdz=False):
     """Build the prompt sections based on selected options"""
     sections = []
+
+    sections.append("""
+1.bis **Comparaison & Évolution Hebdomadaire (Semaine Dernière vs Semaine Actuelle) :**
+   - Rédige obligatoirement le tableau Markdown de comparaison des équipes CDZ :
+     | Équipe CDZ | Semaine Dernière (DH) | Semaine Actuelle (DH) | Évolution (DH) | Évolution (%) | Objectif (DH) | Écart Actuel (%) | ACM Moyen (%) |
+   - Rédige obligatoirement le tableau Markdown d'évolution hebdomadaire vendeur par vendeur :
+     | Vendeur | Équipe CDZ | Semaine Dernière (DH) | Semaine Actuelle (DH) | Évolution (DH) | Évolution (%) | Objectif (DH) | Écart vs Obj (%) | Tendance |
+   - Commente les dynamiques de croissance, les reprises et les ralentissements hebdomadaires.
+    """)
 
     if options.get("quanti", True):
         sections.append("""
 2. **Analyse Quantitative (Performance des Ventes) :**
-   - Présente un tableau de performance quantitative par famille de produits (contenant exactement ces colonnes : Famille, Réalisé (DH), Parcial (DH), Taux de Réalisation (%), Réal 2025 (DH), Obj Mois (DH), Reste à Faire (RAF)).
-   - Analyse les points forts et les axes d'amélioration par famille de produits.
-   - Identifie les familles en retard et les opportunités de croissance.
+   - Présente un tableau de performance quantitative par famille de produits (Famille, Réalisé (DH), Parcial (DH), Taux de Réalisation (%), Réal 2025 (DH), Obj Mois (DH), Reste à Faire (RAF)).
+   - RÈGLE D'AFFICHAGE DU TAUX QUANTITATIF : Le Taux de Réalisation (%) doit TOUJOURS être exprimé sous forme d'écart négatif ou positif avec son signe (ex: -10.0% si Réalisé est à 90% de l'objectif, +15.0% si Réalisé est à 115% de l'objectif).
+   - Analyse les points forts, les dérives et les familles motrices vs familles en retard.
         """)
 
     if options.get("quali", True):
-        if is_vendeur:
-            sections.append("""
-3. **Analyse Qualitative (Suivi Clients) :**
-   - Présente un tableau de performance qualitative individuel (contenant exactement ces colonnes : Clients Programmés, Clients Facturés, ACM (%), TSM (%), LINE (%), RAF TSM, RAF ACM).
-   - Analyse le taux de visites (ACM), le taux de transformation (TSM) et la performance LINE.
-   - Identifie les actions correctives pour améliorer la couverture terrain.
-            """)
-        else:
-            sections.append("""
-3. **Analyse Qualitative (Suivi Clients) :**
-   - Présente un tableau de performance qualitative comparatif pour tous les vendeurs de la liste (contenant exactement ces colonnes : Vendeur, Clients Programmés, Clients Facturés, ACM (%), TSM (%), LINE (%)).
-   - Analyse le taux de visites (ACM), le taux de transformation (TSM) et la performance LINE moyenne et individuelle.
-   - Identifie les vendeurs ayant une faible couverture (ACM) ou une faible transformation (TSM).
-            """)
+        sections.append("""
+3. **Analyse Qualitative & Couverture Portefeuille (ACM / TSM) :**
+   - Présente le tableau de couverture (Clients Programmés, Clients Facturés, ACM %, TSM %, LINE %).
+   - NOTE : Les indicateurs qualitatifs (ACM %, TSM %, LINE %) restent en pourcentage absolu standard (ex: 85.0%, 78.2%).
+   - Identifie le taux de transformation client et la régularité des commandes.
+        """)
 
     if options.get("focus", True):
         sections.append("""
-4. **Analyse des Focus Produits :**
-   - Présente un tableau des performances sur les focus Tomate Frito (VMM) et Glace (SOM).
-   - Analyse les secteurs et vendeurs en retard sur les focus.
-   - Propose des actions spécifiques pour relancer les focus produits.
+4. **Analyse des Focus Produits (Glace SOM & Tomate Frito VMM) :**
+   - Analyse la progression sur les focus et le taux d'atteinte des objectifs spéciaux (exprimé en écart +/- %).
         """)
 
-    if options.get("anomali", False):
+    if options.get("terrain", True):
         sections.append("""
-5. **Détection des Anomalies :**
-   - Identifie les anomalies dans les données (vendeurs sans ventes, objectifs non atteints, écarts significatifs).
-   - Liste les vendeurs nécessitant une attention particulière.
-   - Propose des actions correctives immédiates.
+5. **Analyse du Suivi Terrain & Commandes :**
+   - Analyse le volume de commandes et ajouts saisis directement sur le terrain.
         """)
 
-    if options.get("rappel", False):
+    if options.get("visites", True):
         sections.append("""
-6. **Rappels Importants :**
-   - N'oublie pas de mentionner les objectifs clés à atteindre.
-   - Rappel des deadlines importantes et des priorités.
-   - Points d'attention spécifiques pour les jours restants.
+6. **Analyse des Visites Terrain & Discipline de Tournée :**
+   - Analyse le volume de visites, le respect des horaires de tournée et la régularité.
+        """)
+
+    if options.get("anomali", True):
+        sections.append("""
+7. **Audit des Anomalies & Alertes Critiques :**
+   - Analyse les anomalies détectées (visites < 3 min, départs tardifs > 8h40, fins précoces < 14h45, visites répétées).
+   - Signale les points de risque majeurs pour l'équipe.
+        """)
+
+    if options.get("rappel", True):
+        sections.append("""
+8. **Recommandations Opérationnelles & Plan d'Action Managérial :**
+   - Formule un plan d'action concret pour les jours restants avec priorités chiffrées (RAF/jour).
         """)
 
     return "\n".join(sections)
 
 
-def generate_report(vendeur=None, category=None, date=None, options=None, return_data=False, tax_mode="TTC", report_type="complet", language="fr", model="anthropic/claude-3.5-sonnet"):
-    print(f"Loading data (vendeur={vendeur}, category={category}, date={date}, options={options}, tax_mode={tax_mode}, report_type={report_type})...")
+def generate_report(vendeur=None, category=None, cdz=None, date=None, options=None, return_data=False, tax_mode="TTC", report_type="complet", language="fr", model=None):
+    if not model:
+        try:
+            cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    model = cfg.get("model") or cfg.get("openrouter_model")
+        except Exception:
+            pass
+    if not model:
+        model = "anthropic/claude-3.5-sonnet"
 
-    # Default options: include all if not specified
+    print(f"Loading data (vendeur={vendeur}, category={category}, cdz={cdz}, date={date}, options={options}, tax_mode={tax_mode}, report_type={report_type}, model={model})...")
+
     if options is None:
         options = {
             "quanti": True,
             "quali": True,
             "focus": True,
-            "anomali": False,
-            "rappel": False
+            "terrain": True,
+            "visites": True,
+            "anomali": True,
+            "rappel": True
         }
+
+    if not cdz and category and category != "All":
+        if "CHAKIB" in category.upper():
+            cdz = "CHAKIB ELFIL"
+        elif "BOUTMEZGUINE" in category.upper():
+            cdz = "BOUTMEZGUINE EL MOSTAFA"
 
     if date and date != "default":
         from db_manager import get_suivi_data
@@ -460,11 +938,10 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
             data = p.get_data()
     else:
         p = ExcelProcessor()
-        # Ensure processed excel is ready
         p.get_day_work()
         p.fix_sheet()
         data = p.get_data()
-    # Filter data to only include valid human vendeurs from the database (Chakib & Boutmezguine teams)
+
     try:
         import datetime
         import db_manager
@@ -487,7 +964,6 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
     except Exception as e:
         print("Error filtering by database vendeurs in generate_report:", e)
     
-    # Adjust values to HT if requested
     if tax_mode == "HT":
         if "quantitative" in data:
             data["quantitative"] = [
@@ -515,43 +991,43 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
                 for r in data["focus_som"]
             ]
     
-    # Filter data if category is specified
-    if category and category != "All":
+    target_sellers_set = None
+    if cdz and cdz != "All":
+        import db_manager
+        fdv_list = db_manager.get_fdv_list()
+        cdz_sellers = [r["vendeur"].strip().upper() for r in fdv_list if (r.get("cdz") or "").strip().upper() == cdz.strip().upper()]
+        if cdz_sellers:
+            allowed_set = set(cdz_sellers)
+            target_sellers_set = allowed_set
+            data["quantitative"] = [r for r in data["quantitative"] if r["vendeur"].strip().upper() in allowed_set]
+            data["qualitative"] = [r for r in data["qualitative"] if r["vendeur"].strip().upper() in allowed_set]
+            data["focus_vmm"] = [r for r in data["focus_vmm"] if r["vendeur"].strip().upper() in allowed_set]
+            data["focus_som"] = [r for r in data["focus_som"] if r["vendeur"].strip().upper() in allowed_set]
+    elif category and category != "All":
         allowed = get_categorie(category)
         if not isinstance(allowed, list):
             allowed = [allowed]
         allowed_set = {v.strip().upper() for v in allowed if v}
+        target_sellers_set = allowed_set
         data["quantitative"] = [r for r in data["quantitative"] if r["vendeur"].strip().upper() in allowed_set]
         data["qualitative"] = [r for r in data["qualitative"] if r["vendeur"].strip().upper() in allowed_set]
         data["focus_vmm"] = [r for r in data["focus_vmm"] if r["vendeur"].strip().upper() in allowed_set]
         data["focus_som"] = [r for r in data["focus_som"] if r["vendeur"].strip().upper() in allowed_set]
         
-    # Save unfiltered data for comparison metrics when vendeur is specified
     unfiltered_quanti = data.get("quantitative", [])
-    unfiltered_quali = data.get("qualitative", [])
     
-    # Filter data if seller is specified
     if vendeur:
         v_name = vendeur.strip().upper()
-        if v_name == "AUTRE":
-            # Find all configured sellers in Focus sheets (excluding virtual 'AUTRE' itself)
-            configured_sellers = {f["vendeur"].strip().upper() for f in data["focus_vmm"] + data["focus_som"] if f["vendeur"].strip().upper() != "AUTRE"}
-            
-            data["quantitative"] = [r for r in data["quantitative"] if r["vendeur"].strip().upper() not in configured_sellers]
-            data["qualitative"] = [r for r in data["qualitative"] if r["vendeur"].strip().upper() not in configured_sellers]
-            
-            data["focus_vmm"] = [r for r in data["focus_vmm"] if r["vendeur"].strip().upper() == "AUTRE"]
-            data["focus_som"] = [r for r in data["focus_som"] if r["vendeur"].strip().upper() == "AUTRE"]
-        else:
-            data["quantitative"] = [r for r in data["quantitative"] if r["vendeur"].strip().upper() == v_name]
-            data["qualitative"] = [r for r in data["qualitative"] if r["vendeur"].strip().upper() == v_name]
-            
-            orig_vmm = [r for r in data["focus_vmm"] if r["vendeur"].strip().upper() == v_name]
-            data["focus_vmm"] = orig_vmm if orig_vmm else [r for r in data["focus_vmm"] if r["vendeur"].strip().upper() == "AUTRE"]
-            
-            orig_som = [r for r in data["focus_som"] if r["vendeur"].strip().upper() == v_name]
-            data["focus_som"] = orig_som if orig_som else [r for r in data["focus_som"] if r["vendeur"].strip().upper() == "AUTRE"]
-    # 1. Summarize quantitative data
+        target_sellers_set = {v_name}
+        data["quantitative"] = [r for r in data["quantitative"] if r["vendeur"].strip().upper() == v_name]
+        data["qualitative"] = [r for r in data["qualitative"] if r["vendeur"].strip().upper() == v_name]
+        
+        orig_vmm = [r for r in data["focus_vmm"] if r["vendeur"].strip().upper() == v_name]
+        data["focus_vmm"] = orig_vmm if orig_vmm else [r for r in data["focus_vmm"] if r["vendeur"].strip().upper() == "AUTRE"]
+        
+        orig_som = [r for r in data["focus_som"] if r["vendeur"].strip().upper() == v_name]
+        data["focus_som"] = orig_som if orig_som else [r for r in data["focus_som"] if r["vendeur"].strip().upper() == "AUTRE"]
+
     quanti = data["quantitative"]
     ca_records = [r for r in quanti if r["famille"] in ("C.A (ht)", "C.A (TTC)")]
     
@@ -559,7 +1035,6 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
     total_obj = sum(r["obj"] for r in ca_records)
     total_pct = (total_real / total_obj - 1.0) * 100 if total_obj > 0 else -100
     
-    # Sort sellers by performance
     seller_ca = {}
     for r in ca_records:
         seller_ca[r["vendeur"]] = seller_ca.get(r["vendeur"], 0) + r["real"]
@@ -581,9 +1056,7 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
         })
     vendeurs_perf.sort(key=lambda x: x["pct"], reverse=True)
     
-    # Build agency-wide ranking from UNFILTERED data (when vendeur is specified)
-    # so we can compare this vendeur to peers
-    agency_ranking = list(vendeurs_perf)  # default: same as filtered
+    agency_ranking = list(vendeurs_perf)
     agency_avg_pct = total_pct
     agency_total_real = total_real
     agency_total_obj = total_obj
@@ -612,13 +1085,11 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
             agency_total_obj = sum(r["obj"] for r in unfiltered_ca)
             agency_avg_pct = (agency_total_real / agency_total_obj - 1.0) * 100 if agency_total_obj > 0 else -100
     
-    # Formulate Prompt Workdays Data
     rest_days = data["workdays"]["rest"]
     elapsed_days = data["workdays"]["elapsed"]
     total_days = data["workdays"]["total"]
     effective_elapsed = 19 if elapsed_days == 20 else (elapsed_days if elapsed_days > 0 else 19)
 
-    # Product families performance (including C.A (ht))
     families = {}
     for r in quanti:
         if r["famille"] not in families:
@@ -639,7 +1110,6 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
         "MISWAK"
     ]
 
-    # Ensure all custom_order families exist in families (case-insensitively)
     existing_upper = {k.strip().upper(): k for k in families.keys()}
     for fam in custom_order:
         if fam not in existing_upper:
@@ -652,7 +1122,6 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
         obj = vals["obj"]
         pct = (real / obj - 1.0) * 100 if obj > 0 else -100
         
-        # Calculate RAF per day based on Objectif Global of this family
         if obj > 0:
             obj_global_fam = round(obj * 24 / effective_elapsed)
             total_rem_fam = max(0, obj_global_fam - real)
@@ -686,7 +1155,6 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
     if ca_perf:
         fam_perf.append(ca_perf)
     
-    # 2. Summarize qualitative data
     quali = data["qualitative"]
     avg_acm = sum(r["acm"] for r in quali) / len(quali) * 100 if quali else 0.0
     avg_tsm = sum(r["tsm"] for r in quali) / len(quali) * 100 if quali else 0.0
@@ -694,33 +1162,39 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
     
     vendeur_qualitative = data["qualitative"][0] if data["qualitative"] else None
     
-    # 3. Summarize Focus VMM & Focus SOM
     focus_vmm = data["focus_vmm"]
     focus_som = data["focus_som"]
     
-    # Formulate Prompt Data
-    rest_days = data["workdays"]["rest"]
-    elapsed_days = data["workdays"]["elapsed"]
-    total_days = data["workdays"]["total"]
-    
-    # Calculate full_month_obj: scale Obj Partiel over 19 effective elapsed workdays to 24 total workdays
+    visites_summary = get_visites_and_anomalies_data(allowed_sellers=target_sellers_set, date=date)
+    anomalies_summary = {
+        "total_anomalies": visites_summary.get("total_anomalies", 0),
+        "count_less_3min": visites_summary.get("count_less_3min", 0),
+        "count_multiple": visites_summary.get("count_multiple", 0),
+        "count_first_late": visites_summary.get("count_first_late", 0),
+        "count_last_early": visites_summary.get("count_last_early", 0),
+    }
+
+    terrain_summary = get_terrain_orders_data(allowed_sellers=target_sellers_set)
+
     effective_elapsed = 19 if elapsed_days == 20 else (elapsed_days if elapsed_days > 0 else 19)
     if total_obj > 0:
         full_month_obj = int(round(total_obj * 24 / effective_elapsed))
     else:
         full_month_obj = sum(r["obj_mois"] for r in ca_records) if ca_records else 0
-    if vendeur and vendeur.strip().upper() == "D48 IBACH MOHAMED" and total_obj == 110000:
-        full_month_obj = 241500
 
     total_raf = full_month_obj - total_real
     raf_per_day = int(round(total_raf / rest_days)) if rest_days > 0 else 0
 
     summary_data = {
+        "target_cdz": cdz,
+        "target_vendeur": vendeur,
+        "target_category": category,
+        "tax_mode": tax_mode,
         "workdays": data["workdays"],
         "agency_totals": {
             "total_real_ca_ttc": total_real,
             "total_obj_ca_ttc": total_obj,
-            "achievement_rate_ca": f"{total_real/total_obj*100:.1f}%" if total_obj > 0 else "0%",
+            "achievement_rate_ca": f"{((total_real/total_obj) - 1.0)*100:+.1f}%" if total_obj > 0 else "-100.0%",
             "variance_rate_ca": f"{((total_real/total_obj) - 1.0)*100:+.1f}%" if total_obj > 0 else "-100.0%",
             "full_month_obj": full_month_obj,
             "total_raf": total_raf,
@@ -757,19 +1231,26 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
             for r in quali
         ],
         "focus_vmm_summary": [
-            {"vendeur": f["vendeur"], "secteur": f["secteur"], "obj_acm": f["obj_acm"], "realise": f["realise"], "percent": f"{f['percent']*100:.1f}%", "rest": f.get("rest", 0.0), "rest_jour": f.get("rest_jour", 0.0), "jour_rest": f.get("jour_rest", 20)}
+            {"vendeur": f["vendeur"], "secteur": f["secteur"], "obj_acm": f["obj_acm"], "realise": f["realise"], "percent": f"{(f['percent'] - 1.0)*100:+.1f}%", "rest": f.get("rest", 0.0), "rest_jour": f.get("rest_jour", 0.0), "jour_rest": f.get("jour_rest", 20)}
             for f in focus_vmm
         ],
         "focus_som_summary": [
-            {"vendeur": f["vendeur"], "secteur": f["secteur"], "ttc": f["ttc"], "realise": f["realise"], "percent": f"{f['percent']*100:.1f}%", "rest": f.get("rest", 0.0), "rest_jour": f.get("rest_jour", 0.0), "jour_rest": f.get("jour_rest", 20)}
+            {"vendeur": f["vendeur"], "secteur": f["secteur"], "ttc": f["ttc"], "realise": f["realise"], "percent": f"{(f['percent'] - 1.0)*100:+.1f}%", "rest": f.get("rest", 0.0), "rest_jour": f.get("rest_jour", 0.0), "jour_rest": f.get("jour_rest", 20)}
             for f in focus_som
-        ]
+        ],
+        "visites_summary": visites_summary,
+        "anomalies_summary": anomalies_summary,
+        "terrain_summary": terrain_summary
     }
+
+    # Calculate rich weekly comparison by CDZ team and vendor by vendor
+    weekly_comp = get_weekly_comparison_data(date=date, tax_mode=tax_mode, filter_vendeur=vendeur, filter_cdz=cdz)
+    summary_data["weekly_comparison"] = weekly_comp
+    summary_data["cdz_weekly_table"] = build_cdz_weekly_table(weekly_comp)
+    summary_data["vendor_weekly_table"] = build_vendor_weekly_table(weekly_comp, target_vendeur=vendeur, target_cdz=cdz)
     
-    # Add positioning/rank metrics when a specific vendeur is requested
     if vendeur and agency_ranking:
         v_name = vendeur.strip().upper()
-        # Find vendeur in agency ranking
         vendeur_idx = None
         vendeur_perf = None
         for i, v in enumerate(agency_ranking):
@@ -810,89 +1291,49 @@ def generate_report(vendeur=None, category=None, date=None, options=None, return
                 "full_ranking": agency_ranking
             }
     
+    lang_instruction = "entièrement en langue Arabe (en utilisant l'alphabet arabe, pas d'arizi)" if language == "ar" else "en français"
+    is_cdz_report = bool(cdz and cdz != "All") or bool(category and category != "All" and not vendeur)
+    
     if vendeur:
-        prompt_sections = build_prompt_sections(options, is_vendeur=True)
-        # Build positioning context
+        prompt_sections = build_prompt_sections(options, is_vendeur=True, is_cdz=False)
         positioning = summary_data.get("positioning", {})
-        if positioning:
-            rank = positioning["rank"]
-            total = positioning["total_sellers"]
-            v_pct = positioning["vendeur_pct"]
-            avg_pct = positioning["agency_average_pct"]
-            ecart = positioning["ecart_vs_moyenne"]
-            top = positioning.get("top_performer", {}) or {}
-            bottom = positioning.get("bottom_performer", {}) or {}
-            top_name = top.get("vendeur", "-")
-            top_pct = top.get("pct_str", "-")
-            bottom_name = bottom.get("vendeur", "-")
-            bottom_pct = bottom.get("pct_str", "-")
-            positioning_block = f"""
-1.5. **Positionnement du vendeur (comparaison agence) :**
-   - {vendeur} se classe **#{rank} sur {total} vendeurs** actifs de l'agence.
-   - Son taux d'écart objectif est de **{v_pct}** ; la moyenne de l'agence est de **{avg_pct}** (écart vs moyenne : **{ecart}**).
-   - Meilleur performer de l'agence : **{top_name}** ({top_pct}).
-   - Vendeur le plus en retard : **{bottom_name}** ({bottom_pct}).
-   - Commente explicitement le positionnement de {vendeur} (est-il en avance, dans la moyenne, ou en retard par rapport à ses pairs ?) et l'écart concret en points par rapport à la moyenne de l'agence."""
-        else:
-            positioning_block = ""
-            
-        lang_instruction = "entièrement en langue Arabe (en utilisant l'alphabet arabe, pas d'arizi)" if language == "ar" else "en français"
+        pos_str = f"Position: #{positioning.get('rank', 1)}/{positioning.get('total_sellers', 1)}" if positioning else ""
+        prompt = f"""Tu es un analyste commercial senior et un coach de force de vente. Analyse les indicateurs clés de performance (KPI) multi-dimensionnels (Quanti, Quali, Focus, Suivi Terrain, Visites, Anomalies) du vendeur {vendeur} (région AGADIR) pour la période en cours.
+Rédige un rapport de performance individuel complet, constructif et motivant {lang_instruction}.
 
-        prompt = f"""Tu es un analyste commercial senior et un coach de force de vente. Analyse les indicateurs clés de performance (KPI) individuels suivants du vendeur {vendeur} (région AGADIR) pour la période en cours.
-Rédige un rapport de performance individuel détaillé, constructif et motivant {lang_instruction} pour ce vendeur.
-
-1. **Introduction :** Analyse des résultats de chiffre d'affaires de {vendeur} par rapport à ses objectifs de vente individuels. Mentionne explicitement le taux d'atteinte de {summary_data['agency_totals']['achievement_rate_ca']}, le pourcentage d'écart de {summary_data['agency_totals']['variance_rate_ca']}, le Reste à Faire (RAF) global de {summary_data['agency_totals']['total_raf']:,.0f} MAD, ainsi que le **Reste à Faire quotidien (RAF / jour)** de {summary_data['agency_totals']['raf_per_day']:,.0f} MAD sur les {summary_data['workdays']['rest']} jours restants.
-{positioning_block}
+1. **Introduction :** Analyse du CA de {vendeur} (Réalisé {summary_data['agency_totals']['total_real_ca_ttc']:,.0f} MAD {tax_mode}, Écart/Progression {summary_data['agency_totals']['achievement_rate_ca']}, RAF Total {summary_data['agency_totals']['total_raf']:,.0f} MAD, RAF Quotidien {summary_data['agency_totals']['raf_per_day']:,.0f} MAD/j sur {summary_data['workdays']['rest']} jours restants). {pos_str}
 
 {prompt_sections}
 
-**Plan d'Action :** Fournis un plan d'action individuel précis et des conseils concrets pour lui permettre d'atteindre ses objectifs d'ici les {data["workdays"]["rest"]} jours restants. Inclus un objectif chiffré de "Reste à Faire" (RAF) quotidien à atteindre pour combler l'écart avec l'objectif.
-
-IMPORTANT : Utilise uniquement les taux d'atteinte et pourcentages d'écart pré-calculés dans les données JSON (clés 'achievement_rate_ca', 'variance_rate_ca', 'pct_str', 'ecart_vs_moyenne'). Ne fais aucun calcul toi-même.
-
-Données KPI de performance de {vendeur} :
+Données KPI consolidées :
 {json.dumps(summary_data, indent=2, ensure_ascii=False)}
 """
-    elif category and category != "All":
-        lang_instruction = "entièrement en langue Arabe (en utilisant l'alphabet arabe, pas d'arizi)" if language == "ar" else "en français"
-        prompt_sections = build_prompt_sections(options, is_vendeur=False)
-        prompt = f"""Tu es un analyste commercial senior. Analyse les indicateurs clés de performance (KPI) suivants pour la catégorie de vendeurs "{category}" (région AGADIR) pour la période en cours.
-Rédige un rapport commercial détaillé, professionnel, structuré {lang_instruction} pour cette catégorie.
+    elif is_cdz_report:
+        cdz_label = cdz or category
+        prompt_sections = build_prompt_sections(options, is_vendeur=False, is_cdz=True)
+        prompt = f"""Tu es un analyste commercial senior et auditeur de performance. Analyse les indicateurs clés de performance (KPI) consolidés (Quanti, Quali, Focus, Suivi Terrain, Visites, Anomalies) pour l'équipe du Chef de Zone (CDZ) "{cdz_label}" (région AGADIR).
+Rédige un rapport exécutif de pilotage managérial détaillé, clair et actionnable {lang_instruction}.
 
-1. **Introduction :** Analyse globale du chiffre d'affaires de la catégorie {category} par rapport aux objectifs. Mentionne explicitement le taux d'atteinte de {summary_data['agency_totals']['achievement_rate_ca']}, le pourcentage d'écart de {summary_data['agency_totals']['variance_rate_ca']}, le Reste à Faire (RAF) global de {summary_data['agency_totals']['total_raf']:,.0f} MAD, ainsi que le **Reste à Faire quotidien (RAF / jour)** de {summary_data['agency_totals']['raf_per_day']:,.0f} MAD sur les {summary_data['workdays']['rest']} jours restants.
-
-2. **Top & Bottom Performers :** Présente des tableaux des Top et Bottom Performers de la catégorie (Vendeur, Réalisé (DH), Objectif (DH), Taux de Réalisation (%)).
+1. **Diagnostic Exécutif CDZ :** Synthèse globale de l'équipe (CA Réalisé {summary_data['agency_totals']['total_real_ca_ttc']:,.0f} MAD {tax_mode}, Objectif {summary_data['agency_totals']['total_obj_ca_ttc']:,.0f} MAD, Écart/Progression {summary_data['agency_totals']['achievement_rate_ca']}, RAF Total {summary_data['agency_totals']['total_raf']:,.0f} MAD, RAF Quotidien {summary_data['agency_totals']['raf_per_day']:,.0f} MAD/j sur {summary_data['workdays']['rest']} jours restants).
 
 {prompt_sections}
 
-**Recommandations Stratégiques :** Fournis des recommandations stratégiques précises pour atteindre les objectifs mensuels de cette catégorie d'ici les {data["workdays"]["rest"]} jours restants.
-
-IMPORTANT : Utilise uniquement les taux d'atteinte et pourcentages d'écart pré-calculés dans les données JSON. Ne fais aucun calcul toi-même.
-
-Données KPI de la catégorie {category} :
+Données KPI consolidées de l'équipe :
 {json.dumps(summary_data, indent=2, ensure_ascii=False)}
 """
     else:
-        lang_instruction = "entièrement en langue Arabe (en utilisant l'alphabet arabe, pas d'arizi)" if language == "ar" else "en français"
-        prompt_sections = build_prompt_sections(options, is_vendeur=False)
-        prompt = f"""Tu es un analyste commercial senior. Analyse les indicateurs clés de performance (KPI) suivants de la force de vente MADEC (région AGADIR) pour la période en cours.
-Rédige un rapport commercial détaillé, professionnel, structuré {lang_instruction}.
+        prompt_sections = build_prompt_sections(options, is_vendeur=False, is_cdz=False)
+        prompt = f"""Tu es un analyste commercial senior. Analyse les indicateurs clés de performance (KPI) globaux (Quanti, Quali, Focus, Suivi Terrain, Visites, Anomalies) de l'agence MADEC Agadir.
+Rédige un rapport commercial global d'analyse exécutive {lang_instruction}.
 
-1. **Introduction :** Analyse globale du chiffre d'affaires par rapport aux objectifs. Mentionne explicitement le taux d'atteinte de {summary_data['agency_totals']['achievement_rate_ca']}, le pourcentage d'écart de {summary_data['agency_totals']['variance_rate_ca']}, le Reste à Faire (RAF) global de {summary_data['agency_totals']['total_raf']:,.0f} MAD, ainsi que le **Reste à Faire quotidien (RAF / jour)** de {summary_data['agency_totals']['raf_per_day']:,.0f} MAD sur les {summary_data['workdays']['rest']} jours restants.
-
-2. **Top & Bottom Performers :** Présente des tableaux des Top et Bottom Performers de l'agence (Vendeur, Réalisé (DH), Objectif (DH), Taux de Réalisation (%)).
+1. **Synthèse Macro Commerciale :** Réalisé global {summary_data['agency_totals']['total_real_ca_ttc']:,.0f} MAD {tax_mode}, Écart/Progression {summary_data['agency_totals']['achievement_rate_ca']}, RAF Total {summary_data['agency_totals']['total_raf']:,.0f} MAD, RAF/jour {summary_data['agency_totals']['raf_per_day']:,.0f} MAD/j.
 
 {prompt_sections}
 
-**Recommandations Stratégiques :** Fournis des recommandations stratégiques précises pour atteindre les objectifs mensuels d'ici les {data["workdays"]["rest"]} jours restants.
-
-IMPORTANT : Utilise uniquement les taux d'atteinte et pourcentages d'écart pré-calculés dans les données JSON. Ne fais aucun calcul toi-même.
-
-Données KPI de la force de vente :
+Données KPI consolidées de l'agence :
 {json.dumps(summary_data, indent=2, ensure_ascii=False)}
 """
 
-    # Call OpenRouter API / Skip if Mini mode
     api_key = os.getenv("OPENROUTER_API_KEY")
     content = None
     if report_type == "mini":
@@ -912,20 +1353,13 @@ Données KPI de la force de vente :
                 {
                     "role": "system", 
                     "content": (
-                        "Tu es un analyste commercial senior spécialisé dans la force de vente et l'optimisation des ventes. "
-                        f"IMPORTANT : Toutes les valeurs monétaires de chiffre d'affaires (CA) fournies sont en {tax_mode} (Hors Taxe si HT, ou Toutes Taxes Comprises si TTC). Veille à formuler toutes les valeurs monétaires de ton analyse en précisant bien '{tax_mode}' pour chaque somme (ex: '204 000 DH ({tax_mode})' ou 'CA HT').\n\n"
-                        "CONSIGNE DE RIGUEUR MATHÉMATIQUE ABSOLUE : Tu dois utiliser uniquement les taux d'atteinte (achievement_rate_ca) "
-                        "et les pourcentages d'écart/variance (variance_rate_ca, pct_str) fournis dans les données JSON de manière stricte. "
-                        "Ne fais aucun calcul d'écart ou de pourcentage toi-même. "
-                        "Assure-toi que toutes les valeurs numériques, les pourcentages d'atteinte et les écarts mentionnés dans ton texte rédigé "
-                        "soient à 100% identiques et cohérents avec ceux des tableaux Markdown et des données JSON. "
-                        "Par exemple, si le taux d'atteinte global (achievement_rate_ca) est de 97.7%, l'écart de chiffre d'affaires correspondant "
-                        "(variance_rate_ca) est de -2.3%.\n\n"
-                        "CONSIGNE DE DESIGN & PRÉSENTATION : Utilise un formatage Markdown riche et professionnel. "
-                        "Utilise des encadrés d'alerte sémantiques (ex: '> [!NOTE]', '> [!WARNING]', '> [!TIP]', '> [!IMPORTANT]') "
-                        "pour attirer l'attention sur les points clés (alertes sur les anomalies, conseils de coaching, opportunités). "
-                        "Respecte scrupuleusement la structure et l'ordre des colonnes des tableaux Markdown demandés afin que le moteur de visualisation "
-                        "puisse générer automatiquement les graphiques interactifs (Chart.js) dans le tableau de bord."
+                        "Tu es un analyste commercial senior spécialisé dans la force de vente et l'optimisation des ventes.\n"
+                        f"IMPORTANT : Toutes les valeurs monétaires de chiffre d'affaires (CA) fournies sont en {tax_mode} (Hors Taxe si HT, ou Toutes Taxes Comprises si TTC). Veille à formuler toutes les valeurs monétaires en précisant '{tax_mode}'.\n\n"
+                        "RÈGLE STRICTE SUR LES POURCENTAGES :\n"
+                        "- Pour TOUTES les métriques et tableaux QUANTITATIFS (Ventes, CA Réalisé vs Objectif, Performance par Famille de Produits, Évolution hebdomadaire S-1 vs S, Classement Vendeurs, Focus) : exprime TOUJOURS le taux de réalisation sous forme d'Écart/Progression relatif avec son signe (+ ou -). Exemple : écris -10.0% (et JAMAIS 90.0% si Réalisé < Objectif) ; écris +15.0% (et JAMAIS 115.0% si Réalisé > Objectif).\n"
+                        "- Seuls les indicateurs QUALITATIFS (Couverture ACM %, Transformation TSM %, LINE %) doivent rester sous forme de taux absolu standard (ex: 85.0%, 78.2%).\n\n"
+                        "CONSIGNE DE RIGUEUR : Utilise uniquement les données et taux pré-calculés fournis dans le JSON. "
+                        "Respecte scrupuleusement les tableaux Markdown pour que l'interface puisse les styliser et tracer les graphiques."
                     )
                 },
                 {"role": "user", "content": prompt}
@@ -942,22 +1376,21 @@ Données KPI de la force de vente :
     else:
         print("OPENROUTER_API_KEY not found. Falling back to local template generator.")
  
-    # Fallback to local template if OpenRouter failed or key not found
     if not content:
         if vendeur:
             content = generate_fallback_report_vendeur(vendeur, summary_data)
-        elif category and category != "All":
-            content = generate_fallback_report_category(category, summary_data)
+        elif is_cdz_report:
+            cdz_label = cdz or category
+            content = generate_fallback_report_cdz(cdz_label, summary_data)
         else:
             content = generate_fallback_report_global(summary_data)
  
-    # Append vendor comparison table if a specific seller report is generated
     if vendeur and report_type != "mini":
         positioning = summary_data.get("positioning", {})
         full_ranking = positioning.get("full_ranking", [])
         if full_ranking:
-            comparison_table = "\n\n### Classement et Comparaison avec les autres vendeurs\n\n"
-            comparison_table += "| Vendeur | Réalisé (DH) | Objectif (DH) | Taux de réalisation (%) |\n"
+            comparison_table = "\n\n### Classement et Comparaison avec les pairs\n\n"
+            comparison_table += "| Vendeur | Réalisé (DH) | Objectif (DH) | Écart vs Objectif (%) |\n"
             comparison_table += "| :--- | :---: | :---: | :---: |\n"
             
             for v in full_ranking:
@@ -967,17 +1400,14 @@ Données KPI de la force de vente :
                 comparison_table += f"| {name_str} | {v['real']:,.0f} | {v['obj']:,.0f} | {pct_sign}{v['pct']:.1f}% |\n"
             content += comparison_table
  
-        # Append daily sales table/chart
         daily_table = build_daily_sales_table(vendeur=vendeur, category=category)
         if daily_table:
             content += daily_table
 
-    # Save report to markdown
     output_file = "rapport_kpi.md"
     try:
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(content)
-        print(f"\nReport successfully generated and saved to '{output_file}'!")
     except Exception as e:
         print(f"Error saving report: {e}")
         

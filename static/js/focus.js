@@ -1495,11 +1495,13 @@
         const joursProgress = document.getElementById('focus-jours-progress');
         const joursRestEl = document.getElementById('focus-summary-jours-rest');
 
+        let prorataRatio = 1;
         if (focusWorkdays) {
             const totalWorkdays = focusWorkdays.total || 24;
             const restDays = focusWorkdays.rest !== undefined ? focusWorkdays.rest : 20;
-            const elapsedDays = totalWorkdays - restDays;
+            const elapsedDays = Math.max(0, totalWorkdays - restDays);
             const progressPct = totalWorkdays > 0 ? Math.min(100, Math.round((elapsedDays / totalWorkdays) * 100)) : 0;
+            prorataRatio = totalWorkdays > 0 && elapsedDays > 0 ? (elapsedDays / totalWorkdays) : 1;
 
             if (joursTravailEl) joursTravailEl.innerText = `${elapsedDays} j`;
             if (joursTravailSub) joursTravailSub.innerText = `sur ${totalWorkdays} jours total`;
@@ -1530,6 +1532,7 @@
                 <th>Réalisé ${taxMode}</th>
                 <th>RAF ${taxMode}</th>
                 <th>RAF / Jour</th>
+                <th>% Partiel</th>
                 <th>Écart (%)</th>
                 <th>Chef de Zone</th>
             `;
@@ -1544,6 +1547,7 @@
                     <th>Réalisé ${taxMode}</th>
                     <th>RAF ${taxMode}</th>
                     <th>RAF / Jour</th>
+                    <th>% Partiel</th>
                     <th>Écart (%)</th>
                     <th>Chef de Zone</th>
                 `;
@@ -1557,6 +1561,7 @@
                     <th>Réalisé</th>
                     <th>Total Reste</th>
                     <th>Reste / Jour</th>
+                    <th>% Partiel</th>
                     <th>Écart (%)</th>
                     <th>Chef de Zone</th>
                 `;
@@ -1595,6 +1600,17 @@
                 const rafVal = r.obj_ttc > 0 ? formatCurrency(raf) + ' DH' : 'N/A';
                 const rafPerDayVal = r.obj_ttc > 0 ? formatCurrency(rafPerDay) + ' DH' : 'N/A';
                 
+                // Partial deviation calculation
+                const targetObjPartiel = targetObj > 0 ? (targetObj * prorataRatio) : 0;
+                let partielFormatted = 'N/A';
+                let partielClass = 'neon-text-muted';
+                if (targetObjPartiel > 0) {
+                    const devPartielPct = ((targetReal - targetObjPartiel) / targetObjPartiel) * 100;
+                    const devPartielSign = devPartielPct > 0 ? '+' : '';
+                    partielFormatted = devPartielSign + devPartielPct.toFixed(1) + '%';
+                    partielClass = devPartielPct >= 0 ? 'neon-text-green' : (devPartielPct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
+                }
+
                 html = `
                     <td><strong>${r.rank}</strong></td>
                     <td><strong>${r.representative}</strong></td>
@@ -1606,6 +1622,7 @@
                     </td>
                     <td>${rafVal}</td>
                     <td>${rafPerDayVal}</td>
+                    <td class="${partielClass}"><strong>${partielFormatted}</strong></td>
                     <td class="${devClass}"><strong>${deviationFormatted}</strong></td>
                     <td>${r.cdz}</td>
                 `;
@@ -1621,6 +1638,17 @@
                 const rafVal = r.obj_acm > 0 ? Math.ceil(raf).toString() : 'N/A';
                 const rafPerDayVal = r.obj_acm > 0 ? Math.ceil(rafPerDay).toString() : 'N/A';
                 
+                // Partial deviation calculation
+                const targetObjPartiel = r.obj_acm > 0 ? (r.obj_acm * prorataRatio) : 0;
+                let partielFormatted = 'N/A';
+                let partielClass = 'neon-text-muted';
+                if (targetObjPartiel > 0) {
+                    const devPartielPct = ((r.realised_clients - targetObjPartiel) / targetObjPartiel) * 100;
+                    const devPartielSign = devPartielPct > 0 ? '+' : '';
+                    partielFormatted = devPartielSign + devPartielPct.toFixed(1) + '%';
+                    partielClass = devPartielPct >= 0 ? 'neon-text-green' : (devPartielPct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
+                }
+
                 html = `
                     <td><strong>${r.rank}</strong></td>
                     <td><strong>${r.representative}</strong></td>
@@ -1633,6 +1661,7 @@
                     </td>
                     <td>${rafVal}</td>
                     <td>${rafPerDayVal}</td>
+                    <td class="${partielClass}"><strong>${partielFormatted}</strong></td>
                     <td class="${devClass}"><strong>${deviationFormatted}</strong></td>
                     <td>${r.cdz}</td>
                 `;
@@ -1643,7 +1672,7 @@
         });
 
         if (reps.length === 0) {
-            const colSpan = (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') ? 9 : 10;
+            const colSpan = (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') ? 10 : 11;
             repsTbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align:center;">Aucune donnée disponible</td></tr>`;
         }
 
@@ -1661,11 +1690,24 @@
             const devClass = devPct >= 0 ? 'neon-text-green' : (devPct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
             const devSign = devPct > 0 ? '+' : '';
             const deviationFormatted = devSign + devPct.toFixed(1) + '%';
+
+            // CDZ partial deviation
+            let cdzPartielFormatted = 'N/A';
+            let cdzPartielClass = 'neon-text-muted';
+            const cz = (c.cdz || 'N/A').trim().toUpperCase();
+            if (cdzDevGroups[cz] && cdzDevGroups[cz].length > 0 && prorataRatio > 0) {
+                const partielDev = ((1 + c.deviation) / prorataRatio) - 1;
+                const partielPct = partielDev * 100;
+                const partielSign = partielPct > 0 ? '+' : '';
+                cdzPartielFormatted = partielSign + partielPct.toFixed(1) + '%';
+                cdzPartielClass = partielPct >= 0 ? 'neon-text-green' : (partielPct >= -20 ? 'neon-text-amber' : 'neon-text-pink');
+            }
             
             tr.innerHTML = `
                 <td><strong>${c.rank}</strong></td>
                 <td><strong>${c.cdz}</strong></td>
                 <td>${c.agence}</td>
+                <td class="${cdzPartielClass}"><strong>${cdzPartielFormatted}</strong></td>
                 <td class="${devClass}"><strong>${deviationFormatted}</strong></td>
             `;
             

@@ -2854,6 +2854,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (config.excluded_dates) {
                     excludedDates = config.excluded_dates;
                 }
+                const savedModel = config.model || config.openrouter_model;
+                if (savedModel) {
+                    localStorage.setItem('openrouter_model', savedModel);
+                    const modelSelect = document.getElementById('openrouter-model-select');
+                    if (modelSelect) modelSelect.value = savedModel;
+                }
             }
             
             // Proceed with initialization
@@ -3143,6 +3149,8 @@ function switchView(viewName) {
             rapportContainer.style.display = '';
             // Always reload the vendeur list when switching to rapport
             loadVendeursList();
+            // Auto load cached report on refresh / switch instead of re-generating
+            loadCachedRapportIfAvailable();
         }
     } else if (viewName === 'stock') {
         const urlParams = new URLSearchParams(window.location.search);
@@ -3360,7 +3368,7 @@ function fetchDashboardData() {
                 applyTaxMode();
                 populateCategoryDropdown();
                 updateDashboard();
-                const dynamicWk = calculateCalendarWorkdays(selectedDate || (dashboardData && dashboardData.date));
+                const dynamicWk = calculateCalendarWorkdays((dateVal && dateVal !== 'default' ? dateVal : null) || (dashboardData && dashboardData.date));
                 if (!dashboardData.workdays) {
                     dashboardData.workdays = dynamicWk;
                 } else {
@@ -3504,6 +3512,18 @@ function setupEventListeners() {
     const btnRecreateDb = document.getElementById('btn-recreate-db-file');
     if (btnRecreateDb) {
         btnRecreateDb.addEventListener('click', handleRecreateDatabaseFile);
+    }
+
+    const modelSelect = document.getElementById('openrouter-model-select');
+    if (modelSelect) {
+        const localModel = localStorage.getItem('openrouter_model');
+        if (localModel) modelSelect.value = localModel;
+        modelSelect.addEventListener('change', (e) => {
+            const selectedVal = e.target.value;
+            localStorage.setItem('openrouter_model', selectedVal);
+            saveAppConfig({ model: selectedVal, openrouter_model: selectedVal });
+            showToast(`Modèle IA mis à jour : ${modelSelect.options[modelSelect.selectedIndex]?.text || selectedVal}`, "info");
+        });
     }
 
     const headerElapsedInput = document.getElementById('header-elapsed-days');
@@ -4574,12 +4594,23 @@ function openSettingsModal() {
         configAnimCheckbox.checked = localStorage.getItem('bgAnimationsEnabled') !== 'false';
     }
 
+    // Populate OpenRouter model selector
+    const modelSelect = document.getElementById('openrouter-model-select');
+    if (modelSelect) {
+        const localModel = localStorage.getItem('openrouter_model');
+        if (localModel) {
+            modelSelect.value = localModel;
+        }
+    }
+
     settingsModal.classList.add('open');
 }
 
 // Close modal
 function closeSettingsModal() {
-    settingsModal.classList.remove('open');
+    if (settingsModal) {
+        settingsModal.classList.remove('open');
+    }
 }
 
 // Save settings to backend
@@ -4612,6 +4643,14 @@ function handleSettingsSubmit(e) {
         applyThemeClass(modalThemeSelect.value);
     }
     
+    // Save selected AI model locally and to server
+    const modelSelect = document.getElementById('openrouter-model-select');
+    const selectedModel = modelSelect ? modelSelect.value : (localStorage.getItem('openrouter_model') || 'anthropic/claude-3.5-sonnet');
+    if (selectedModel) {
+        localStorage.setItem('openrouter_model', selectedModel);
+        saveAppConfig({ model: selectedModel, openrouter_model: selectedModel });
+    }
+
     const dateSelect = document.getElementById('date-select');
     const dateVal = dateSelect ? dateSelect.value : 'default';
     
@@ -4623,7 +4662,9 @@ function handleSettingsSubmit(e) {
         body: JSON.stringify({ 
             rest_days: restDays,
             exclude_families: excludedFamilies,
-            date: dateVal
+            date: dateVal,
+            model: selectedModel,
+            openrouter_model: selectedModel
         })
     })
     .then(res => res.json())
@@ -5430,11 +5471,19 @@ function renderFamillesGrid(records) {
     records.forEach(r => {
         if (!r || !r.famille) return;
         if (!families[r.famille]) {
-            families[r.famille] = { real: 0, obj: 0, vendeurs: new Set() };
+            families[r.famille] = { real: 0, obj: 0, objMois: 0, real2025: 0, h2024: 0, hPct: null, raf: 0, vendeurs: new Set() };
         }
-        const rObjGlobal = (r.obj !== undefined && r.obj !== null && r.obj > 0) ? r.obj : (r.obj_mois || 0);
+        const rObj = (r.obj !== undefined && r.obj !== null) ? r.obj : 0;
+        const rObjMois = (r.obj_mois !== undefined && r.obj_mois !== null && r.obj_mois > 0) ? r.obj_mois : 0;
         families[r.famille].real += (r.real || 0);
-        families[r.famille].obj += rObjGlobal;
+        families[r.famille].obj += rObj;
+        families[r.famille].objMois += rObjMois;
+        families[r.famille].real2025 += (r.real_2025 || 0);
+        families[r.famille].h2024 += (r.h_2024 || 0);
+        if (r.h_pct !== undefined && r.h_pct !== null && r.h_pct !== 0) {
+            families[r.famille].hPct = r.h_pct;
+        }
+        families[r.famille].raf += (r.raf || 0);
         if (r.vendeur && r.vendeur.trim() !== '' && r.vendeur.toUpperCase() !== 'AUTRE') {
             families[r.famille].vendeurs.add(r.vendeur.trim());
         }
@@ -5474,13 +5523,42 @@ function renderFamillesGrid(records) {
     sortedFamNames.forEach(fam => {
         const data = families[fam];
         const real = data.real;
-        const objGlobal = data.obj;
-        const objPartiel = Math.round(objGlobal * prorataRatio);
+        const objPartiel = data.obj;
+        const objGlobal = (data.objMois > 0) ? data.objMois : (totalDays > 0 && elapsedDays > 0 ? Math.round(objPartiel * (totalDays / elapsedDays)) : objPartiel);
 
-        const devPct = objGlobal > 0 ? Math.round(((real - objGlobal) / objGlobal) * 100) : 0;
+        const devPct = objPartiel > 0 ? Math.round(((real - objPartiel) / objPartiel) * 100) : (objGlobal > 0 ? Math.round(((real - objGlobal) / objGlobal) * 100) : 0);
         const devSign = devPct >= 0 ? '+' : '';
-        const devText = objGlobal > 0 ? `${devSign}${devPct}%` : (real > 0 ? '#DIV/0!' : '0%');
+        const devText = (objPartiel > 0 || objGlobal > 0) ? `${devSign}${devPct}%` : (real > 0 ? '#DIV/0!' : '0%');
         const pctAchieved = objGlobal > 0 ? Math.round((real / objGlobal) * 100) : (real > 0 ? 100 : 0);
+        const devGlobalPct = objGlobal > 0 ? Math.round(((real - objGlobal) / objGlobal) * 100) : 0;
+        const devGlobalSign = devGlobalPct >= 0 ? '+' : '';
+        const devGlobalText = objGlobal > 0 ? `${devGlobalSign}${devGlobalPct}%` : (real > 0 ? '#DIV/0!' : '0%');
+
+        // Historique en % for family
+        let famHistoText = '-';
+        let famHistoClass = 'neon-text-muted';
+        if (data.hPct !== null && data.hPct !== undefined && data.hPct !== '') {
+            let hp = 0;
+            if (typeof data.hPct === 'string') {
+                hp = parseFloat(data.hPct.replace('%', '').trim());
+            } else {
+                hp = parseFloat(data.hPct);
+            }
+            if (!isNaN(hp)) {
+                if (Math.abs(hp) <= 1.0 && hp !== 0) {
+                    hp = Math.round(hp * 100);
+                } else {
+                    hp = Math.round(hp);
+                }
+                famHistoClass = hp >= 0 ? 'neon-text-green' : 'neon-text-pink';
+                famHistoText = `${hp > 0 ? '+' : ''}${hp}%`;
+            }
+        } else if (data.h2024 > 0 || data.real2025 > 0) {
+            const hBase = data.h2024 || data.real2025;
+            const hp = Math.round(((real / hBase) - 1) * 100);
+            famHistoClass = hp >= 0 ? 'neon-text-green' : 'neon-text-pink';
+            famHistoText = `${hp > 0 ? '+' : ''}${hp}%`;
+        }
 
         // Percent vs Obj Partiel for prorata comparison
         let pctPartiel = 0;
@@ -5526,8 +5604,8 @@ function renderFamillesGrid(records) {
         
         // Sort vendors by obj descending, then real descending
         vendorRecords.sort((a, b) => {
-            const objA = (a.obj !== undefined && a.obj !== null && a.obj > 0) ? a.obj : (a.obj_mois || 0);
-            const objB = (b.obj !== undefined && b.obj !== null && b.obj > 0) ? b.obj : (b.obj_mois || 0);
+            const objA = (a.obj_mois !== undefined && a.obj_mois !== null && a.obj_mois > 0) ? a.obj_mois : (a.obj || 0);
+            const objB = (b.obj_mois !== undefined && b.obj_mois !== null && b.obj_mois > 0) ? b.obj_mois : (b.obj || 0);
             return (objB - objA) || ((b.real || 0) - (a.real || 0));
         });
 
@@ -5536,14 +5614,15 @@ function renderFamillesGrid(records) {
             let rowsHtml = '';
             vendorRecords.forEach(r => {
                 const vReal = r.real || 0;
-                const vObjGlobal = (r.obj !== undefined && r.obj !== null && r.obj > 0) ? r.obj : (r.obj_mois || 0);
+                const vObjPartiel = (r.obj !== undefined && r.obj !== null) ? r.obj : 0;
+                const vObjGlobal = (r.obj_mois && r.obj_mois > 0) ? r.obj_mois : (totalDays > 0 && elapsedDays > 0 ? Math.round(vObjPartiel * (totalDays / elapsedDays)) : vObjPartiel);
                 
                 let vPctText = '0%';
                 let vBadgeBg = 'rgba(239, 68, 68, 0.18)';
                 let vBadgeColor = '#be185d';
 
-                if (vObjGlobal > 0) {
-                    const vDevPct = Math.round(((vReal - vObjGlobal) / vObjGlobal) * 100);
+                if (vObjPartiel > 0) {
+                    const vDevPct = Math.round(((vReal - vObjPartiel) / vObjPartiel) * 100);
                     const vDevSign = vDevPct >= 0 ? '+' : '';
                     vPctText = `${vDevSign}${vDevPct}%`;
 
@@ -5567,37 +5646,120 @@ function renderFamillesGrid(records) {
                     vBadgeColor = '#64748b';
                 }
 
-                // Calculate Full Month Objective TTC and Daily RAF TTC over restDays (matching Image 2)
-                const vObjMois = (r.obj_mois && r.obj_mois > 0) ? r.obj_mois : (totalDays > 0 && elapsedDays > 0 ? Math.round(vObjGlobal * (totalDays / elapsedDays)) : vObjGlobal);
-                const vRafTotalTTC = (vObjMois - vReal) * 1.2;
-                const vRafJourTTC = restDays > 0 ? Math.round(vRafTotalTTC / restDays) : Math.round(vRafTotalTTC);
+                // Global % for this representative
+                const vGlobalDiff = vObjGlobal > 0 ? Math.round(((vReal - vObjGlobal) / vObjGlobal) * 100) : 0;
+                const vGlobalPct = vObjGlobal > 0 ? Math.round((vReal / vObjGlobal) * 100) : (vReal > 0 ? 100 : 0);
+                const vGlobalSign = vGlobalDiff >= 0 ? '+' : '';
+                const vGlobalText = vObjGlobal > 0 ? `${vGlobalSign}${vGlobalDiff}%` : (vReal > 0 ? '#DIV/0!' : '0%');
 
-                // Badge styling matching Image 2: Yellow/Amber badge for RAF >= 0, Red for RAF < 0
-                let vRafBadgeBg = 'rgba(245, 158, 11, 0.25)';
-                let vRafBadgeColor = '#b45309';
-                if (vRafJourTTC < 0) {
-                    vRafBadgeBg = 'rgba(239, 68, 68, 0.2)';
-                    vRafBadgeColor = '#dc2626';
+                let vGlobalBadgeBg = 'rgba(239, 68, 68, 0.2)';
+                let vGlobalBadgeColor = '#dc2626';
+                if (vGlobalDiff >= 0) {
+                    vGlobalBadgeBg = 'rgba(34, 197, 94, 0.18)';
+                    vGlobalBadgeColor = '#15803d';
+                } else if (vGlobalDiff >= -20) {
+                    vGlobalBadgeBg = 'rgba(245, 158, 11, 0.18)';
+                    vGlobalBadgeColor = '#b45309';
+                }
+
+                // Historique en % (Prioritize exact historical value r.h_pct)
+                let vHistoText = '-';
+                let vHistoBg = 'rgba(100, 116, 139, 0.18)';
+                let vHistoColor = '#64748b';
+                if (r.h_pct !== undefined && r.h_pct !== null && r.h_pct !== '') {
+                    let hp = 0;
+                    if (typeof r.h_pct === 'string') {
+                        hp = parseFloat(r.h_pct.replace('%', '').trim());
+                    } else {
+                        hp = parseFloat(r.h_pct);
+                    }
+                    if (!isNaN(hp)) {
+                        if (Math.abs(hp) <= 1.0 && hp !== 0) {
+                            hp = Math.round(hp * 100);
+                        } else {
+                            hp = Math.round(hp);
+                        }
+                        const hpSign = hp > 0 ? '+' : '';
+                        vHistoText = `${hpSign}${hp}%`;
+                        if (hp >= 0) {
+                            vHistoBg = 'rgba(34, 197, 94, 0.18)';
+                            vHistoColor = '#15803d';
+                        } else {
+                            vHistoBg = 'rgba(239, 68, 68, 0.2)';
+                            vHistoColor = '#dc2626';
+                        }
+                    }
+                } else if (r.h_2024 > 0 || r.real_2025 > 0) {
+                    const hBase = r.h_2024 || r.real_2025;
+                    const hp = Math.round(((vReal / hBase) - 1) * 100);
+                    const hpSign = hp > 0 ? '+' : '';
+                    vHistoText = `${hpSign}${hp}%`;
+                    if (hp >= 0) {
+                        vHistoBg = 'rgba(34, 197, 94, 0.18)';
+                        vHistoColor = '#15803d';
+                    } else {
+                        vHistoBg = 'rgba(239, 68, 68, 0.2)';
+                        vHistoColor = '#dc2626';
+                    }
+                }
+
+                // RAF Global & RAF Jour (TTC)
+                const vRafGlobal = (vObjGlobal - vReal);
+                const vRafGlobalTTC = Math.round(vRafGlobal * 1.2);
+                const vRafJourTTC = restDays > 0 ? Math.round(vRafGlobalTTC / restDays) : vRafGlobalTTC;
+
+                // Badge styling for RAF Global
+                let vRafGlobalBadgeBg = 'rgba(245, 158, 11, 0.22)';
+                let vRafGlobalBadgeColor = '#b45309';
+                if (vRafGlobalTTC <= 0) {
+                    vRafGlobalBadgeBg = 'rgba(34, 197, 94, 0.18)';
+                    vRafGlobalBadgeColor = '#15803d';
+                }
+
+                // Badge styling for RAF Jour
+                let vRafJourBadgeBg = 'rgba(245, 158, 11, 0.25)';
+                let vRafJourBadgeColor = '#b45309';
+                if (vRafJourTTC <= 0) {
+                    vRafJourBadgeBg = 'rgba(34, 197, 94, 0.18)';
+                    vRafJourBadgeColor = '#15803d';
                 }
 
                 rowsHtml += `
                     <tr>
-                        <td style="padding: 0.35rem 0.45rem; font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 125px; font-weight: 500;" title="${r.vendeur}">
+                        <td style="padding: 0.45rem 0.6rem; font-size: 0.78rem; white-space: nowrap; font-weight: 500;" title="${r.vendeur}">
                             ${r.vendeur}
                         </td>
-                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: var(--neon-blue); font-weight: 600;">
+                        <td style="padding: 0.45rem 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--neon-blue); font-weight: 600; font-size: 0.78rem;">
                             ${formatNumber(vReal)}
                         </td>
-                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); color: var(--text-main);">
-                            ${formatNumber(vObjGlobal)}
+                        <td style="padding: 0.45rem 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--text-main); font-size: 0.78rem;">
+                            ${formatNumber(vObjPartiel)}
                         </td>
-                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
-                            <span style="background: ${vBadgeBg}; color: ${vBadgeColor}; padding: 0.15rem 0.35rem; border-radius: 3px; font-size: 0.68rem; display: inline-block;">
+                        <td style="padding: 0.45rem 0.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
+                            <span style="background: ${vBadgeBg}; color: ${vBadgeColor}; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.72rem; display: inline-block;">
                                 ${vPctText}
                             </span>
                         </td>
-                        <td style="padding: 0.35rem 0.4rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
-                            <span style="background: ${vRafBadgeBg}; color: ${vRafBadgeColor}; padding: 0.15rem 0.35rem; border-radius: 3px; font-size: 0.68rem; display: inline-block;">
+                        <td style="padding: 0.45rem 0.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
+                            <span style="background: ${vHistoBg}; color: ${vHistoColor}; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.72rem; display: inline-block;">
+                                ${vHistoText}
+                            </span>
+                        </td>
+                        <td style="padding: 0.45rem 0.5rem; text-align: right; font-family: var(--font-mono); color: var(--text-main); font-weight: 600; font-size: 0.78rem;">
+                            ${formatNumber(vObjGlobal)}
+                        </td>
+                        <td style="padding: 0.45rem 0.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
+                            <span style="background: ${vGlobalBadgeBg}; color: ${vGlobalBadgeColor}; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.72rem; display: inline-block;" title="Taux: ${vGlobalPct}% (Écart: ${vGlobalText})">
+                                ${vGlobalText}
+                            </span>
+                        </td>
+                        <td style="padding: 0.45rem 0.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
+                            <span style="background: ${vRafGlobalBadgeBg}; color: ${vRafGlobalBadgeColor}; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.72rem; display: inline-block;">
+                                ${formatNumber(vRafGlobalTTC)}
+                            </span>
+                        </td>
+                        <td style="padding: 0.45rem 0.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700;">
+                            <span style="background: ${vRafJourBadgeBg}; color: ${vRafJourBadgeColor}; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.72rem; display: inline-block;">
                                 ${formatNumber(vRafJourTTC)}
                             </span>
                         </td>
@@ -5606,15 +5768,19 @@ function renderFamillesGrid(records) {
             });
 
             vendorTableHtml = `
-                <div class="famille-table-wrapper" style="max-height: none !important; height: auto !important; overflow: visible !important; margin-top: 0.5rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
-                    <table class="cyber-table mini-famille-table" style="width: 100%; font-size: 0.72rem; border-collapse: collapse;">
+                <div class="famille-table-wrapper" style="max-height: none !important; height: auto !important; overflow-x: auto !important; margin-top: 0.75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                    <table class="cyber-table mini-famille-table" style="width: 100%; font-size: 0.78rem; border-collapse: collapse;">
                         <thead>
                             <tr style="background: rgba(0, 212, 255, 0.08); position: sticky; top: 0; z-index: 2;">
-                                <th style="padding: 0.4rem 0.45rem; text-align: left;">Représentant</th>
-                                <th style="padding: 0.4rem 0.4rem; text-align: right;">REAL</th>
-                                <th style="padding: 0.4rem 0.4rem; text-align: right;">OBJ</th>
-                                <th style="padding: 0.4rem 0.4rem; text-align: right;">%</th>
-                                <th style="padding: 0.4rem 0.4rem; text-align: right;">RAF</th>
+                                <th style="padding: 0.5rem 0.6rem; text-align: left;">Représentant</th>
+                                <th style="padding: 0.5rem 0.5rem; text-align: right;">REAL</th>
+                                <th style="padding: 0.5rem 0.5rem; text-align: right;">OBJ</th>
+                                <th style="padding: 0.5rem 0.5rem; text-align: right;">%</th>
+                                <th style="padding: 0.5rem 0.5rem; text-align: right;" title="Historique en %">% HISTO</th>
+                                <th style="padding: 0.5rem 0.5rem; text-align: right;" title="Objectif Global">OBJ GLOBAL</th>
+                                <th style="padding: 0.5rem 0.5rem; text-align: right;" title="% Écart sur Objectif Global">% GLOBAL</th>
+                                <th style="padding: 0.5rem 0.5rem; text-align: right;" title="Reste à faire Global">RAF GLOBAL</th>
+                                <th style="padding: 0.5rem 0.5rem; text-align: right;" title="Reste à faire par jour">RAF/J</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -5632,46 +5798,47 @@ function renderFamillesGrid(records) {
         }
         card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.55rem;">
-                <span style="font-weight: 700; font-size: 0.88rem; font-family: var(--font-mono); color: var(--text-main); display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    <i class="fa-solid fa-tag neon-text-blue" style="font-size: 0.8rem;"></i> ${displayFamName}
+                <span style="font-weight: 700; font-size: 0.95rem; font-family: var(--font-mono); color: var(--text-main); display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <i class="fa-solid fa-tag neon-text-blue" style="font-size: 0.85rem;"></i> ${displayFamName}
                 </span>
-                <span style="background: ${badgeBg}; color: ${badgeColor}; font-size: 0.7rem; font-weight: 800; padding: 0.2rem 0.55rem; border-radius: 4px; font-family: var(--font-mono); white-space: nowrap;">
+                <span style="background: ${badgeBg}; color: ${badgeColor}; font-size: 0.75rem; font-weight: 800; padding: 0.2rem 0.65rem; border-radius: 4px; font-family: var(--font-mono); white-space: nowrap;">
                     ${devText}
                 </span>
             </div>
 
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-top: 0.5rem;">
-                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
-                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Réalisé</div>
-                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: var(--neon-blue); margin-top: 2px;">${formatNumber(real)} DH</div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.65rem; margin-top: 0.65rem;">
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.55rem 0.75rem; border-radius: 6px;">
+                    <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Réalisé</div>
+                    <div style="font-size: 0.98rem; font-weight: 700; font-family: var(--font-mono); color: var(--neon-blue); margin-top: 2px;">${formatNumber(real)} DH</div>
+                    <div style="font-size: 0.62rem; color: var(--text-muted); margin-top: 2px; white-space: nowrap;">Histo: <span class="${famHistoClass}" style="font-weight: 700;">${famHistoText}</span></div>
                 </div>
 
-                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
-                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Objectif (OBJ)</div>
-                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-main); margin-top: 2px;">${formatNumber(objGlobal)} DH</div>
-                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">Partiel: ${formatNumber(objPartiel)} DH</div>
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.55rem 0.75rem; border-radius: 6px;">
+                    <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Objectif Global</div>
+                    <div style="font-size: 0.98rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-main); margin-top: 2px;">${formatNumber(objGlobal)} DH</div>
+                    <div style="font-size: 0.62rem; color: var(--text-muted); margin-top: 2px; white-space: nowrap;">Partiel: ${formatNumber(objPartiel)} DH • <span style="color: ${pctAchieved >= 80 ? 'var(--neon-green)' : (pctAchieved >= 50 ? 'var(--neon-amber)' : 'var(--neon-pink)')}; font-weight: 700;">${pctAchieved}% Réal</span></div>
                 </div>
 
-                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
-                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">% Écart (OBJ)</div>
-                    <div class="${pctClass}" style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); margin-top: 2px;">${devText}</div>
-                    <div style="font-size: 0.58rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap;">Taux: ${devText}</div>
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.55rem 0.75rem; border-radius: 6px;">
+                    <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">% Écart (OBJ)</div>
+                    <div class="${pctClass}" style="font-size: 0.98rem; font-weight: 700; font-family: var(--font-mono); margin-top: 2px;">${devText}</div>
+                    <div style="font-size: 0.62rem; color: var(--text-muted); margin-top: 2px; white-space: nowrap;">Global: <span style="font-weight: 700; color: ${devGlobalPct >= 0 ? 'var(--neon-green)' : (devGlobalPct >= -20 ? 'var(--neon-amber)' : 'var(--neon-pink)')};">${devGlobalText}</span> (Taux: <span style="font-weight: 700; color: ${pctAchieved >= 80 ? 'var(--neon-green)' : (pctAchieved >= 50 ? 'var(--neon-amber)' : 'var(--neon-pink)')};">${pctAchieved}%</span>)</div>
                 </div>
 
-                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.45rem 0.5rem; border-radius: 6px;">
-                    <div style="font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Reste À Faire (RAF)</div>
-                    <div style="font-size: 0.88rem; font-weight: 700; font-family: var(--font-mono); color: ${rafTotal > 0 ? 'var(--neon-amber)' : 'var(--neon-green)'}; margin-top: 2px;">${formatNumber(rafTotal)} DH</div>
-                    <div style="font-size: 0.58rem; color: var(--neon-amber); margin-top: 1px; white-space: nowrap;">RAF/j: ${formatNumber(rafJour)} DH/j</div>
+                <div class="metric-box" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 0.55rem 0.75rem; border-radius: 6px;">
+                    <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">RAF Global</div>
+                    <div style="font-size: 0.98rem; font-weight: 700; font-family: var(--font-mono); color: ${rafTotal > 0 ? 'var(--neon-amber)' : 'var(--neon-green)'}; margin-top: 2px;">${formatNumber(rafTotal)} DH</div>
+                    <div style="font-size: 0.62rem; color: var(--neon-amber); margin-top: 2px; white-space: nowrap;">RAF/j: ${formatNumber(rafJour)} DH/j</div>
                 </div>
             </div>
 
-            <div style="margin-top: 0.4rem;">
-                <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: var(--text-muted); margin-bottom: 0.2rem;">
-                    <span>Taux d'Atteinte de l'Objectif</span>
-                    <span class="${pctClass}" style="font-weight: 700;">${devText}</span>
+            <div style="margin-top: 0.5rem;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+                    <span>Taux d'Atteinte Global</span>
+                    <span style="font-weight: 700; color: ${pctAchieved >= 80 ? 'var(--neon-green)' : (pctAchieved >= 50 ? 'var(--neon-amber)' : 'var(--neon-pink)')};">${pctAchieved}% (${devGlobalText})</span>
                 </div>
-                <div class="progress-bar-container" style="height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
-                    <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(pctAchieved, 100)}%; height: 100%;"></div>
+                <div class="progress-bar-container" style="height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                    <div class="progress-bar-fill ${pctAchieved >= 80 ? 'green-fill' : (pctAchieved >= 50 ? 'amber-fill' : 'pink-fill')}" style="width: ${Math.min(pctAchieved, 100)}%; height: 100%;"></div>
                 </div>
             </div>
 
@@ -5971,6 +6138,7 @@ function renderQuantiTable(records) {
             <th>Histo 2025</th>
             <th>% Histo</th>
             <th>Histo 2026</th>
+            <th>RAF Global</th>
             <th>RAF Jour</th>
         `;
     }
@@ -6053,35 +6221,56 @@ function renderQuantiTable(records) {
             pctText = `${pctSign}${pct.toFixed(0)}%`;
         }
 
-        let hPctText = '%';
+        let hPctText = '-';
         let hPctClass = '';
-        if (data.hPct !== null && data.hPct !== undefined) {
-            const hp = Math.round(data.hPct * 100);
-            hPctClass = hp >= 0 ? 'neon-text-green' : 'neon-text-pink';
-            const hPctSign = hp >= 0 ? '+' : '';
-            hPctText = `${hPctSign}${hp}%`;
+        if (data.hPct !== null && data.hPct !== undefined && data.hPct !== '') {
+            let hp = 0;
+            if (typeof data.hPct === 'string') {
+                hp = parseFloat(data.hPct.replace('%', '').trim());
+            } else {
+                hp = parseFloat(data.hPct);
+            }
+            if (!isNaN(hp)) {
+                if (Math.abs(hp) <= 1.0 && hp !== 0) {
+                    hp = Math.round(hp * 100);
+                } else {
+                    hp = Math.round(hp);
+                }
+                hPctClass = hp >= 0 ? 'neon-text-green' : 'neon-text-pink';
+                hPctText = `${hp > 0 ? '+' : ''}${hp}%`;
+            }
         } else if (data.h2024 > 0) {
             const hp = Math.round(((data.real / data.h2024) - 1) * 100);
             hPctClass = hp >= 0 ? 'neon-text-green' : 'neon-text-pink';
-            const hPctSign = hp >= 0 ? '+' : '';
-            hPctText = `${hPctSign}${hp}%`;
+            hPctText = `${hp > 0 ? '+' : ''}${hp}%`;
         }
 
         // Calculate Full Month Objective TTC and Daily RAF TTC over restDays (matching Image 2)
         const famObjMois = (data.objMois > 0) ? data.objMois : (totalDays > 0 && elapsedDays > 0 ? Math.round(displayObj * (totalDays / elapsedDays)) : displayObj);
         const famRafTotalTTC = (famObjMois - data.real) * 1.2;
+        const famRafGlobalClass = famRafTotalTTC <= 0 ? 'neon-text-green' : 'neon-text-amber';
         const rafJourVal = restDays > 0 ? Math.round(famRafTotalTTC / restDays) : Math.round(famRafTotalTTC);
-        const rafJourClass = rafJourVal < 0 ? 'neon-text-pink' : 'neon-text-amber';
+        const rafJourClass = rafJourVal <= 0 ? 'neon-text-green' : 'neon-text-amber';
         const displayFamName = (fam === 'SAUCES') ? 'SAUCES TACOS' : fam;
         
         let nbrVend = data.vendeursObj.size > 0 ? data.vendeursObj.size : data.vendeurs.size;
         const famUpper = fam.toUpperCase();
-        if (famUpper === 'LEVURE' || famUpper === 'MGM' || famUpper === 'BOUILLON') {
-            if (nbrVend === 9 || nbrVend === 1) nbrVend = 7;
-        } else if (famUpper === 'CONDIMENTS' || famUpper === 'SAUCES' || famUpper === 'SAUCES TACOS' || famUpper === 'CONSERVES') {
-            if (nbrVend === 9 || nbrVend === 1) nbrVend = 6;
-        } else if (famUpper.includes('C.A') || famUpper.includes('CA')) {
-            if (nbrVend === 1) nbrVend = 9;
+        const isIndividualVendor = currentSelection && currentSelection.type === 'vendeur' && 
+                                  currentSelection.name && 
+                                  !currentSelection.name.toUpperCase().includes('CHAKIB') && 
+                                  !currentSelection.name.toUpperCase().includes('BOUTMEZGUINE') && 
+                                  currentSelection.name.toUpperCase() !== 'ALL';
+
+        if (!isIndividualVendor) {
+            if (famUpper === 'LEVURE' || famUpper === 'MGM' || famUpper === 'BOUILLON') {
+                nbrVend = 7;
+            } else if (famUpper === 'CONDIMENTS' || famUpper === 'SAUCES' || famUpper === 'SAUCES TACOS' || famUpper === 'CONSERVES' || famUpper === 'MISWAK' || famUpper === 'CONFITURE' || famUpper === 'MOUSSES') {
+                nbrVend = 7;
+            } else if (famUpper.includes('C.A') || famUpper.includes('CA')) {
+                nbrVend = 10;
+            }
+        } else {
+            nbrVend = 1;
         }
 
         let cellsHtml = `
@@ -6094,6 +6283,7 @@ function renderQuantiTable(records) {
             <td>${formatNumber(data.real2025)}</td>
             <td class="${hPctClass}">${hPctText}</td>
             <td>${formatNumber(data.h2024)}</td>
+            <td class="${famRafGlobalClass}" style="font-weight: 600;">${formatNumber(Math.round(famRafTotalTTC))}</td>
             <td class="${rafJourClass}">${formatNumber(rafJourVal)}</td>
         `;
 
@@ -6102,7 +6292,7 @@ function renderQuantiTable(records) {
     });
 
     if (sortedFamilies.length === 0) {
-        quantiTableBody.innerHTML = `<tr><td colspan="10" style="text-align:center;">Aucune donnée disponible</td></tr>`;
+        quantiTableBody.innerHTML = `<tr><td colspan="11" style="text-align:center;">Aucune donnée disponible</td></tr>`;
     }
 }
 
@@ -8078,6 +8268,54 @@ function renderDropdownList() {
     });
 }
 
+// CDZ Selection for AI Report
+window.selectedCdzForReport = 'All';
+
+function selectCdzForReport(cdzName) {
+    window.selectedCdzForReport = cdzName || 'All';
+    selectedVendeurForReport = null; // Reset specific vendor on CDZ change
+
+    // Update active button state
+    document.querySelectorAll('.rp-cdz-btn').forEach(btn => {
+        const cdz = btn.getAttribute('data-cdz');
+        if (cdz === window.selectedCdzForReport) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    // Reset dropdown text
+    const dropdownText = document.getElementById('dropdown-selected-text');
+    if (dropdownText) {
+        dropdownText.textContent = 'Tous les vendeurs';
+        dropdownText.classList.add('placeholder');
+    }
+
+    // Refresh vendor display badge
+    updateSelectedVendeurDisplay();
+
+    // Reload sellers list filtered by CDZ
+    vendeurListRequestKey = ''; // Invalidate cache key
+    allVendeursList = [];
+    loadVendeursList();
+}
+
+function triggerCdzReport(cdzName) {
+    selectCdzForReport(cdzName);
+    
+    // Ensure all 6 modules are checked for rich CDZ report
+    ['check-quanti', 'check-quali', 'check-focus', 'check-terrain', 'check-visites', 'check-anomali', 'check-rappel'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.checked = true;
+    });
+
+    // Directly trigger generation
+    generateReportForSelectedVendeur();
+}
+window.triggerCdzReport = triggerCdzReport;
+window.selectCdzForReport = selectCdzForReport;
+
 // Select a vendeur
 function selectVendeur(vendeur) {
     selectedVendeurForReport = vendeur;
@@ -8085,13 +8323,18 @@ function selectVendeur(vendeur) {
     // Update dropdown display
     const dropdownText = document.getElementById('dropdown-selected-text');
     if (dropdownText) {
-        dropdownText.textContent = vendeur;
-        dropdownText.classList.remove('placeholder');
+        dropdownText.textContent = vendeur || 'Tous les vendeurs';
+        if (vendeur) {
+            dropdownText.classList.remove('placeholder');
+        } else {
+            dropdownText.classList.add('placeholder');
+        }
     }
 
     // Update display and button
     updateSelectedVendeurDisplay();
-    document.getElementById('generate-vendeur-report-btn').disabled = false;
+    const genBtn = document.getElementById('generate-vendeur-report-btn');
+    if (genBtn) genBtn.disabled = false;
 
     // Re-render list to show selection
     renderDropdownList();
@@ -8102,11 +8345,17 @@ function updateSelectedVendeurDisplay() {
     const display = document.getElementById('selected-vendeur-display');
     const resetVendeurBtn = document.getElementById('reset-vendeur-selection-btn');
     if (!display) return;
+
     if (selectedVendeurForReport) {
         display.innerHTML = `<i class="fa-solid fa-user-check" style="color: var(--neon-blue);"></i> <span style="color: var(--neon-blue); font-weight: 600;">${selectedVendeurForReport}</span>`;
         if (resetVendeurBtn) resetVendeurBtn.style.display = 'inline-block';
+    } else if (window.selectedCdzForReport && window.selectedCdzForReport !== 'All') {
+        const cdzColor = window.selectedCdzForReport.includes('CHAKIB') ? 'var(--neon-blue)' : '#c084fc';
+        const cdzLabel = window.selectedCdzForReport.includes('CHAKIB') ? 'Équipe Chakib Elfil (CDZ)' : 'Équipe Boutmezguine (CDZ)';
+        display.innerHTML = `<i class="fa-solid fa-crown" style="color: ${cdzColor};"></i> <span style="color: ${cdzColor}; font-weight: 600;">${cdzLabel}</span>`;
+        if (resetVendeurBtn) resetVendeurBtn.style.display = 'inline-block';
     } else {
-        display.innerHTML = '<i class="fa-solid fa-user-check"></i> <span style="color: var(--text-muted);">Aucun vendeur sélectionné (Génération globale)</span>';
+        display.innerHTML = '<i class="fa-solid fa-globe"></i> <span style="color: var(--text-muted);">Agence globale (Tous les vendeurs)</span>';
         if (resetVendeurBtn) resetVendeurBtn.style.display = 'none';
     }
 }
@@ -8130,6 +8379,8 @@ function getSelectedAnalysisOptions() {
         quanti: document.getElementById('check-quanti')?.checked || false,
         quali: document.getElementById('check-quali')?.checked || false,
         focus: document.getElementById('check-focus')?.checked || false,
+        terrain: document.getElementById('check-terrain')?.checked || false,
+        visites: document.getElementById('check-visites')?.checked || false,
         anomali: document.getElementById('check-anomali')?.checked || false,
         rappel: document.getElementById('check-rappel')?.checked || false
     };
@@ -8172,11 +8423,10 @@ function openAiReportModal() {
 
 // Open AI Report for a specific vendeur (displays in the tab panel, not modal)
 function openAiReportModalForVendeur(vendeurName, options = null) {
-    const modal = document.getElementById('ai-report-modal'); // Keep reference for backwards compatibility
+    const modal = document.getElementById('ai-report-modal');
     const loading = document.getElementById('report-loading');
     const content = document.getElementById('report-content-wrapper');
     const generateBtn = document.getElementById('generate-vendeur-report-btn');
-    const initialState = document.getElementById('report-initial-state');
     const actionsHeader = document.getElementById('report-actions-header');
 
     const copyBtn = document.getElementById('copy-report-btn');
@@ -8184,9 +8434,11 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     const okBtn = document.getElementById('ok-report-btn');
     const titleEl = document.getElementById('report-title-display') || document.getElementById('report-modal-title');
 
-    // Show the result panel (hidden by default until first generate)
+    // Show the result panel
     const resultPanel = document.getElementById('rp-result-panel');
+    const emptyPanel = document.getElementById('rp-empty-state-panel');
     if (resultPanel) resultPanel.style.display = 'block';
+    if (emptyPanel) emptyPanel.style.display = 'none';
 
     if (modal) modal.classList.add('open');
     if (actionsHeader) actionsHeader.style.display = 'none';
@@ -8203,7 +8455,11 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     }
 
     const categorySelect = document.getElementById('category-select');
-    const selectedCategory = categorySelect ? categorySelect.value : 'All';
+    let selectedCategory = categorySelect ? categorySelect.value : 'All';
+    if (window.selectedCdzForReport && window.selectedCdzForReport !== 'All') {
+        if (window.selectedCdzForReport.includes('CHAKIB')) selectedCategory = 'Chakib Equipe';
+        else if (window.selectedCdzForReport.includes('BOUTMEZGUINE')) selectedCategory = 'Boutmezguine Equipe';
+    }
 
     const dateSelect = document.getElementById('date-select');
     const selectedDate = dateSelect ? dateSelect.value : 'default';
@@ -8213,11 +8469,32 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     const reportFormat = activeFormatBtn ? activeFormatBtn.getAttribute('data-format') : 'complet';
     const isMiniReport = reportFormat === 'mini';
     
+    const activeLangBtn = document.querySelector('.report-lang-btn.active');
+    const reportLang = activeLangBtn ? activeLangBtn.getAttribute('data-lang') : 'fr';
+
     const targetVendeur = vendeurName || selectedVendeurForReport;
-    const params = [`tax_mode=${currentTaxMode}`, `report_type=${reportFormat}`];
-    if (targetVendeur) params.push(`vendeur=${encodeURIComponent(targetVendeur)}`);
-    else if (selectedCategory && selectedCategory !== 'All') params.push(`category=${encodeURIComponent(selectedCategory)}`);
-    if (selectedDate && selectedDate !== 'default') params.push(`date=${encodeURIComponent(selectedDate)}`);
+    const activeModel = localStorage.getItem('openrouter_model') || 
+                        document.getElementById('openrouter-model-select')?.value || 
+                        'anthropic/claude-3.5-sonnet';
+    const params = [
+        `tax_mode=${currentTaxMode || 'TTC'}`, 
+        `report_type=${reportFormat}`,
+        `language=${reportLang}`,
+        `model=${encodeURIComponent(activeModel)}`
+    ];
+
+    if (targetVendeur) {
+        params.push(`vendeur=${encodeURIComponent(targetVendeur)}`);
+    } else if (window.selectedCdzForReport && window.selectedCdzForReport !== 'All') {
+        params.push(`cdz=${encodeURIComponent(window.selectedCdzForReport)}`);
+        params.push(`category=${encodeURIComponent(selectedCategory)}`);
+    } else if (selectedCategory && selectedCategory !== 'All') {
+        params.push(`category=${encodeURIComponent(selectedCategory)}`);
+    }
+
+    if (selectedDate && selectedDate !== 'default') {
+        params.push(`date=${encodeURIComponent(selectedDate)}`);
+    }
 
     // Add analysis options as parameters
     if (options) {
@@ -8232,16 +8509,19 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
     if (titleEl) {
         if (targetVendeur) {
             titleEl.innerHTML = `<i class="fa-solid fa-brain neon-text-blue"></i> RAPPORT IA : <span class="neon-text-blue">${targetVendeur}</span>`;
+        } else if (window.selectedCdzForReport && window.selectedCdzForReport !== 'All') {
+            const cdzLabel = window.selectedCdzForReport.includes('CHAKIB') ? 'ÉQUIPE CHAKIB ELFIL' : 'ÉQUIPE BOUTMEZGUINE';
+            titleEl.innerHTML = `<i class="fa-solid fa-crown neon-text-blue"></i> RAPPORT CDZ : <span class="neon-text-blue">${cdzLabel}</span>`;
         } else if (selectedCategory && selectedCategory !== 'All') {
-            const categoryText = categorySelect.options[categorySelect.selectedIndex].text;
+            const categoryText = categorySelect ? categorySelect.options[categorySelect.selectedIndex].text : selectedCategory;
             titleEl.innerHTML = `<i class="fa-solid fa-brain neon-text-blue"></i> RAPPORT IA : <span class="neon-text-blue">${categoryText.toUpperCase()}</span>`;
         } else {
             titleEl.innerHTML = `<i class="fa-solid fa-brain neon-text-blue"></i> RAPPORT IA : <span class="neon-text-blue">AGENCE (GLOBAL)</span>`;
         }
     }
 
-    // Start Veo canvas animation
-    startVeoAnimation();
+    // Start Veo canvas animation with the active model
+    startVeoAnimation(activeModel);
 
     fetch(url, {
         method: 'POST'
@@ -8256,9 +8536,6 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
             }
             if (actionsHeader) actionsHeader.style.display = 'flex';
 
-            // Clear any previously queued charts
-            window.reportChartsToRender = [];
-
             // Store the report text so the WhatsApp button can read it later
             currentReportText = data.report || '';
             currentReportTitle = (titleEl && titleEl.innerText) ? titleEl.innerText : 'Rapport IA';
@@ -8266,6 +8543,23 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
 
             if (data.focus_names) {
                 window.focusNames = data.focus_names;
+            }
+
+            // Save report to localStorage cache for auto-loading on refresh
+            try {
+                localStorage.setItem('cached_kpi_report', JSON.stringify({
+                    report: data.report || '',
+                    title: currentReportTitle,
+                    vendeur: currentReportVendeur,
+                    summary_data: data.summary_data || null,
+                    focus_names: data.focus_names || null,
+                    format: reportFormat,
+                    lang: reportLang,
+                    date: selectedDate,
+                    timestamp: Date.now()
+                }));
+            } catch (cacheErr) {
+                console.warn('Unable to cache report in localStorage:', cacheErr);
             }
 
             const waTemplate = document.getElementById('whatsapp-mini-image-template');
@@ -8285,7 +8579,11 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
             }
 
             // Mini reports are rendered directly as the image-ready KPI card.
-            if (!isMiniReport) renderReportCharts();
+            if (!isMiniReport) {
+                setTimeout(() => {
+                    renderReportCharts();
+                }, 60);
+            }
 
             if (copyBtn) copyBtn.style.display = 'inline-block';
             if (downloadBtn) downloadBtn.style.display = 'inline-block';
@@ -8321,6 +8619,66 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
             generateBtn.innerHTML = '<i class="fa-solid fa-brain"></i> GÉNÉRER LE RAPPORT';
         }
     });
+}
+
+// Auto-load last generated report from localStorage without calling AI generator on page refresh
+function loadCachedRapportIfAvailable() {
+    try {
+        const raw = localStorage.getItem('cached_kpi_report');
+        if (!raw) return false;
+        const cached = JSON.parse(raw);
+        if (!cached || !cached.report) return false;
+
+        const content = document.getElementById('report-content-wrapper');
+        const resultPanel = document.getElementById('rp-result-panel');
+        const emptyPanel = document.getElementById('rp-empty-state-panel');
+        const titleEl = document.getElementById('report-title-display') || document.getElementById('report-modal-title');
+        const actionsHeader = document.getElementById('report-actions-header');
+        const copyBtn = document.getElementById('copy-report-btn');
+        const downloadBtn = document.getElementById('download-report-btn');
+        const downloadImageBtn = document.getElementById('download-report-image-btn');
+        const okBtn = document.getElementById('ok-report-btn');
+        const whatsappBtn = document.getElementById('whatsapp-report-btn');
+
+        if (resultPanel) resultPanel.style.display = 'block';
+        if (emptyPanel) emptyPanel.style.display = 'none';
+        if (actionsHeader) actionsHeader.style.display = 'flex';
+
+        currentReportText = cached.report;
+        currentReportTitle = cached.title || 'Rapport IA';
+        currentReportVendeur = cached.vendeur || '';
+        if (cached.focus_names) window.focusNames = cached.focus_names;
+
+        if (titleEl) {
+            if (currentReportVendeur) {
+                titleEl.innerHTML = `<i class="fa-solid fa-brain neon-text-blue"></i> RAPPORT IA : <span class="neon-text-blue">${currentReportVendeur}</span>`;
+            } else {
+                titleEl.innerHTML = `<i class="fa-solid fa-brain neon-text-blue"></i> ${currentReportTitle}`;
+            }
+        }
+
+        const isMini = cached.format === 'mini';
+        if (content) {
+            content.style.display = isMini ? 'none' : 'block';
+            content.innerHTML = isMini ? '' : parseMarkdown(cached.report);
+        }
+
+        if (copyBtn) copyBtn.style.display = 'inline-block';
+        if (downloadBtn) downloadBtn.style.display = 'inline-block';
+        if (downloadImageBtn) downloadImageBtn.style.display = 'inline-block';
+        if (okBtn) okBtn.style.display = 'inline-block';
+        if (whatsappBtn) whatsappBtn.style.display = 'inline-flex';
+
+        if (!isMini) {
+            setTimeout(() => {
+                renderReportCharts();
+            }, 60);
+        }
+        return true;
+    } catch (e) {
+        console.warn('Could not restore cached report:', e);
+        return false;
+    }
 }
 
 // Resets/Clears the report view in the tab panel
@@ -9078,9 +9436,33 @@ let aiLoaderTimerInterval = null;
 let aiLoaderStatusInterval = null;
 let aiLoaderProgressInterval = null;
 
-function startVeoAnimation() {
+function getAiModelDisplayName(modelKey) {
+    if (!modelKey) {
+        modelKey = localStorage.getItem('openrouter_model') || 'google/gemini-3.5-flash';
+    }
+    const modelSelect = document.getElementById('openrouter-model-select');
+    if (modelSelect) {
+        for (let opt of modelSelect.options) {
+            if (opt.value === modelKey) {
+                return opt.text.split('(')[0].trim().toUpperCase();
+            }
+        }
+    }
+    const clean = modelKey.split('/').pop().replace(/-instruct/gi, '').replace(/-latest/gi, '');
+    return clean.replace(/-/g, ' ').toUpperCase();
+}
+
+function startVeoAnimation(modelKey = null) {
     const shell = document.querySelector('.ai-loader-shell');
     if (!shell) return;
+
+    // Dynamically update loader title with active model name
+    const activeModel = modelKey || localStorage.getItem('openrouter_model') || document.getElementById('openrouter-model-select')?.value || 'google/gemini-3.5-flash';
+    const modelDisplayName = getAiModelDisplayName(activeModel);
+    const titleEl = document.getElementById('ai-loader-title') || document.querySelector('.ai-loader-title');
+    if (titleEl) {
+        titleEl.innerHTML = `AI_REPORT_ENGINE &nbsp;·&nbsp; <span style="color: var(--neon-blue); font-weight: 700;">${modelDisplayName}</span>`;
+    }
 
     // Reset state
     const bar   = document.getElementById('ai-loader-bar');
@@ -9438,6 +9820,32 @@ function downloadReportAsImage() {
     }, 800);
 }
 
+function cleanReportNumber(val) {
+    if (val === null || val === undefined) return 0;
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+    let s = String(val)
+        .replace(/&nbsp;/gi, '')
+        .replace(/[\s\u00a0\u202f\u2007\u2009]/g, '')
+        .replace(/\*/g, '')
+        .replace(/MAD/gi, '')
+        .replace(/DH/gi, '')
+        .replace(/TTC/gi, '')
+        .replace(/HT/gi, '')
+        .trim();
+    
+    if (s.includes(',') && !s.includes('.')) {
+        let parts = s.split(',');
+        if (parts.length === 2 && parts[1].length <= 2) {
+            s = parts[0] + '.' + parts[1];
+        } else {
+            s = s.replace(/,/g, '');
+        }
+    } else {
+        s = s.replace(/,/g, '');
+    }
+    return parseFloat(s) || 0;
+}
+
 // Helper to render beautiful HTML table and queue a chart if applicable
 function renderTableHtml(rows) {
     if (rows.length === 0) return "";
@@ -9445,58 +9853,185 @@ function renderTableHtml(rows) {
     let dataRows = rows.slice(1);
     
     // Check type of table by checking header terms
-    let isQuantiTable = headers.some(h => h.toLowerCase().includes('famille')) && headers.some(h => h.toLowerCase().includes('réalisé'));
-    let isQualiTable = headers.some(h => h.toLowerCase().includes('facturé') || h.toLowerCase().includes('commandes') || h.toLowerCase().includes('acm') || h.toLowerCase().includes('tsm'));
-    let isRankTable = headers.some(h => h.toLowerCase().includes('vendeur')) && headers.some(h => h.toLowerCase().includes('taux'));
+    let isCdzWeeklyTable = headers.some(h => /cdz|équipe/i.test(h)) && headers.some(h => /semaine dernière|s-1|sem\./i.test(h));
+    let isVendorWeeklyTable = headers.some(h => /vendeur/i.test(h)) && headers.some(h => /semaine dernière|s-1|sem\./i.test(h));
+    let isQuantiTable = !isCdzWeeklyTable && !isVendorWeeklyTable && headers.some(h => h.toLowerCase().includes('famille')) && headers.some(h => h.toLowerCase().includes('réalisé'));
+    let isQualiTable = !isCdzWeeklyTable && !isVendorWeeklyTable && headers.some(h => h.toLowerCase().includes('facturé') || h.toLowerCase().includes('commandes') || h.toLowerCase().includes('acm') || h.toLowerCase().includes('tsm'));
+    let isRankTable = !isCdzWeeklyTable && !isVendorWeeklyTable && headers.some(h => h.toLowerCase().includes('vendeur')) && headers.some(h => h.toLowerCase().includes('taux') || h.toLowerCase().includes('statut') || h.toLowerCase().includes('écart'));
     let isDailySalesTable = headers.some(h => h.toLowerCase().includes('date')) && headers.some(h => h.toLowerCase().includes('ventes réelles')) && headers.some(h => h.toLowerCase().includes('objectif du jour'));
     
     let tableId = "report-table-" + Math.random().toString(36).substring(2, 9);
     let chartCanvasId = "chart-" + tableId;
+    let donutChartCanvasId = "donut-" + tableId;
     
     let html = '';
     
-    // 1. If it's a quantitative table (by family), queue a comparative bar chart
-    if (isQuantiTable) {
-        html += `
-        <div class="report-chart-card">
-            <div class="report-chart-header">
-                <span class="tech-label"><i class="fa-solid fa-chart-bar neon-text-blue"></i> RÉALISÉ VS OBJECTIF PAR FAMILLE</span>
-            </div>
-            <div class="report-chart-body">
-                <canvas id="${chartCanvasId}"></canvas>
-            </div>
-        </div>
-        `;
+    // 1. CDZ Weekly Comparison Table (Chakib vs Boutmezguine vs Globale)
+    if (isCdzWeeklyTable && dataRows.length > 0) {
+        let labels = [];
+        let prevVals = [];
+        let curVals = [];
+        let objVals = [];
         
-        if (!window.reportChartsToRender) window.reportChartsToRender = [];
+        let pIdx = headers.findIndex(h => /semaine dernière|s-1|sem\. préc/i.test(h));
+        let cIdx = headers.findIndex(h => /semaine actuelle|actuel|s\b/i.test(h));
+        let oIdx = headers.findIndex(h => /objectif/i.test(h));
+        if (pIdx === -1) pIdx = 1;
+        if (cIdx === -1) cIdx = 2;
         
+        dataRows.forEach(row => {
+            let label = row[0].replace(/\*\*/g, '').trim();
+            let pVal = cleanReportNumber(row[pIdx]);
+            let cVal = cleanReportNumber(row[cIdx]);
+            let oVal = oIdx !== -1 ? cleanReportNumber(row[oIdx]) : 0;
+            
+            if (label) {
+                labels.push(label);
+                prevVals.push(pVal);
+                curVals.push(cVal);
+                objVals.push(oVal);
+            }
+        });
+
+        if (labels.length > 0) {
+            html += `
+            <div class="report-chart-card">
+                <div class="report-chart-header">
+                    <span class="tech-label"><i class="fa-solid fa-people-group neon-text-blue"></i> COMPARAISON DES ÉQUIPES CDZ — SEMAINE S-1 VS S</span>
+                </div>
+                <div class="report-chart-body" style="height: 270px;">
+                    <canvas id="${chartCanvasId}"></canvas>
+                </div>
+            </div>
+            `;
+            
+            if (!window.reportChartsToRender) window.reportChartsToRender = [];
+            
+            window.reportChartsToRender.push({
+                id: chartCanvasId,
+                type: 'cdzWeekly',
+                data: { labels, prevVals, curVals, objVals }
+            });
+        }
+    }
+    // 2. Vendor-by-Vendor Weekly Comparison Table
+    else if (isVendorWeeklyTable && dataRows.length > 0) {
+        let labels = [];
+        let prevVals = [];
+        let curVals = [];
+        let objVals = [];
+        
+        let pIdx = headers.findIndex(h => /semaine dernière|s-1|sem\. préc/i.test(h));
+        let cIdx = headers.findIndex(h => /semaine actuelle|actuel|s\b/i.test(h));
+        let oIdx = headers.findIndex(h => /objectif/i.test(h));
+        if (pIdx === -1) pIdx = 2;
+        if (cIdx === -1) cIdx = 3;
+        
+        dataRows.forEach(row => {
+            let label = row[0].replace(/\*\*/g, '').trim();
+            if (label.toUpperCase().includes('TOTAL') || label.toUpperCase().includes('MOYENNE')) return;
+            
+            let pVal = cleanReportNumber(row[pIdx]);
+            let cVal = cleanReportNumber(row[cIdx]);
+            let oVal = oIdx !== -1 ? cleanReportNumber(row[oIdx]) : 0;
+            
+            if (label) {
+                labels.push(label);
+                prevVals.push(pVal);
+                curVals.push(cVal);
+                objVals.push(oVal);
+            }
+        });
+
+        if (labels.length > 0) {
+            const vendorChartH = Math.min(380, Math.max(260, labels.length * 22 + 60));
+            html += `
+            <div class="report-chart-card rank-chart-card">
+                <div class="report-chart-header">
+                    <span class="tech-label"><i class="fa-solid fa-chart-line neon-text-green"></i> ÉVOLUTION HEBDOMADAIRE VENDEUR PAR VENDEUR (S-1 VS S)</span>
+                </div>
+                <div class="report-chart-body" style="height: ${vendorChartH}px;">
+                    <canvas id="${chartCanvasId}"></canvas>
+                </div>
+            </div>
+            `;
+            
+            if (!window.reportChartsToRender) window.reportChartsToRender = [];
+            
+            window.reportChartsToRender.push({
+                id: chartCanvasId,
+                type: 'vendorWeekly',
+                data: { labels, prevVals, curVals, objVals }
+            });
+        }
+    }
+    // 3. Quantitative table (by family) -> Bar chart + Product Mix Donut
+    else if (isQuantiTable) {
         let labels = [];
         let realVals = [];
         let objVals = [];
         
+        let realIdx = headers.findIndex(h => /réalisé|realise|real\b/i.test(h));
+        let objIdx = headers.findIndex(h => /objectif|parcial|obj\b/i.test(h));
+        if (realIdx === -1) realIdx = 1;
+        if (objIdx === -1) objIdx = 2;
+        
         dataRows.forEach(row => {
-            if (row.length >= 3) {
+            if (row.length >= 2) {
                 let label = row[0].replace(/\*\*/g, '').trim();
                 // Skip overall CA/HT or TOTAL rows so they don't skew the axis scale
                 if (label.toUpperCase().includes('C.A') || label.toUpperCase().includes('TOTAL') || label.toUpperCase() === 'C.A (HT)') {
                     return;
                 }
-                let realVal = parseFloat(row[1].replace(/,/g, '').replace(/\s/g, '').replace(/\*/g, '')) || 0;
-                let objVal = parseFloat(row[2].replace(/,/g, '').replace(/\s/g, '').replace(/\*/g, '')) || 0;
+                let realVal = cleanReportNumber(row[realIdx]);
+                let objVal = cleanReportNumber(row[objIdx]);
                 
-                labels.push(label);
-                realVals.push(realVal);
-                objVals.push(objVal);
+                if (label) {
+                    labels.push(label);
+                    realVals.push(realVal);
+                    objVals.push(objVal);
+                }
             }
         });
         
-        window.reportChartsToRender.push({
-            id: chartCanvasId,
-            type: 'quanti',
-            data: { labels, realVals, objVals }
-        });
+        if (labels.length > 0) {
+            html += `
+            <div class="report-charts-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                <div class="report-chart-card" style="margin-bottom: 0;">
+                    <div class="report-chart-header">
+                        <span class="tech-label"><i class="fa-solid fa-chart-bar neon-text-blue"></i> RÉALISÉ VS OBJECTIF PAR FAMILLE</span>
+                    </div>
+                    <div class="report-chart-body" style="height: 260px;">
+                        <canvas id="${chartCanvasId}"></canvas>
+                    </div>
+                </div>
+                <div class="report-chart-card" style="margin-bottom: 0;">
+                    <div class="report-chart-header">
+                        <span class="tech-label"><i class="fa-solid fa-chart-pie neon-text-pink"></i> MIX PRODUIT & RÉPARTITION (DH)</span>
+                    </div>
+                    <div class="report-chart-body" style="height: 260px;">
+                        <canvas id="${donutChartCanvasId}"></canvas>
+                    </div>
+                </div>
+            </div>
+            `;
+            
+            if (!window.reportChartsToRender) window.reportChartsToRender = [];
+            
+            window.reportChartsToRender.push({
+                id: chartCanvasId,
+                type: 'quanti',
+                data: { labels, realVals, objVals }
+            });
+
+            window.reportChartsToRender.push({
+                id: donutChartCanvasId,
+                type: 'familyDonut',
+                data: { labels, realVals }
+            });
+        }
     }
-    // 2. If it's an individual qualitative table (1 row of data), render metrics progress cards
+    // 4. If it's an individual qualitative table (1 row of data), render metrics progress cards
     else if (isQualiTable && dataRows.length === 1) {
         let row = dataRows[0];
         let acmIdx = headers.findIndex(h => h.toUpperCase().includes('ACM'));
@@ -9547,7 +10082,7 @@ function renderTableHtml(rows) {
             html += metersHtml;
         }
     }
-    // 3. If it's a qualitative list table (multiple sellers), render a bar chart
+    // 5. If it's a qualitative list table (multiple sellers), render a bar chart
     else if (isQualiTable && dataRows.length > 1) {
         html += `
         <div class="report-chart-card">
@@ -9591,7 +10126,7 @@ function renderTableHtml(rows) {
             data: { labels, acmVals, tsmVals, lineVals }
         });
     }
-    // 4. If it's a rank/performer list table (multiple sellers' CA), render a bar chart comparing performance
+    // 6. If it's a rank/performer list table (multiple sellers' CA), render a bar chart comparing performance
     else if (isRankTable && dataRows.length > 1) {
         // 18 px per seller row + 60 px for legend/axes, capped at 300px for PDF friendliness
         const rankChartH = Math.min(300, Math.max(250, dataRows.length * 18 + 60));
@@ -9631,7 +10166,7 @@ function renderTableHtml(rows) {
             data: { labels, realVals, objVals }
         });
     }
-    // 5. If it's a daily sales table, render a bar chart comparing daily sales
+    // 7. If it's a daily sales table, render a bar chart comparing daily sales
     else if (isDailySalesTable && dataRows.length > 0) {
         html += `
         <div class="report-chart-card">
@@ -9712,6 +10247,7 @@ function renderTableHtml(rows) {
 // Simple Markdown to HTML converter supporting tables, multiline blockquotes and multiline alerts
 function parseMarkdown(md) {
     if (!md) return "";
+    window.reportChartsToRender = [];
     let lines = md.split('\n');
     let processedLines = [];
     let inTable = false;
@@ -9827,6 +10363,10 @@ function parseMarkdown(md) {
 
 function renderReportCharts(forcePrintColors = false) {
     if (!window.reportChartsToRender || window.reportChartsToRender.length === 0) return;
+    if (typeof Chart === 'undefined') {
+        console.warn('Chart.js is not loaded.');
+        return;
+    }
     
     const styles = getComputedStyle(document.body);
     
@@ -9849,237 +10389,451 @@ function renderReportCharts(forcePrintColors = false) {
     }
     
     window.reportChartsToRender.forEach(chartConfig => {
-        const canvas = document.getElementById(chartConfig.id);
-        if (!canvas) return;
-        
-        // Destroy existing chart on this canvas to prevent canvas reuse error
-        const existingChart = Chart.getChart(canvas);
-        if (existingChart) {
-            existingChart.destroy();
-        }
-        
-        const ctx = canvas.getContext('2d');
-        
-        if (chartConfig.type === 'quanti') {
-            const { labels, realVals, objVals } = chartConfig.data;
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'Réalisé (DH)',
-                            data: realVals,
-                            backgroundColor: neonBlue + '80',
-                            borderColor: neonBlue,
-                            borderWidth: 1.5
-                        },
-                        {
-                            label: 'Objectif (DH)',
-                            data: objVals,
-                            backgroundColor: isLight ? 'rgba(249, 115, 22, 0.03)' : 'rgba(255, 255, 255, 0.05)',
-                            borderColor: neonAmber,
-                            borderWidth: 1.5,
-                            borderDash: [3, 3]
-                        }
-                    ]
-                },
-                options: {
-                    animation: { duration: 0 },
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            grid: { color: gridColor },
-                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
-                        },
-                        y: {
-                            grid: { color: gridColor },
-                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
-                        }
+        try {
+            const canvas = document.getElementById(chartConfig.id);
+            if (!canvas) return;
+            
+            // Destroy existing chart on this canvas to prevent canvas reuse error
+            const existingChart = Chart.getChart(canvas);
+            if (existingChart) {
+                existingChart.destroy();
+            }
+            
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            
+            if (chartConfig.type === 'quanti') {
+                const { labels, realVals, objVals } = chartConfig.data;
+                if (!labels || labels.length === 0) return;
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Réalisé (DH)',
+                                data: realVals,
+                                backgroundColor: neonBlue + '80',
+                                borderColor: neonBlue,
+                                borderWidth: 1.5,
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'Objectif (DH)',
+                                data: objVals,
+                                backgroundColor: isLight ? 'rgba(249, 115, 22, 0.03)' : 'rgba(255, 255, 255, 0.05)',
+                                borderColor: neonAmber,
+                                borderWidth: 1.5,
+                                borderDash: [3, 3],
+                                borderRadius: 4
+                            }
+                        ]
                     },
-                    plugins: {
-                        legend: {
-                            labels: { color: textColor, font: { family: 'Inter', size: 9 } }
-                        }
-                    }
-                }
-            });
-        } else if (chartConfig.type === 'quali') {
-            const { labels, acmVals, tsmVals, lineVals } = chartConfig.data;
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'ACM (%)',
-                            data: acmVals,
-                            backgroundColor: neonGreen + '60',
-                            borderColor: neonGreen,
-                            borderWidth: 1.5
+                    options: {
+                        animation: { duration: 0 },
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                            },
+                            y: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                            }
                         },
-                        {
-                            label: 'TSM (%)',
-                            data: tsmVals,
-                            backgroundColor: neonAmber + '60',
-                            borderColor: neonAmber,
-                            borderWidth: 1.5
-                        },
-                        {
-                            label: 'LINE (%)',
-                            data: lineVals,
-                            backgroundColor: neonBlue + '60',
-                            borderColor: neonBlue,
-                            borderWidth: 1.5
-                        }
-                    ]
-                },
-                options: {
-                    animation: { duration: 0 },
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            grid: { color: gridColor },
-                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
-                        },
-                        y: {
-                            grid: { color: gridColor },
-                            ticks: {
-                                color: textColor,
-                                font: { family: 'JetBrains Mono', size: 9 },
-                                callback: function(value) { return value + '%'; }
+                        plugins: {
+                            legend: {
+                                labels: { color: textColor, font: { family: 'Inter', size: 9 } }
                             }
                         }
+                    }
+                });
+            } else if (chartConfig.type === 'quali') {
+                const { labels, acmVals, tsmVals, lineVals } = chartConfig.data;
+                if (!labels || labels.length === 0) return;
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'ACM (%)',
+                                data: acmVals,
+                                backgroundColor: neonGreen + '60',
+                                borderColor: neonGreen,
+                                borderWidth: 1.5,
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'TSM (%)',
+                                data: tsmVals,
+                                backgroundColor: neonAmber + '60',
+                                borderColor: neonAmber,
+                                borderWidth: 1.5,
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'LINE (%)',
+                                data: lineVals,
+                                backgroundColor: neonBlue + '60',
+                                borderColor: neonBlue,
+                                borderWidth: 1.5,
+                                borderRadius: 4
+                            }
+                        ]
                     },
-                    plugins: {
-                        legend: {
-                            labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                    options: {
+                        animation: { duration: 0 },
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                            },
+                            y: {
+                                grid: { color: gridColor },
+                                ticks: {
+                                    color: textColor,
+                                    font: { family: 'JetBrains Mono', size: 9 },
+                                    callback: function(value) { return value + '%'; }
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                            }
                         }
                     }
-                }
-            });
-        } else if (chartConfig.type === 'rank') {
-            const { labels, realVals, objVals } = chartConfig.data;
-            
-            // Highlight currentReportVendeur if it matches the label
-            const activeVendeurNormalized = (currentReportVendeur || '').trim().toUpperCase();
-            
-            const backgroundColors = labels.map(label => {
-                const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
-                if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
-                    return neonPink + 'a0';
-                }
-                return neonAmber + '60';
-            });
-            
-            const borderColors = labels.map(label => {
-                const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
-                if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
-                    return neonPink;
-                }
-                return neonAmber;
-            });
+                });
+            } else if (chartConfig.type === 'rank') {
+                const { labels, realVals, objVals } = chartConfig.data;
+                if (!labels || labels.length === 0) return;
+                const activeVendeurNormalized = (currentReportVendeur || '').trim().toUpperCase();
+                
+                const backgroundColors = labels.map(label => {
+                    const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                    if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
+                        return neonPink + 'a0';
+                    }
+                    return neonAmber + '60';
+                });
+                
+                const borderColors = labels.map(label => {
+                    const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                    if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
+                        return neonPink;
+                    }
+                    return neonAmber;
+                });
 
-            const borderWidths = labels.map(label => {
-                const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
-                if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
-                    return 2.5;
-                }
-                return 1.5;
-            });
+                const borderWidths = labels.map(label => {
+                    const normalizedLabel = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                    if (activeVendeurNormalized && normalizedLabel === activeVendeurNormalized) {
+                        return 2.5;
+                    }
+                    return 1.5;
+                });
 
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'Réalisé (DH)',
-                            data: realVals,
-                            backgroundColor: backgroundColors,
-                            borderColor: borderColors,
-                            borderWidth: borderWidths
-                        },
-                        {
-                            label: 'Objectif (DH)',
-                            data: objVals,
-                            backgroundColor: isLight ? 'rgba(2, 132, 199, 0.03)' : 'rgba(255, 255, 255, 0.05)',
-                            borderColor: neonBlue,
-                            borderWidth: 1.5,
-                            borderDash: [3, 3]
-                        }
-                    ]
-                },
-                options: {
-                    animation: { duration: 0 },
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            grid: { color: gridColor },
-                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
-                        },
-                        y: {
-                            grid: { color: gridColor },
-                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
-                        }
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Réalisé (DH)',
+                                data: realVals,
+                                backgroundColor: backgroundColors,
+                                borderColor: borderColors,
+                                borderWidth: borderWidths,
+                                borderRadius: 3
+                            },
+                            {
+                                label: 'Objectif (DH)',
+                                data: objVals,
+                                backgroundColor: isLight ? 'rgba(2, 132, 199, 0.03)' : 'rgba(255, 255, 255, 0.05)',
+                                borderColor: neonBlue,
+                                borderWidth: 1.5,
+                                borderDash: [3, 3],
+                                borderRadius: 3
+                            }
+                        ]
                     },
-                    plugins: {
-                        legend: {
-                            labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                    options: {
+                        animation: { duration: 0 },
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                            },
+                            y: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                            }
                         }
                     }
-                }
-            });
-        } else if (chartConfig.type === 'dailySales') {
-            const { labels, realVals, objVals } = chartConfig.data;
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'Vente Réelle (DH)',
-                            data: realVals,
-                            backgroundColor: neonPink + '80',
-                            borderColor: neonPink,
-                            borderWidth: 1.5,
-                            borderRadius: 4
-                        },
-                        {
-                            label: 'Objectif du Jour (DH)',
-                            data: objVals,
-                            backgroundColor: isLight ? 'rgba(71, 85, 105, 0.12)' : 'rgba(148, 163, 184, 0.12)',
-                            borderColor: isLight ? '#475569' : '#94a3b8',
-                            borderWidth: 1.5,
-                            borderRadius: 4
-                        }
-                    ]
-                },
-                options: {
-                    animation: { duration: 0 },
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            grid: { color: gridColor },
-                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
-                        },
-                        y: {
-                            grid: { color: gridColor },
-                            ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
-                        }
+                });
+            } else if (chartConfig.type === 'dailySales') {
+                const { labels, realVals, objVals } = chartConfig.data;
+                if (!labels || labels.length === 0) return;
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Vente Réelle (DH)',
+                                data: realVals,
+                                backgroundColor: neonPink + '80',
+                                borderColor: neonPink,
+                                borderWidth: 1.5,
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'Objectif du Jour (DH)',
+                                data: objVals,
+                                backgroundColor: isLight ? 'rgba(71, 85, 105, 0.12)' : 'rgba(148, 163, 184, 0.12)',
+                                borderColor: isLight ? '#475569' : '#94a3b8',
+                                borderWidth: 1.5,
+                                borderRadius: 4
+                            }
+                        ]
                     },
-                    plugins: {
-                        legend: {
-                            labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                    options: {
+                        animation: { duration: 0 },
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                            },
+                            y: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                            }
                         }
                     }
-                }
-            });
+                });
+            } else if (chartConfig.type === 'cdzWeekly') {
+                const { labels, prevVals, curVals, objVals } = chartConfig.data;
+                if (!labels || labels.length === 0) return;
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Semaine Dernière (S-1)',
+                                data: prevVals,
+                                backgroundColor: neonAmber + '75',
+                                borderColor: neonAmber,
+                                borderWidth: 1.5,
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'Semaine Actuelle (S)',
+                                data: curVals,
+                                backgroundColor: neonBlue + '85',
+                                borderColor: neonBlue,
+                                borderWidth: 1.5,
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'Objectif (DH)',
+                                data: objVals,
+                                backgroundColor: isLight ? 'rgba(71, 85, 105, 0.06)' : 'rgba(255, 255, 255, 0.06)',
+                                borderColor: isLight ? '#475569' : '#94a3b8',
+                                borderWidth: 1.5,
+                                borderDash: [3, 3],
+                                borderRadius: 4
+                            }
+                        ]
+                    },
+                    options: {
+                        animation: { duration: 0 },
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'Inter', size: 9, weight: 'bold' } }
+                            },
+                            y: {
+                                grid: { color: gridColor },
+                                ticks: {
+                                    color: textColor,
+                                    font: { family: 'JetBrains Mono', size: 9 },
+                                    callback: function(value) { return (value >= 1000 ? (value/1000).toLocaleString() + 'k' : value) + ' DH'; }
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                            }
+                        }
+                    }
+                });
+            } else if (chartConfig.type === 'vendorWeekly') {
+                const { labels, prevVals, curVals, objVals } = chartConfig.data;
+                if (!labels || labels.length === 0) return;
+                const activeVendeurNormalized = (currentReportVendeur || '').trim().toUpperCase();
+
+                const curBgColors = labels.map(label => {
+                    const normalized = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                    if (activeVendeurNormalized && normalized === activeVendeurNormalized) {
+                        return neonPink + 'b0';
+                    }
+                    return neonGreen + '75';
+                });
+                const curBorderColors = labels.map(label => {
+                    const normalized = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                    if (activeVendeurNormalized && normalized === activeVendeurNormalized) {
+                        return neonPink;
+                    }
+                    return neonGreen;
+                });
+                const curBorderWidths = labels.map(label => {
+                    const normalized = label.replace(/\(Sélectionné\)/gi, '').trim().toUpperCase();
+                    if (activeVendeurNormalized && normalized === activeVendeurNormalized) {
+                        return 2.5;
+                    }
+                    return 1.5;
+                });
+
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Semaine Dernière (S-1)',
+                                data: prevVals,
+                                backgroundColor: isLight ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.25)',
+                                borderColor: isLight ? '#64748b' : '#94a3b8',
+                                borderWidth: 1.5,
+                                borderRadius: 3
+                            },
+                            {
+                                label: 'Semaine Actuelle (S)',
+                                data: curVals,
+                                backgroundColor: curBgColors,
+                                borderColor: curBorderColors,
+                                borderWidth: curBorderWidths,
+                                borderRadius: 3
+                            },
+                            {
+                                label: 'Objectif (DH)',
+                                data: objVals,
+                                backgroundColor: isLight ? 'rgba(2, 132, 199, 0.03)' : 'rgba(0, 212, 255, 0.04)',
+                                borderColor: neonBlue,
+                                borderWidth: 1.5,
+                                borderDash: [3, 3],
+                                borderRadius: 3
+                            }
+                        ]
+                    },
+                    options: {
+                        animation: { duration: 0 },
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                grid: { color: gridColor },
+                                ticks: {
+                                    color: textColor,
+                                    font: { family: 'JetBrains Mono', size: 9 },
+                                    callback: function(value) { return (value >= 1000 ? (value/1000).toLocaleString() + 'k' : value) + ' DH'; }
+                                }
+                            },
+                            y: {
+                                grid: { color: gridColor },
+                                ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 9 } }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: { color: textColor, font: { family: 'Inter', size: 9 } }
+                            }
+                        }
+                    }
+                });
+            } else if (chartConfig.type === 'familyDonut') {
+                const { labels, realVals } = chartConfig.data;
+                if (!labels || labels.length === 0) return;
+                const donutPalette = [
+                    neonBlue,
+                    neonGreen,
+                    neonAmber,
+                    neonPink,
+                    '#8b5cf6',
+                    '#06b6d4',
+                    '#f97316',
+                    '#10b981',
+                    '#ec4899'
+                ];
+                const totalReal = realVals.reduce((a, b) => a + b, 0);
+
+                new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                data: realVals,
+                                backgroundColor: donutPalette.map(c => c + 'aa'),
+                                borderColor: donutPalette,
+                                borderWidth: 1.5
+                            }
+                        ]
+                    },
+                    options: {
+                        animation: { duration: 0 },
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '60%',
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    color: textColor,
+                                    font: { family: 'Inter', size: 9 },
+                                    boxWidth: 12
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let val = context.raw || 0;
+                                        let pct = totalReal > 0 ? ((val / totalReal) * 100).toFixed(1) + '%' : '0%';
+                                        return ` ${context.label}: ${val.toLocaleString()} DH (${pct})`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (chartErr) {
+            console.error('Error rendering chart ' + chartConfig.id + ':', chartErr);
         }
     });
 }

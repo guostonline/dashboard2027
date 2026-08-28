@@ -4,5 +4,7 @@
     "theme": "theme-1",
     "light_mode": true,
     "excluded_dates": [],
-    "google_sheet_url": ""
+    "google_sheet_url": "",
+    "model": "google/gemini-3.5-flash",
+    "openrouter_model": "google/gemini-3.5-flash"
 }
