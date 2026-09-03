@@ -10,7 +10,9 @@ from generate_report import generate_report
 import db_manager
 try:
     db_manager.init_db()
-    if os.path.exists("acm.xlsx"):
+    db_manager.init_historique_db()
+    stats = db_manager.get_acm_stats()
+    if os.path.exists("acm.xlsx") and stats.get("total", 0) == 0:
         db_manager.import_acm_file("acm.xlsx")
 except Exception as e:
     print(f"Notice on init: {e}")
@@ -83,7 +85,7 @@ def load_config():
     defaults = {
         "rest_days": 15,
         "exclude_families": [],
-        "theme": "theme-1",
+        "theme": "theme-6",
         "light_mode": True,
         "excluded_dates": [],
         "google_sheet_url": "",
@@ -241,27 +243,30 @@ def index():
             return f"Erreur lors de la configuration Google Sheets : {str(e)}", 500
 
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     all_vendeurs = get_all_vendeurs_from_db()
     return render_template("index.html", theme=theme, light_mode=light_mode, all_vendeurs=all_vendeurs)
 
 @app.route("/login")
 def login_page():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     return render_template("login.html", theme=theme, light_mode=light_mode)
 
 @app.route("/details")
 @app.route("/vendeur360")
+@app.route("/historique")
 def details():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     active_sub_tab = request.args.get("view", "")
     if request.path == "/vendeur360":
         active_sub_tab = "vendeur360"
+    elif request.path == "/historique":
+        active_sub_tab = "historique"
     all_vendeurs = get_all_vendeurs_from_db()
     print("INSIDE DETAILS ROUTE - VENDEURS COUNT:", len(all_vendeurs), all_vendeurs[:3] if all_vendeurs else 'EMPTY')
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="details", active_sub_tab=active_sub_tab, all_vendeurs=all_vendeurs)
@@ -300,23 +305,23 @@ def api_import_all_secteurs_visites():
 @app.route("/clients")
 def clients():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     active_sub_tab = request.args.get("view", "")
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="clients", active_sub_tab=active_sub_tab)
 
 @app.route("/rapport")
 def rapport():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="rapport")
 
 @app.route("/stock")
 def stock():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     active_sub_tab = request.args.get("view", "")
     if active_sub_tab == 'favorit':
         active_sub_tab = 'favorites'
@@ -326,16 +331,156 @@ def stock():
 @app.route("/anomalies")
 def anomalis_page():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="anomalies")
 
 @app.route("/visites")
 def visites_page():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="visites")
+
+@app.route("/api/historique/snapshots", methods=["GET"])
+def api_historique_snapshots():
+    try:
+        snapshots = db_manager.get_historique_snapshots()
+        return jsonify({"status": "success", "snapshots": snapshots})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/historique/snapshot/<int:snapshot_id>", methods=["GET"])
+def api_historique_snapshot_details(snapshot_id):
+    try:
+        data = db_manager.get_historique_snapshot_details(snapshot_id)
+        if not data:
+            return jsonify({"status": "error", "message": f"Instantané #{snapshot_id} introuvable"}), 404
+        return jsonify({"status": "success", "snapshot": data})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/historique/snapshot/<int:snapshot_id>", methods=["DELETE"])
+def api_historique_delete_snapshot(snapshot_id):
+    try:
+        success = db_manager.delete_historique_snapshot(snapshot_id)
+        if success:
+            return jsonify({"status": "success", "message": f"Instantané #{snapshot_id} supprimé avec succès"})
+        return jsonify({"status": "error", "message": f"Échec de la suppression de l'instantané #{snapshot_id}"}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/historique/backup_now", methods=["POST"])
+def api_historique_backup_now():
+    try:
+        body = request.get_json(silent=True) or {}
+        note = body.get("note", "Sauvegarde manuelle")
+        report_data = None
+        if body.get("report_text"):
+            report_data = {
+                "report_text": body.get("report_text", ""),
+                "title": body.get("title", ""),
+                "vendeur": body.get("vendeur", ""),
+                "format": body.get("format", ""),
+                "lang": body.get("lang", ""),
+                "report_date": body.get("report_date", ""),
+            }
+        
+        snapshot_id = db_manager.backup_to_historique(report_data=report_data, note=note)
+        return jsonify({
+            "status": "success", 
+            "message": f"Instantané #{snapshot_id} sauvegardé avec succès dans historique.db !",
+            "snapshot_id": snapshot_id
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/historique/months", methods=["GET"])
+def api_historique_months():
+    try:
+        months = db_manager.get_historique_months()
+        return jsonify({"status": "success", "months": months})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/historique/generate_report", methods=["POST"])
+def api_historique_generate_report():
+    try:
+        body = request.get_json(silent=True) or {}
+        month = request.args.get("month") or body.get("month")
+        snapshot_id = request.args.get("snapshot_id") or body.get("snapshot_id")
+        if snapshot_id:
+            try:
+                snapshot_id = int(snapshot_id)
+            except Exception:
+                pass
+        vendeur = request.args.get("vendeur") or body.get("vendeur")
+        category = request.args.get("category") or body.get("category")
+        cdz = request.args.get("cdz") or body.get("cdz")
+        tax_mode = request.args.get("tax_mode") or body.get("tax_mode", "TTC")
+        report_type = request.args.get("report_type") or body.get("report_type", "complet")
+        language = request.args.get("language") or body.get("language", "fr")
+        
+        saved_config = load_config()
+        configured_model = saved_config.get("model") or saved_config.get("openrouter_model") or "anthropic/claude-3.5-sonnet"
+        model = request.args.get("model") or body.get("model")
+        if not model or model == "default":
+            model = configured_model
+
+        options_str = request.args.get("options")
+        options = body.get("options")
+        if not options and options_str:
+            selected_options = options_str.split(",")
+            options = {
+                "quanti": "quanti" in selected_options,
+                "quali": "quali" in selected_options,
+                "focus": "focus" in selected_options,
+                "terrain": "terrain" in selected_options,
+                "visites": "visites" in selected_options,
+                "anomali": "anomali" in selected_options,
+                "rappel": "rappel" in selected_options
+            }
+
+        from generate_report import generate_historique_report
+        report_content, summary_data = generate_historique_report(
+            month=month,
+            snapshot_id=snapshot_id,
+            vendeur=vendeur,
+            category=category,
+            cdz=cdz,
+            options=options,
+            tax_mode=tax_mode,
+            report_type=report_type,
+            language=language,
+            model=model,
+            return_data=True
+        )
+
+        if report_content:
+            return jsonify({
+                "status": "success",
+                "report": report_content,
+                "summary_data": summary_data,
+                "month": summary_data.get("historical_month"),
+                "date": summary_data.get("historical_date"),
+                "snapshot_id": summary_data.get("snapshot_id")
+            })
+        else:
+            return jsonify({"status": "error", "message": "Erreur lors de la génération du rapport historique."}), 500
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/anomalies/analysis", methods=["GET"])
 def api_anomalies_analysis():
@@ -574,15 +719,15 @@ def api_anomalies_delete(anomaly_id):
 @app.route("/tasks")
 def tasks_page():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="tasks")
 
 @app.route("/engagement")
 def engagement_page():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="engagement")
 
 @app.route("/api/engagements", methods=["GET"])
@@ -856,6 +1001,14 @@ def theme5():
     save_config(config)
     return render_template("index.html", theme="theme-5", light_mode=config.get("light_mode", False))
 
+@app.route("/theme6")
+def theme6():
+    config = load_config()
+    config["theme"] = "theme-6"
+    config["light_mode"] = True
+    save_config(config)
+    return render_template("index.html", theme="theme-6", light_mode=True)
+
 @app.route("/favicon.ico")
 def favicon():
     return app.send_static_file("logo.png")
@@ -981,6 +1134,14 @@ def run_ai_analysis():
         tax_mode = request.args.get("tax_mode", "TTC")
         report_type = request.args.get("report_type", "complet")
         language = request.args.get("language", "fr")
+        source_db = request.args.get("source_db") or request.args.get("source") or "active"
+        month = request.args.get("month")
+        snapshot_id = request.args.get("snapshot_id")
+        if snapshot_id:
+            try:
+                snapshot_id = int(snapshot_id)
+            except Exception:
+                pass
         
         saved_config = load_config()
         configured_model = saved_config.get("model") or saved_config.get("openrouter_model") or "anthropic/claude-3.5-sonnet"
@@ -1003,7 +1164,21 @@ def run_ai_analysis():
                 "rappel": "rappel" in selected_options
             }
 
-        report_content, summary_data = generate_report(vendeur=vendeur, category=category, cdz=cdz, date=date, options=options, tax_mode=tax_mode, report_type=report_type, language=language, model=model, return_data=True)
+        report_content, summary_data = generate_report(
+            vendeur=vendeur, 
+            category=category, 
+            cdz=cdz, 
+            date=date, 
+            options=options, 
+            tax_mode=tax_mode, 
+            report_type=report_type, 
+            language=language, 
+            model=model, 
+            return_data=True,
+            source_db=source_db,
+            month=month,
+            snapshot_id=snapshot_id
+        )
         focus_names = db_manager.get_focus_names()
         if report_content:
             return jsonify({"status": "success", "report": report_content, "summary_data": summary_data, "focus_names": focus_names})
@@ -3136,8 +3311,29 @@ def reset_db():
 @app.route("/api/recreate_db_file", methods=["POST"])
 def recreate_db_file():
     try:
-        db_manager.delete_and_recreate_db_file()
-        return jsonify({"status": "success", "message": "Le fichier database.db a été supprimé et récréé avec succès."})
+        # Extract cached report data sent from the frontend (if any)
+        report_data = None
+        try:
+            body = request.get_json(silent=True) or {}
+            if body.get("report_text"):
+                report_data = {
+                    "report_text": body.get("report_text", ""),
+                    "title": body.get("title", ""),
+                    "vendeur": body.get("vendeur", ""),
+                    "format": body.get("format", ""),
+                    "lang": body.get("lang", ""),
+                    "report_date": body.get("report_date", ""),
+                }
+        except Exception:
+            pass
+
+        result = db_manager.delete_and_recreate_db_file(report_data=report_data)
+        snapshot_id = result.get("snapshot_id") if isinstance(result, dict) else None
+        msg = "Les données ont été sauvegardées dans historique.db"
+        if snapshot_id:
+            msg += f" (snapshot #{snapshot_id})"
+        msg += ", puis database.db a été supprimé et récréé avec succès."
+        return jsonify({"status": "success", "message": msg, "snapshot_id": snapshot_id})
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -4900,8 +5096,8 @@ def get_vendeurs_list():
 @app.route("/fdv")
 def fdv_page():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     return render_template(
         "index.html", theme=theme, light_mode=light_mode, active_tab="fdv"
     )
@@ -5667,8 +5863,8 @@ def get_suivi_terrain_data():
 @app.route("/terrain")
 def terrain_page():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     return render_template("index.html", theme=theme, light_mode=light_mode, active_tab="terrain")
 
 @app.route("/api/terrain")
@@ -6167,8 +6363,8 @@ def import_focus_rankings_file(filepath="focus2.xlsx", date_str=None,
 @app.route("/focus")
 def focus_page():
     config = load_config()
-    theme = config.get("theme", "theme-1")
-    light_mode = config.get("light_mode", False)
+    theme = config.get("theme", "theme-6")
+    light_mode = config.get("light_mode", True)
     return render_template(
         "index.html", theme=theme, light_mode=light_mode, active_tab="focus"
     )
@@ -6345,7 +6541,7 @@ def get_focus_objectives_api():
     try:
         conn = db_manager.get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc FROM focus_objectives")
+        cursor.execute("SELECT id, focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc, cdz FROM focus_objectives")
         rows = [dict(o) for o in cursor.fetchall()]
         conn.close()
         
@@ -6364,6 +6560,8 @@ def get_focus_objectives_api():
             o["obj_juin"] = glace_ht
             o["obj_acm"] = glace_ht
             o["ttc"] = ttc
+            if not o.get("cdz"):
+                o["cdz"] = db_manager.resolve_vendor_cdz(o.get("vendeur"), o.get("secteur"))
             objectives.append(o)
 
         return jsonify({"status": "success", "objectives": objectives})
@@ -6406,6 +6604,92 @@ def save_focus_objectives_api():
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+@app.route("/api/focus/whatsapp_data", methods=["GET"])
+def get_focus_whatsapp_data_api():
+    try:
+        vendeur = request.args.get("vendeur", "").strip()
+        cdz = request.args.get("cdz", "").strip()
+        data = db_manager.get_focus_whatsapp_data(vendeur=vendeur, cdz=cdz)
+        return jsonify({"status": "success", "data": data})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/focus/whatsapp_link", methods=["GET", "POST"])
+def get_focus_whatsapp_link_api():
+    try:
+        from urllib.parse import quote
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+        else:
+            data = request.args.to_dict()
+
+        vendeur = data.get("vendeur", "").strip()
+        cdz = data.get("cdz", "").strip()
+        mode = data.get("mode", "single" if vendeur else ("cdz_summary" if cdz else "all_summary")).strip()
+        custom_phone = data.get("phone", "").strip()
+
+        focus_data = db_manager.get_focus_whatsapp_data()
+        som_name = focus_data.get("som_name", "PAPILLOTE")
+        vmm_name = focus_data.get("vmm_name", "BIGGY TASTY T/B")
+        vendors = focus_data.get("vendors", [])
+
+        if mode == "single" or (vendeur and mode != "cdz_summary"):
+            matched_v = next((v for v in vendors if v["vendeur"].upper() == vendeur.upper() or (len(vendeur) >= 2 and v["vendeur"].upper().startswith(vendeur.upper()))), None)
+            if not matched_v:
+                return jsonify({"status": "error", "message": f"Vendeur '{vendeur}' introuvable dans les objectifs focus."}), 404
+
+            message = db_manager.build_focus_vendor_whatsapp_message(matched_v, som_name=som_name, vmm_name=vmm_name)
+            phone = custom_phone or matched_v.get("phone") or ""
+            clean_phone = db_manager.normalize_whatsapp_phone(phone) if phone else ""
+            url = db_manager.build_whatsapp_url(clean_phone, message) if clean_phone else f"https://wa.me/?text={quote(message, safe='')}"
+
+            return jsonify({
+                "status": "success",
+                "mode": "single",
+                "vendeur": matched_v["vendeur"],
+                "secteur": matched_v.get("secteur", ""),
+                "cdz": matched_v.get("cdz", ""),
+                "phone": clean_phone,
+                "message": message,
+                "url": url,
+                "vendor_info": matched_v
+            })
+
+        elif mode == "cdz_summary" or (cdz and not vendeur):
+            message = db_manager.build_focus_cdz_summary_whatsapp_message(cdz, vendors, som_name=som_name, vmm_name=vmm_name)
+            clean_phone = db_manager.normalize_whatsapp_phone(custom_phone) if custom_phone else ""
+            url = db_manager.build_whatsapp_url(clean_phone, message) if clean_phone else f"https://wa.me/?text={quote(message, safe='')}"
+
+            return jsonify({
+                "status": "success",
+                "mode": "cdz_summary",
+                "cdz": cdz,
+                "phone": clean_phone,
+                "message": message,
+                "url": url
+            })
+
+        else:
+            message = db_manager.build_focus_cdz_summary_whatsapp_message("", vendors, som_name=som_name, vmm_name=vmm_name)
+            clean_phone = db_manager.normalize_whatsapp_phone(custom_phone) if custom_phone else ""
+            url = db_manager.build_whatsapp_url(clean_phone, message) if clean_phone else f"https://wa.me/?text={quote(message, safe='')}"
+
+            return jsonify({
+                "status": "success",
+                "mode": "all_summary",
+                "phone": clean_phone,
+                "message": message,
+                "url": url
+            })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/api/focus/upload", methods=["POST"])
@@ -6571,12 +6855,16 @@ def get_focus_data_api():
         conn = db_manager.get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT o.focus_type, o.vendeur, o.secteur, o.number_client, o.obj_acm, o.obj_juin, o.glace_ht, o.ttc, f.cdz 
+            SELECT o.focus_type, o.vendeur, o.secteur, o.number_client, o.obj_acm, o.obj_juin, o.glace_ht, o.ttc, 
+                   COALESCE(NULLIF(o.cdz, ''), f.cdz, '') as cdz
             FROM focus_objectives o
             LEFT JOIN fdv f ON o.vendeur = f.vendeur COLLATE NOCASE
         """)
         objectives = [dict(o) for o in cursor.fetchall()]
         conn.close()
+        for o in objectives:
+            if not o.get("cdz"):
+                o["cdz"] = db_manager.resolve_vendor_cdz(o.get("vendeur"), o.get("secteur"))
 
         if not upload_date:
             workdays_info = db_manager.get_workdays_info(20)

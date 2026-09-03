@@ -1,10 +1,10 @@
 {
     "rest_days": 15,
     "exclude_families": [],
-    "theme": "theme-1",
+    "theme": "theme-6",
     "light_mode": true,
     "excluded_dates": [],
     "google_sheet_url": "",
-    "model": "google/gemini-3.5-flash",
-    "openrouter_model": "google/gemini-3.5-flash"
+    "model": "anthropic/claude-3.5-sonnet",
+    "openrouter_model": "anthropic/claude-3.5-sonnet"
 }

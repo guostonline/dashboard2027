@@ -92,6 +92,7 @@ else:
 DB_PATH = os.environ.get("DB_PATH", os.path.join(DB_DIR, "database.db"))
 UPLOADS_DB_PATH = os.environ.get("UPLOADS_DB_PATH", os.path.join(DB_DIR, "uploads.db"))
 CV_DB_PATH = os.environ.get("CV_DB_PATH", os.path.join(DB_DIR, "clients_vendeurs.db"))
+HISTORIQUE_DB_PATH = os.environ.get("HISTORIQUE_DB_PATH", os.path.join(DB_DIR, "historique.db"))
 
 def _configure_connection(conn):
     conn.row_factory = sqlite3.Row
@@ -127,6 +128,167 @@ def get_db_connection():
     except Exception:
         pass
     return conn
+
+def get_historique_db_connection():
+    """Connection to historique.db (backup snapshots before DB reset)."""
+    conn = sqlite3.connect(HISTORIQUE_DB_PATH, timeout=60.0, check_same_thread=False)
+    return _configure_connection(conn)
+
+def init_historique_db():
+    """Initialize historique database with snapshot tables."""
+    conn = get_historique_db_connection()
+    cursor = conn.cursor()
+
+    # Snapshot metadata table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS h_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        source_date TEXT,
+        note TEXT
+    )
+    """)
+
+    # Quantitative data snapshot
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS h_quantitative_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        vendeur TEXT NOT NULL,
+        famille TEXT NOT NULL,
+        j1 INTEGER DEFAULT 0,
+        real INTEGER DEFAULT 0,
+        obj INTEGER DEFAULT 0,
+        percent REAL DEFAULT 0.0,
+        real_2025 INTEGER DEFAULT 0,
+        h_2024 INTEGER DEFAULT 0,
+        h_pct REAL DEFAULT 0.0,
+        encours INTEGER DEFAULT 0,
+        obj_mois INTEGER DEFAULT 0,
+        raf INTEGER DEFAULT 0,
+        FOREIGN KEY (snapshot_id) REFERENCES h_snapshots(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_h_quant_snap ON h_quantitative_data(snapshot_id)")
+
+    # Qualitative data snapshot
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS h_qualitative_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        vendeur TEXT NOT NULL,
+        clt_programme INTEGER DEFAULT 0,
+        clt_facture INTEGER DEFAULT 0,
+        acm REAL DEFAULT 0.0,
+        tsm REAL DEFAULT 0.0,
+        line REAL DEFAULT 0.0,
+        raf_tsm INTEGER DEFAULT 0,
+        raf_acm INTEGER DEFAULT 0,
+        FOREIGN KEY (snapshot_id) REFERENCES h_snapshots(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_h_qual_snap ON h_qualitative_data(snapshot_id)")
+
+    # Focus VMM data snapshot
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS h_focus_vmm_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        vendeur TEXT NOT NULL,
+        secteur TEXT NOT NULL,
+        dn_fin_mai REAL DEFAULT 0.0,
+        obj_juin REAL DEFAULT 0.0,
+        nb_clients INTEGER DEFAULT 0,
+        obj_acm INTEGER DEFAULT 0,
+        percent REAL DEFAULT 0.0,
+        realise REAL DEFAULT 0.0,
+        rest REAL DEFAULT 0.0,
+        jour_rest INTEGER DEFAULT 0,
+        rest_jour REAL DEFAULT 0.0,
+        FOREIGN KEY (snapshot_id) REFERENCES h_snapshots(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_h_fvmm_snap ON h_focus_vmm_data(snapshot_id)")
+
+    # Focus SOM data snapshot
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS h_focus_som_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        vendeur TEXT NOT NULL,
+        secteur TEXT NOT NULL,
+        glace_ht REAL DEFAULT 0.0,
+        ttc REAL DEFAULT 0.0,
+        percent REAL DEFAULT 0.0,
+        realise REAL DEFAULT 0.0,
+        rest REAL DEFAULT 0.0,
+        rest_jour REAL DEFAULT 0.0,
+        jour_rest INTEGER DEFAULT 0,
+        FOREIGN KEY (snapshot_id) REFERENCES h_snapshots(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_h_fsom_snap ON h_focus_som_data(snapshot_id)")
+
+    # Anomalies snapshot
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS h_anomalies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        vendeur TEXT NOT NULL,
+        type_anomali TEXT NOT NULL,
+        commentaire TEXT,
+        tag TEXT,
+        FOREIGN KEY (snapshot_id) REFERENCES h_snapshots(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_h_anom_snap ON h_anomalies(snapshot_id)")
+
+    # Visites rapports snapshot
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS h_visites_rapports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_id INTEGER NOT NULL,
+        file_name TEXT,
+        vendeur TEXT NOT NULL,
+        date_visite TEXT NOT NULL,
+        tournee TEXT,
+        agence TEXT,
+        client_code TEXT NOT NULL,
+        client_nom TEXT,
+        heure TEXT,
+        distance INTEGER DEFAULT 0,
+        motif TEXT,
+        note TEXT,
+        FOREIGN KEY (snapshot_id) REFERENCES h_snapshots(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_h_vis_snap ON h_visites_rapports(snapshot_id)")
+
+    # Dernier rapport généré snapshot
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS h_rapports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_id INTEGER NOT NULL,
+        report_text TEXT,
+        title TEXT,
+        vendeur TEXT,
+        format TEXT,
+        lang TEXT,
+        report_date TEXT,
+        FOREIGN KEY (snapshot_id) REFERENCES h_snapshots(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_h_rap_snap ON h_rapports(snapshot_id)")
+
+    conn.commit()
+    conn.close()
+    print("[OK] Historique database tables created successfully!")
+
 
 def init_uploads_db():
     """Initialize separate uploads database for Excel files and copy baseline data if new."""
@@ -698,11 +860,17 @@ def init_db():
         obj_juin REAL DEFAULT 0.0,
         glace_ht REAL DEFAULT 0.0,
         ttc REAL DEFAULT 0.0,
+        cdz TEXT DEFAULT '',
         UNIQUE(focus_type, vendeur)
     )
     """)
+    try:
+        cursor.execute("ALTER TABLE focus_objectives ADD COLUMN cdz TEXT DEFAULT ''")
+    except Exception:
+        pass
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_focus_objectives_type ON focus_objectives(focus_type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_focus_objectives_vendeur ON focus_objectives(vendeur)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_focus_objectives_cdz ON focus_objectives(cdz)")
 
     # 11b. Focus Names table (stores dynamic focus names like BECHAMEL, PESCADA ALGERIENNE)
     cursor.execute("""
@@ -1697,9 +1865,1163 @@ def reset_all_database_tables():
     return True
 
 
-def delete_and_recreate_db_file():
-    """Deletes database.db file from disk and creates a new clean database with all schemas."""
+def backup_to_historique(report_data=None, note=None):
+    """Backup current database.db data into historique.db before reset.
+    
+    Args:
+        report_data: Optional dict with keys: report_text, title, vendeur, format, lang, report_date
+        note: Optional string note describing the snapshot
+    Returns:
+        snapshot_id (int) on success, raises Exception on failure
+    """
+    import json as _json
+
+    # Ensure historique.db tables exist
+    init_historique_db()
+
+    main_conn = None
+    hist_conn = None
+    try:
+        main_conn = sqlite3.connect(DB_PATH, timeout=60.0, check_same_thread=False)
+        main_conn.row_factory = sqlite3.Row
+        main_cursor = main_conn.cursor()
+
+        hist_conn = get_historique_db_connection()
+        hist_cursor = hist_conn.cursor()
+
+        # Determine the latest date in the data for the snapshot label
+        main_cursor.execute("SELECT MAX(date) as max_date FROM quantitative_data")
+        row = main_cursor.fetchone()
+        source_date = row["max_date"] if row and row["max_date"] else "unknown"
+
+        # Create snapshot record
+        note_text = note or "Sauvegarde automatique avant réinitialisation"
+        hist_cursor.execute(
+            "INSERT INTO h_snapshots (source_date, note) VALUES (?, ?)",
+            (source_date, note_text)
+        )
+        snapshot_id = hist_cursor.lastrowid
+        print(f"[HISTORIQUE] Created snapshot #{snapshot_id} (source_date={source_date}, note={note_text})")
+
+        # 1. Copy quantitative_data
+        main_cursor.execute("SELECT date, vendeur, famille, j1, real, obj, percent, real_2025, h_2024, h_pct, encours, obj_mois, raf FROM quantitative_data")
+        rows = main_cursor.fetchall()
+        if rows:
+            hist_cursor.executemany(
+                "INSERT INTO h_quantitative_data (snapshot_id, date, vendeur, famille, j1, real, obj, percent, real_2025, h_2024, h_pct, encours, obj_mois, raf) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(snapshot_id, r["date"], r["vendeur"], r["famille"], r["j1"], r["real"], r["obj"], r["percent"], r["real_2025"], r["h_2024"], r["h_pct"], r["encours"], r["obj_mois"], r["raf"]) for r in rows]
+            )
+        print(f"[HISTORIQUE]   quantitative_data: {len(rows)} rows")
+
+        # 2. Copy qualitative_data
+        main_cursor.execute("SELECT date, vendeur, clt_programme, clt_facture, acm, tsm, line, raf_tsm, raf_acm FROM qualitative_data")
+        rows = main_cursor.fetchall()
+        if rows:
+            hist_cursor.executemany(
+                "INSERT INTO h_qualitative_data (snapshot_id, date, vendeur, clt_programme, clt_facture, acm, tsm, line, raf_tsm, raf_acm) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(snapshot_id, r["date"], r["vendeur"], r["clt_programme"], r["clt_facture"], r["acm"], r["tsm"], r["line"], r["raf_tsm"], r["raf_acm"]) for r in rows]
+            )
+        print(f"[HISTORIQUE]   qualitative_data: {len(rows)} rows")
+
+        # 3. Copy focus_vmm_data
+        main_cursor.execute("SELECT date, vendeur, secteur, dn_fin_mai, obj_juin, nb_clients, obj_acm, percent, realise, rest, jour_rest, rest_jour FROM focus_vmm_data")
+        rows = main_cursor.fetchall()
+        if rows:
+            hist_cursor.executemany(
+                "INSERT INTO h_focus_vmm_data (snapshot_id, date, vendeur, secteur, dn_fin_mai, obj_juin, nb_clients, obj_acm, percent, realise, rest, jour_rest, rest_jour) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(snapshot_id, r["date"], r["vendeur"], r["secteur"], r["dn_fin_mai"], r["obj_juin"], r["nb_clients"], r["obj_acm"], r["percent"], r["realise"], r["rest"], r["jour_rest"], r["rest_jour"]) for r in rows]
+            )
+        print(f"[HISTORIQUE]   focus_vmm_data: {len(rows)} rows")
+
+        # 4. Copy focus_som_data
+        main_cursor.execute("SELECT date, vendeur, secteur, glace_ht, ttc, percent, realise, rest, rest_jour, jour_rest FROM focus_som_data")
+        rows = main_cursor.fetchall()
+        if rows:
+            hist_cursor.executemany(
+                "INSERT INTO h_focus_som_data (snapshot_id, date, vendeur, secteur, glace_ht, ttc, percent, realise, rest, rest_jour, jour_rest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(snapshot_id, r["date"], r["vendeur"], r["secteur"], r["glace_ht"], r["ttc"], r["percent"], r["realise"], r["rest"], r["rest_jour"], r["jour_rest"]) for r in rows]
+            )
+        print(f"[HISTORIQUE]   focus_som_data: {len(rows)} rows")
+
+        # 5. Copy anomalies
+        main_cursor.execute("SELECT date, vendeur, type_anomali, commentaire, tag FROM anomalies")
+        rows = main_cursor.fetchall()
+        if rows:
+            hist_cursor.executemany(
+                "INSERT INTO h_anomalies (snapshot_id, date, vendeur, type_anomali, commentaire, tag) VALUES (?, ?, ?, ?, ?, ?)",
+                [(snapshot_id, r["date"], r["vendeur"], r["type_anomali"], r["commentaire"], r["tag"]) for r in rows]
+            )
+        print(f"[HISTORIQUE]   anomalies: {len(rows)} rows")
+
+        # 6. Copy visites_rapports
+        main_cursor.execute("SELECT file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note FROM visites_rapports")
+        rows = main_cursor.fetchall()
+        if rows:
+            hist_cursor.executemany(
+                "INSERT INTO h_visites_rapports (snapshot_id, file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(snapshot_id, r["file_name"], r["vendeur"], r["date_visite"], r["tournee"], r["agence"], r["client_code"], r["client_nom"], r["heure"], r["distance"], r["motif"], r["note"]) for r in rows]
+            )
+        print(f"[HISTORIQUE]   visites_rapports: {len(rows)} rows")
+
+        # 7. Save dernier rapport généré (if provided from frontend)
+        if report_data and isinstance(report_data, dict) and report_data.get("report_text"):
+            hist_cursor.execute(
+                "INSERT INTO h_rapports (snapshot_id, report_text, title, vendeur, format, lang, report_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (snapshot_id, report_data.get("report_text", ""), report_data.get("title", ""),
+                 report_data.get("vendeur", ""), report_data.get("format", ""),
+                 report_data.get("lang", ""), report_data.get("report_date", ""))
+            )
+            print(f"[HISTORIQUE]   rapport: saved")
+
+        hist_conn.commit()
+        print(f"[HISTORIQUE] Snapshot #{snapshot_id} completed successfully!")
+        return snapshot_id
+
+    except Exception as e:
+        print(f"[HISTORIQUE] ERROR during backup: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+    finally:
+        if main_conn:
+            main_conn.close()
+        if hist_conn:
+            hist_conn.close()
+
+
+def get_historique_snapshots():
+    """Retrieve all historical snapshots with statistics summary."""
+    init_historique_db()
+    conn = get_historique_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, created_at, source_date, note FROM h_snapshots ORDER BY id DESC")
+        snapshots = [dict(r) for r in cursor.fetchall()]
+        
+        for s in snapshots:
+            s_id = s["id"]
+            s["quanti_count"] = cursor.execute("SELECT COUNT(1) FROM h_quantitative_data WHERE snapshot_id = ?", (s_id,)).fetchone()[0]
+            s["quali_count"] = cursor.execute("SELECT COUNT(1) FROM h_qualitative_data WHERE snapshot_id = ?", (s_id,)).fetchone()[0]
+            s["focus_vmm_count"] = cursor.execute("SELECT COUNT(1) FROM h_focus_vmm_data WHERE snapshot_id = ?", (s_id,)).fetchone()[0]
+            s["focus_som_count"] = cursor.execute("SELECT COUNT(1) FROM h_focus_som_data WHERE snapshot_id = ?", (s_id,)).fetchone()[0]
+            s["anomalies_count"] = cursor.execute("SELECT COUNT(1) FROM h_anomalies WHERE snapshot_id = ?", (s_id,)).fetchone()[0]
+            s["visites_count"] = cursor.execute("SELECT COUNT(1) FROM h_visites_rapports WHERE snapshot_id = ?", (s_id,)).fetchone()[0]
+            s["has_rapport"] = bool(cursor.execute("SELECT COUNT(1) FROM h_rapports WHERE snapshot_id = ?", (s_id,)).fetchone()[0])
+            
+        return snapshots
+    except Exception as e:
+        print(f"Error fetching historique snapshots: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def get_historique_snapshot_details(snapshot_id):
+    """Retrieve all datasets of a single snapshot."""
+    init_historique_db()
+    conn = get_historique_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, created_at, source_date, note FROM h_snapshots WHERE id = ?", (snapshot_id,))
+        snap_row = cursor.fetchone()
+        if not snap_row:
+            return None
+        
+        snapshot = dict(snap_row)
+        
+        cursor.execute("SELECT date, vendeur, famille, j1, real, obj, percent, real_2025, h_2024, h_pct, encours, obj_mois, raf FROM h_quantitative_data WHERE snapshot_id = ? ORDER BY date DESC, vendeur ASC", (snapshot_id,))
+        snapshot["quantitative"] = [dict(r) for r in cursor.fetchall()]
+
+        cursor.execute("SELECT date, vendeur, clt_programme, clt_facture, acm, tsm, line, raf_tsm, raf_acm FROM h_qualitative_data WHERE snapshot_id = ? ORDER BY date DESC, vendeur ASC", (snapshot_id,))
+        snapshot["qualitative"] = [dict(r) for r in cursor.fetchall()]
+
+        cursor.execute("SELECT date, vendeur, secteur, dn_fin_mai, obj_juin, nb_clients, obj_acm, percent, realise, rest, jour_rest, rest_jour FROM h_focus_vmm_data WHERE snapshot_id = ? ORDER BY date DESC, vendeur ASC", (snapshot_id,))
+        snapshot["focus_vmm"] = [dict(r) for r in cursor.fetchall()]
+
+        cursor.execute("SELECT date, vendeur, secteur, glace_ht, ttc, percent, realise, rest, rest_jour, jour_rest FROM h_focus_som_data WHERE snapshot_id = ? ORDER BY date DESC, vendeur ASC", (snapshot_id,))
+        snapshot["focus_som"] = [dict(r) for r in cursor.fetchall()]
+
+        cursor.execute("SELECT id, date, vendeur, type_anomali, commentaire, tag FROM h_anomalies WHERE snapshot_id = ? ORDER BY date DESC, id DESC", (snapshot_id,))
+        snapshot["anomalies"] = [dict(r) for r in cursor.fetchall()]
+
+        cursor.execute("SELECT file_name, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note FROM h_visites_rapports WHERE snapshot_id = ? ORDER BY date_visite DESC, heure DESC LIMIT 5000", (snapshot_id,))
+        snapshot["visites"] = [dict(r) for r in cursor.fetchall()]
+
+        cursor.execute("SELECT report_text, title, vendeur, format, lang, report_date FROM h_rapports WHERE snapshot_id = ? LIMIT 1", (snapshot_id,))
+        rap_row = cursor.fetchone()
+        snapshot["rapport"] = dict(rap_row) if rap_row else None
+
+        # Summary metrics
+        snapshot["summary"] = {
+            "quanti_count": len(snapshot["quantitative"]),
+            "quali_count": len(snapshot["qualitative"]),
+            "focus_vmm_count": len(snapshot["focus_vmm"]),
+            "focus_som_count": len(snapshot["focus_som"]),
+            "anomalies_count": len(snapshot["anomalies"]),
+            "visites_count": len(snapshot["visites"]),
+            "has_rapport": bool(snapshot["rapport"])
+        }
+
+        return snapshot
+    except Exception as e:
+        print(f"Error fetching snapshot details: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def delete_historique_snapshot(snapshot_id):
+    """Delete a single snapshot and all its associated data."""
+    init_historique_db()
+    conn = get_historique_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM h_quantitative_data WHERE snapshot_id = ?", (snapshot_id,))
+        cursor.execute("DELETE FROM h_qualitative_data WHERE snapshot_id = ?", (snapshot_id,))
+        cursor.execute("DELETE FROM h_focus_vmm_data WHERE snapshot_id = ?", (snapshot_id,))
+        cursor.execute("DELETE FROM h_focus_som_data WHERE snapshot_id = ?", (snapshot_id,))
+        cursor.execute("DELETE FROM h_anomalies WHERE snapshot_id = ?", (snapshot_id,))
+        cursor.execute("DELETE FROM h_visites_rapports WHERE snapshot_id = ?", (snapshot_id,))
+        cursor.execute("DELETE FROM h_rapports WHERE snapshot_id = ?", (snapshot_id,))
+        cursor.execute("DELETE FROM h_snapshots WHERE id = ?", (snapshot_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error deleting snapshot #{snapshot_id}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_historique_months():
+    """Retrieve distinct months available in historique.db with snapshot metadata and row counts."""
+    init_historique_db()
+    conn = get_historique_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT 
+                substr(date, 1, 7) as month,
+                MIN(date) as date_min,
+                MAX(date) as date_max,
+                COUNT(1) as quanti_count,
+                COUNT(DISTINCT date) as days_count,
+                COUNT(DISTINCT snapshot_id) as snapshots_count,
+                MAX(snapshot_id) as latest_snapshot_id
+            FROM h_quantitative_data
+            WHERE date IS NOT NULL AND length(date) >= 7
+            GROUP BY substr(date, 1, 7)
+            ORDER BY month DESC
+        """)
+        months_rows = [dict(r) for r in cursor.fetchall()]
+
+        # Map French month names
+        month_names = {
+            "01": "Janvier", "02": "Février", "03": "Mars", "04": "Avril",
+            "05": "Mai", "06": "Juin", "07": "Juillet", "08": "Août",
+            "09": "Septembre", "10": "Octobre", "11": "Novembre", "12": "Décembre"
+        }
+
+        months_list = []
+        for m in months_rows:
+            m_str = m["month"]
+            parts = m_str.split("-") if "-" in m_str else [m_str, ""]
+            year = parts[0]
+            month_num = parts[1] if len(parts) > 1 else ""
+            month_fr = month_names.get(month_num, month_num)
+            
+            # Fetch associated snapshots
+            cursor.execute("""
+                SELECT id, source_date, created_at, note 
+                FROM h_snapshots 
+                WHERE id IN (
+                    SELECT DISTINCT snapshot_id FROM h_quantitative_data WHERE date LIKE ?
+                )
+                ORDER BY id DESC
+            """, (f"{m_str}%",))
+            snap_list = [dict(s) for s in cursor.fetchall()]
+
+            label = f"{month_fr} {year} ({m_str}) — {m['days_count']} jours ({m['date_min']} au {m['date_max']})"
+            months_list.append({
+                "month": m_str,
+                "label": label,
+                "year": year,
+                "month_name": month_fr,
+                "date_min": m["date_min"],
+                "date_max": m["date_max"],
+                "days_count": m["days_count"],
+                "quanti_count": m["quanti_count"],
+                "latest_snapshot_id": m["latest_snapshot_id"],
+                "snapshots": snap_list
+            })
+
+        # Fallback if no months in quanti but snapshots exist
+        if not months_list:
+            cursor.execute("SELECT id, source_date, created_at, note FROM h_snapshots ORDER BY id DESC")
+            snaps = [dict(s) for s in cursor.fetchall()]
+            for s in snaps:
+                s_date = s.get("source_date") or ""
+                m_str = s_date[:7] if len(s_date) >= 7 else "2026-08"
+                months_list.append({
+                    "month": m_str,
+                    "label": f"Instantané #{s['id']} ({s_date})",
+                    "year": m_str[:4],
+                    "month_name": m_str,
+                    "date_min": s_date,
+                    "date_max": s_date,
+                    "days_count": 1,
+                    "quanti_count": 0,
+                    "latest_snapshot_id": s["id"],
+                    "snapshots": [s]
+                })
+
+        return months_list
+    except Exception as e:
+        print(f"Error fetching historique months: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def get_historique_suivi_data_by_month(month=None, snapshot_id=None):
+    """
+    Retrieve full KPI dataset (quanti, quali, focus_vmm, focus_som) 
+    solely from historique.db for a specific month and/or snapshot.
+    """
+    init_historique_db()
+    conn = get_historique_db_connection()
+    cursor = conn.cursor()
+    try:
+        where_snap = ""
+        params_snap = []
+        if snapshot_id:
+            where_snap = "snapshot_id = ?"
+            params_snap.append(snapshot_id)
+
+        # 1. Determine target date (latest reporting date of the selected month or snapshot)
+        target_date = None
+        if month:
+            query = "SELECT MAX(date) FROM h_quantitative_data WHERE date LIKE ?"
+            params = [f"{month}%"]
+            if snapshot_id:
+                query += " AND snapshot_id = ?"
+                params.append(snapshot_id)
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+            if row and row[0]:
+                target_date = row[0]
+
+        if not target_date and snapshot_id:
+            cursor.execute("SELECT MAX(date) FROM h_quantitative_data WHERE snapshot_id = ?", (snapshot_id,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                target_date = row[0]
+            else:
+                cursor.execute("SELECT source_date FROM h_snapshots WHERE id = ?", (snapshot_id,))
+                s_row = cursor.fetchone()
+                if s_row and s_row[0]:
+                    target_date = s_row[0]
+
+        if not target_date:
+            cursor.execute("SELECT MAX(date) FROM h_quantitative_data")
+            row = cursor.fetchone()
+            target_date = row[0] if (row and row[0]) else "2026-08-31"
+
+        actual_month = target_date[:7] if len(target_date) >= 7 else (month or "2026-08")
+
+        # 2. Fetch Quantitative Data on that latest date
+        q_params = [target_date]
+        q_extra = ""
+        if snapshot_id:
+            q_extra = " AND snapshot_id = ?"
+            q_params.append(snapshot_id)
+        cursor.execute(f"""
+            SELECT date, vendeur, famille, j1, real, obj, percent, real_2025, h_2024, h_pct, encours, obj_mois, raf
+            FROM h_quantitative_data
+            WHERE date = ? {q_extra}
+            ORDER BY vendeur ASC, famille ASC
+        """, q_params)
+        quanti = [dict(r) for r in cursor.fetchall()]
+
+        # If empty on that exact date, load all rows in that month/snapshot
+        if not quanti:
+            m_params = [f"{actual_month}%"]
+            m_extra = ""
+            if snapshot_id:
+                m_extra = " AND snapshot_id = ?"
+                m_params.append(snapshot_id)
+            cursor.execute(f"""
+                SELECT date, vendeur, famille, j1, real, obj, percent, real_2025, h_2024, h_pct, encours, obj_mois, raf
+                FROM h_quantitative_data
+                WHERE date LIKE ? {m_extra}
+                ORDER BY date DESC, vendeur ASC
+            """, m_params)
+            quanti = [dict(r) for r in cursor.fetchall()]
+
+        # 3. Fetch Qualitative Data
+        cursor.execute(f"""
+            SELECT date, vendeur, clt_programme, clt_facture, acm, tsm, line, raf_tsm, raf_acm
+            FROM h_qualitative_data
+            WHERE date = ? {q_extra}
+            ORDER BY vendeur ASC
+        """, q_params)
+        quali = [dict(r) for r in cursor.fetchall()]
+        if not quali:
+            cursor.execute(f"""
+                SELECT date, vendeur, clt_programme, clt_facture, acm, tsm, line, raf_tsm, raf_acm
+                FROM h_qualitative_data
+                WHERE date LIKE ? {m_extra}
+                ORDER BY date DESC, vendeur ASC
+            """, m_params)
+            quali = [dict(r) for r in cursor.fetchall()]
+
+        # 4. Fetch Focus VMM Data
+        cursor.execute(f"""
+            SELECT date, vendeur, secteur, dn_fin_mai, obj_juin, nb_clients, obj_acm, percent, realise, rest, jour_rest, rest_jour
+            FROM h_focus_vmm_data
+            WHERE date = ? {q_extra}
+            ORDER BY vendeur ASC
+        """, q_params)
+        focus_vmm = [dict(r) for r in cursor.fetchall()]
+        if not focus_vmm:
+            cursor.execute(f"""
+                SELECT date, vendeur, secteur, dn_fin_mai, obj_juin, nb_clients, obj_acm, percent, realise, rest, jour_rest, rest_jour
+                FROM h_focus_vmm_data
+                WHERE date LIKE ? {m_extra}
+                ORDER BY date DESC, vendeur ASC
+            """, m_params)
+            focus_vmm = [dict(r) for r in cursor.fetchall()]
+
+        # 5. Fetch Focus SOM Data
+        cursor.execute(f"""
+            SELECT date, vendeur, secteur, glace_ht, ttc, percent, realise, rest, rest_jour, jour_rest
+            FROM h_focus_som_data
+            WHERE date = ? {q_extra}
+            ORDER BY vendeur ASC
+        """, q_params)
+        focus_som = [dict(r) for r in cursor.fetchall()]
+        if not focus_som:
+            cursor.execute(f"""
+                SELECT date, vendeur, secteur, glace_ht, ttc, percent, realise, rest, rest_jour, jour_rest
+                FROM h_focus_som_data
+                WHERE date LIKE ? {m_extra}
+                ORDER BY date DESC, vendeur ASC
+            """, m_params)
+            focus_som = [dict(r) for r in cursor.fetchall()]
+
+        # Calculate workdays based on target_date and historical month
+        from datetime import datetime
+        try:
+            cur_dt = datetime.strptime(target_date, "%Y-%m-%d")
+            total_days = 24
+            elapsed_days = min(24, max(1, cur_dt.day * 24 // 31))
+            if cur_dt.day >= 28:
+                elapsed_days = 20
+                rest_days = 4
+            else:
+                rest_days = max(1, total_days - elapsed_days)
+        except Exception:
+            total_days = 24
+            elapsed_days = 20
+            rest_days = 4
+
+        return {
+            "date": target_date,
+            "month": actual_month,
+            "snapshot_id": snapshot_id,
+            "quantitative": quanti,
+            "qualitative": quali,
+            "focus_vmm": focus_vmm,
+            "focus_som": focus_som,
+            "workdays": {
+                "total": total_days,
+                "elapsed": elapsed_days,
+                "rest": rest_days
+            }
+        }
+    except Exception as e:
+        print(f"Error fetching historical suivi data: {e}")
+        return {
+            "date": "2026-08-31",
+            "month": month or "2026-08",
+            "snapshot_id": snapshot_id,
+            "quantitative": [],
+            "qualitative": [],
+            "focus_vmm": [],
+            "focus_som": [],
+            "workdays": {"total": 24, "elapsed": 20, "rest": 4}
+        }
+    finally:
+        conn.close()
+
+
+def get_historique_visites_and_anomalies(month=None, snapshot_id=None, allowed_sellers=None):
+    """
+    Fetch and calculate visit stats, tournées, timing anomalies and deviations
+    strictly from h_visites_rapports and h_anomalies in historique.db.
+    """
+    init_historique_db()
+    conn = get_historique_db_connection()
+    cursor = conn.cursor()
+    try:
+        from collections import defaultdict
+        from datetime import datetime
+
+        where_clauses = ["heure IS NOT NULL AND heure != ''"]
+        params = []
+
+        if snapshot_id:
+            where_clauses.append("snapshot_id = ?")
+            params.append(snapshot_id)
+        if month:
+            where_clauses.append("date_visite LIKE ?")
+            params.append(f"{month}%")
+
+        where_str = " WHERE " + " AND ".join(where_clauses)
+        cursor.execute(f"""
+            SELECT id, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note
+            FROM h_visites_rapports
+            {where_str}
+            ORDER BY date_visite DESC, vendeur ASC, heure ASC
+        """, params)
+        rows = [dict(r) for r in cursor.fetchall()]
+
+        # Fallback if specific month/snapshot was empty
+        if not rows:
+            cursor.execute("""
+                SELECT id, vendeur, date_visite, tournee, agence, client_code, client_nom, heure, distance, motif, note
+                FROM h_visites_rapports
+                WHERE heure IS NOT NULL AND heure != ''
+                ORDER BY date_visite DESC, vendeur ASC, heure ASC
+                LIMIT 5000
+            """)
+            rows = [dict(r) for r in cursor.fetchall()]
+
+        # Filter by allowed_sellers if provided
+        if allowed_sellers:
+            allowed_upper = {s.strip().upper() for s in allowed_sellers if s}
+            filtered_rows = []
+            for r in rows:
+                v = (r.get("vendeur") or "").strip().upper()
+                v_code = v.split(" ")[0] if " " in v else v
+                if v in allowed_upper or any(s.startswith(v_code) for s in allowed_upper) or any(v.startswith(s.split(" ")[0]) for s in allowed_upper):
+                    filtered_rows.append(r)
+            rows = filtered_rows
+
+        groups = defaultdict(list)
+        for r in rows:
+            v = (r.get("vendeur") or "").strip()
+            d = (r.get("date_visite") or "").strip()
+            groups[(v, d)].append(r)
+
+        total_visites = len(rows)
+        count_less_3min = 0
+        count_multiple = 0
+        count_first_late = 0
+        count_last_early = 0
+
+        seller_visit_stats = defaultdict(lambda: {
+            "total_visites": 0,
+            "days_active": set(),
+            "anomalies_count": 0,
+            "less_3min": 0,
+            "first_late": 0,
+            "last_early": 0,
+            "multiple": 0
+        })
+
+        for (vendeur, date_visite), visits in groups.items():
+            seller_visit_stats[vendeur]["days_active"].add(date_visite)
+            seller_visit_stats[vendeur]["total_visites"] += len(visits)
+
+            client_counts = defaultdict(int)
+            for visit in visits:
+                c_code = (visit.get("client_code") or "").strip().upper()
+                if c_code:
+                    client_counts[c_code] += 1
+                    if client_counts[c_code] == 2:
+                        count_multiple += 1
+                        seller_visit_stats[vendeur]["multiple"] += 1
+                        seller_visit_stats[vendeur]["anomalies_count"] += 1
+
+                h_str = visit.get("heure") or ""
+                if " - " in h_str:
+                    parts = h_str.split(" - ")
+                    if len(parts) == 2:
+                        try:
+                            t1 = datetime.strptime(parts[0].strip(), "%H:%M:%S")
+                            t2 = datetime.strptime(parts[1].strip(), "%H:%M:%S")
+                            dur_secs = (t2 - t1).total_seconds()
+                            if 0 < dur_secs < 180:
+                                count_less_3min += 1
+                                seller_visit_stats[vendeur]["less_3min"] += 1
+                                seller_visit_stats[vendeur]["anomalies_count"] += 1
+                        except:
+                            pass
+
+            if visits:
+                h0 = visits[0].get("heure", "")
+                if " - " in h0:
+                    p0 = h0.split(" - ")[0].strip()
+                    if p0 > "08:40:00":
+                        count_first_late += 1
+                        seller_visit_stats[vendeur]["first_late"] += 1
+                        seller_visit_stats[vendeur]["anomalies_count"] += 1
+                h_last = visits[-1].get("heure", "")
+                if " - " in h_last:
+                    p_last = h_last.split(" - ")[1].strip()
+                    if p_last < "14:45:00":
+                        count_last_early += 1
+                        seller_visit_stats[vendeur]["last_early"] += 1
+                        seller_visit_stats[vendeur]["anomalies_count"] += 1
+
+        # Also count archived anomalies from h_anomalies
+        anom_where = []
+        anom_params = []
+        if snapshot_id:
+            anom_where.append("snapshot_id = ?")
+            anom_params.append(snapshot_id)
+        if month:
+            anom_where.append("date LIKE ?")
+            anom_params.append(f"{month}%")
+        anom_str = (" WHERE " + " AND ".join(anom_where)) if anom_where else ""
+        cursor.execute(f"SELECT COUNT(1) FROM h_anomalies {anom_str}", anom_params)
+        db_anomalies_count = cursor.fetchone()[0]
+
+        total_anomalies = max(db_anomalies_count, count_less_3min + count_multiple + count_first_late + count_last_early)
+
+        reps_visites = []
+        for v, s in seller_visit_stats.items():
+            num_days = len(s["days_active"])
+            avg_per_day = round(s["total_visites"] / num_days, 1) if num_days > 0 else 0
+            reps_visites.append({
+                "vendeur": v,
+                "total_visites": s["total_visites"],
+                "active_days": num_days,
+                "avg_visites_per_day": avg_per_day,
+                "anomalies_total": s["anomalies_count"],
+                "less_3min": s["less_3min"],
+                "first_late": s["first_late"],
+                "last_early": s["last_early"],
+                "multiple": s["multiple"]
+            })
+        reps_visites.sort(key=lambda x: x["total_visites"], reverse=True)
+
+        return {
+            "total_visites": total_visites,
+            "total_anomalies": total_anomalies,
+            "count_less_3min": count_less_3min,
+            "count_multiple": count_multiple,
+            "count_first_late": count_first_late,
+            "count_last_early": count_last_early,
+            "reps_visites": reps_visites
+        }
+    except Exception as e:
+        print(f"Error fetching historical visites and anomalies: {e}")
+        return {
+            "total_visites": 0,
+            "total_anomalies": 0,
+            "count_less_3min": 0,
+            "count_multiple": 0,
+            "count_first_late": 0,
+            "count_last_early": 0,
+            "reps_visites": []
+        }
+    finally:
+        conn.close()
+
+
+def get_historique_vendeur_localites(vendeur, month=None, snapshot_id=None):
+    """
+    Extracts structured visit breakdown by localité/tournée for a specific vendor
+    from h_visites_rapports in historique.db.
+    """
+    if not vendeur:
+        return []
+
+    vcode = vendeur.strip().split()[0].upper()
+    vname = vendeur.strip().upper()
+
+    init_historique_db()
+    conn = get_historique_db_connection()
+    cursor = conn.cursor()
+    try:
+        where_parts = ["(UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ?)"]
+        params = [f"{vcode}%", f"%{vname}%"]
+
+        if snapshot_id:
+            where_parts.append("snapshot_id = ?")
+            params.append(snapshot_id)
+        if month:
+            where_parts.append("date_visite LIKE ?")
+            params.append(f"{month}%")
+
+        where_str = " WHERE " + " AND ".join(where_parts)
+        cursor.execute(f"""
+            SELECT tournee, agence, motif, count(1) as cnt
+            FROM h_visites_rapports
+            {where_str}
+            GROUP BY tournee, agence, motif
+            ORDER BY tournee ASC
+        """, params)
+        rows = [dict(r) for r in cursor.fetchall()]
+
+        # If empty with strict filter, try without month filter
+        if not rows and month:
+            cursor.execute("""
+                SELECT tournee, agence, motif, count(1) as cnt
+                FROM h_visites_rapports
+                WHERE UPPER(vendeur) LIKE ? OR UPPER(vendeur) LIKE ?
+                GROUP BY tournee, agence, motif
+                ORDER BY tournee ASC
+            """, (f"{vcode}%", f"%{vname}%"))
+            rows = [dict(r) for r in cursor.fetchall()]
+
+        loc_dict = {}
+        for r in rows:
+            loc = str(r.get("tournee") or "Localité Inconnue").strip()
+            sec = str(r.get("agence") or "-").strip()
+            m = str(r.get("motif") or "OK").strip()
+            cnt = int(r.get("cnt") or 0)
+
+            if loc not in loc_dict:
+                loc_dict[loc] = {
+                    "localite": loc,
+                    "secteur": sec,
+                    "total_visites": 0,
+                    "total_factures": 0,
+                    "autre": 0,
+                    "motifs_autre": {}
+                }
+
+            loc_dict[loc]["total_visites"] += cnt
+            if m.upper() == "OK" or "VENTE" in m.upper() or "FACTURE" in m.upper():
+                loc_dict[loc]["total_factures"] += cnt
+            else:
+                loc_dict[loc]["autre"] += cnt
+                loc_dict[loc]["motifs_autre"][m] = loc_dict[loc]["motifs_autre"].get(m, 0) + cnt
+
+        results = []
+        for loc, d in loc_dict.items():
+            tot = d["total_visites"]
+            fac = d["total_factures"]
+            rate = (fac / tot * 100) if tot > 0 else 0.0
+            d["taux_facturation_pct"] = rate
+            d["taux_facturation"] = f"{rate:.1f}%"
+
+            top_motifs = sorted(d["motifs_autre"].items(), key=lambda x: x[1], reverse=True)
+            d["motifs_str"] = ", ".join(f"{k} ({v})" for k, v in top_motifs) if top_motifs else "Aucun"
+            results.append(d)
+
+        results.sort(key=lambda x: x["total_visites"], reverse=True)
+        return results
+    except Exception as e:
+        print(f"Error extracting historical localites visites for {vendeur}: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def get_historique_weekly_comparison(month=None, snapshot_id=None, tax_mode="TTC", filter_vendeur=None, filter_cdz=None):
+    """
+    Calculate week-over-week performance comparison by CDZ team and vendor by vendor
+    strictly from h_quantitative_data and h_qualitative_data in historique.db.
+    """
+    init_historique_db()
+    conn = get_historique_db_connection()
+    cursor = conn.cursor()
+    try:
+        from datetime import datetime, timedelta
+
+        where_clause = ""
+        params = []
+        if snapshot_id:
+            where_clause = "WHERE snapshot_id = ?"
+            params.append(snapshot_id)
+        elif month:
+            where_clause = "WHERE date LIKE ?"
+            params.append(f"{month}%")
+
+        cursor.execute(f"SELECT DISTINCT date FROM h_quantitative_data {where_clause} ORDER BY date DESC", params)
+        dates = [r[0] for r in cursor.fetchall()]
+
+        if not dates:
+            return {}
+
+        cur_date = dates[0]
+        try:
+            cur_dt = datetime.strptime(cur_date, "%Y-%m-%d")
+        except:
+            cur_dt = datetime.now()
+
+        # Find prior week date (~7 days before)
+        prev_date = None
+        target_prev = (cur_dt - timedelta(days=7)).strftime("%Y-%m-%d")
+        if target_prev in dates:
+            prev_date = target_prev
+        else:
+            for d in dates:
+                try:
+                    dt = datetime.strptime(d, "%Y-%m-%d")
+                    diff = (cur_dt - dt).days
+                    if 4 <= diff <= 10:
+                        prev_date = d
+                        break
+                except:
+                    pass
+            if not prev_date and len(dates) > 1:
+                for d in dates:
+                    if d < cur_date:
+                        prev_date = d
+                        break
+
+        # Fetch current date quanti rows
+        c_params = [cur_date]
+        c_snap = ""
+        if snapshot_id:
+            c_snap = " AND snapshot_id = ?"
+            c_params.append(snapshot_id)
+        cursor.execute(f"SELECT vendeur, famille, real, obj, obj_mois, raf FROM h_quantitative_data WHERE date = ? {c_snap}", c_params)
+        quanti_cur = [dict(r) for r in cursor.fetchall()]
+
+        # Fetch prev date quanti rows
+        quanti_prev = []
+        if prev_date:
+            p_params = [prev_date]
+            if snapshot_id:
+                p_params.append(snapshot_id)
+            cursor.execute(f"SELECT vendeur, famille, real, obj, obj_mois, raf FROM h_quantitative_data WHERE date = ? {c_snap}", p_params)
+            quanti_prev = [dict(r) for r in cursor.fetchall()]
+
+        # Fetch FDV mappings
+        fdv = get_fdv_list()
+        v_to_cdz = {r["vendeur"].strip().upper(): (r.get("cdz") or "AUTRE").strip().upper() for r in fdv}
+        allowed_vendeurs = {r["vendeur"].strip().upper() for r in fdv if r.get("cdz") in ("CHAKIB ELFIL", "BOUTMEZGUINE EL MOSTAFA")}
+
+        def extract_quanti(rows):
+            res = {}
+            for r in rows:
+                v = r.get("vendeur", "").strip().upper()
+                if not v or "TOTAL" in v:
+                    continue
+                if v not in res:
+                    res[v] = {"real": 0, "obj": 0, "obj_mois": 0, "raf": 0}
+                real_val = r.get("real", 0) or 0
+                obj_val = r.get("obj", 0) or 0
+                obj_m = r.get("obj_mois", 0) or 0
+                raf_val = r.get("raf", 0) or 0
+                fam = r.get("famille", "").strip().upper()
+                if fam in ("C.A (HT)", "C.A (TTC)"):
+                    res[v]["real"] = real_val
+                    res[v]["obj"] = obj_val
+                    res[v]["obj_mois"] = obj_m
+                    res[v]["raf"] = raf_val
+            return res
+
+        sellers_cur = extract_quanti(quanti_cur)
+        sellers_prev = extract_quanti(quanti_prev)
+
+        all_sellers = set(sellers_cur.keys()).union(sellers_prev.keys())
+        if allowed_vendeurs:
+            all_sellers = [s for s in all_sellers if s in allowed_vendeurs]
+
+        # Fetch qualitative ACM & TSM on cur_date & prev_date
+        cursor.execute(f"SELECT vendeur, acm, tsm FROM h_qualitative_data WHERE date = ? {c_snap}", c_params)
+        quali_cur_rows = [dict(r) for r in cursor.fetchall()]
+        v_acm_c = {r["vendeur"].strip().upper(): (r.get("acm") or 0.0) * 100 for r in quali_cur_rows}
+        v_tsm_c = {r["vendeur"].strip().upper(): (r.get("tsm") or 0.0) * 100 for r in quali_cur_rows}
+
+        v_acm_p = {}
+        v_tsm_p = {}
+        if prev_date:
+            p_params = [prev_date]
+            if snapshot_id:
+                p_params.append(snapshot_id)
+            cursor.execute(f"SELECT vendeur, acm, tsm FROM h_qualitative_data WHERE date = ? {c_snap}", p_params)
+            quali_prev_rows = [dict(r) for r in cursor.fetchall()]
+            v_acm_p = {r["vendeur"].strip().upper(): (r.get("acm") or 0.0) * 100 for r in quali_prev_rows}
+            v_tsm_p = {r["vendeur"].strip().upper(): (r.get("tsm") or 0.0) * 100 for r in quali_prev_rows}
+
+        vendeurs_data = []
+        for v in all_sellers:
+            cdz = v_to_cdz.get(v, "AUTRE")
+            d_c = sellers_cur.get(v, {"real": 0, "obj": 0, "obj_mois": 0, "raf": 0})
+            d_p = sellers_prev.get(v, {"real": 0, "obj": 0, "obj_mois": 0, "raf": 0})
+
+            real_c = d_c["real"]
+            real_p = d_p["real"]
+            obj_c = d_c["obj"]
+
+            if tax_mode == "HT":
+                real_c = int(round(real_c / 1.2))
+                real_p = int(round(real_p / 1.2))
+                obj_c = int(round(obj_c / 1.2))
+
+            diff_dh = real_c - real_p
+            diff_pct = ((real_c - real_p) / real_p * 100) if real_p > 0 else (0.0 if real_c == 0 else 100.0)
+            rate = ((real_c - obj_c) / obj_c * 100) if obj_c > 0 else -100.0
+            acm_c = v_acm_c.get(v, 0.0)
+            acm_p = v_acm_p.get(v, 0.0)
+            tsm_c = v_tsm_c.get(v, 0.0)
+            tsm_p = v_tsm_p.get(v, 0.0)
+
+            if diff_pct >= 5:
+                trend = "📈 Hausse"
+            elif diff_pct <= -5:
+                trend = "📉 Baisse"
+            else:
+                trend = "➡️ Stable"
+
+            v_info = {
+                "vendeur": v,
+                "cdz": cdz,
+                "real_prev": real_p,
+                "real_cur": real_c,
+                "diff_dh": diff_dh,
+                "diff_pct": diff_pct,
+                "obj": obj_c,
+                "rate": rate,
+                "acm_cur": acm_c,
+                "acm_prev": acm_p,
+                "tsm_cur": tsm_c,
+                "tsm_prev": tsm_p,
+                "trend": trend
+            }
+            vendeurs_data.append(v_info)
+
+        vendeurs_data.sort(key=lambda x: x["diff_pct"], reverse=True)
+
+        cdz_teams = ["CHAKIB ELFIL", "BOUTMEZGUINE EL MOSTAFA"]
+        cdz_summary = []
+        for target_cdz_name in cdz_teams:
+            reps = [x for x in vendeurs_data if x["cdz"].strip().upper() == target_cdz_name.strip().upper()]
+            c_tot = sum(x["real_cur"] for x in reps)
+            p_tot = sum(x["real_prev"] for x in reps)
+            o_tot = sum(x["obj"] for x in reps)
+            d_dh = c_tot - p_tot
+            d_pct = ((c_tot - p_tot) / p_tot * 100) if p_tot > 0 else 0.0
+            r_tot = ((c_tot - o_tot) / o_tot * 100) if o_tot > 0 else -100.0
+
+            avg_acm_c = sum(x["acm_cur"] for x in reps) / len(reps) if reps else 0.0
+            avg_acm_p = sum(x["acm_prev"] for x in reps) / len(reps) if reps else 0.0
+            avg_tsm_c = sum(x["tsm_cur"] for x in reps) / len(reps) if reps else 0.0
+            avg_tsm_p = sum(x["tsm_prev"] for x in reps) / len(reps) if reps else 0.0
+
+            cdz_summary.append({
+                "cdz": f"Équipe {target_cdz_name.title()}",
+                "cdz_raw": target_cdz_name,
+                "reps_count": len(reps),
+                "real_cur": c_tot,
+                "real_prev": p_tot,
+                "diff_dh": d_dh,
+                "diff_pct": d_pct,
+                "obj": o_tot,
+                "rate": r_tot,
+                "acm_cur": avg_acm_c,
+                "acm_prev": avg_acm_p,
+                "tsm_cur": avg_tsm_c,
+                "tsm_prev": avg_tsm_p
+            })
+
+        tot_c = sum(x["real_cur"] for x in cdz_summary)
+        tot_p = sum(x["real_prev"] for x in cdz_summary)
+        tot_o = sum(x["obj"] for x in cdz_summary)
+        tot_d_dh = tot_c - tot_p
+        tot_d_pct = ((tot_c - tot_p) / tot_p * 100) if tot_p > 0 else 0.0
+        tot_rate = ((tot_c - tot_o) / tot_o * 100) if tot_o > 0 else -100.0
+        tot_acm_c = sum(x["acm_cur"] for x in cdz_summary) / len(cdz_summary) if cdz_summary else 0.0
+        tot_acm_p = sum(x["acm_prev"] for x in cdz_summary) / len(cdz_summary) if cdz_summary else 0.0
+
+        agency_total = {
+            "cdz": "TOTAL AGENCE CONSOLIDÉ",
+            "cdz_raw": "ALL",
+            "reps_count": len(vendeurs_data),
+            "real_cur": tot_c,
+            "real_prev": tot_p,
+            "diff_dh": tot_d_dh,
+            "diff_pct": tot_d_pct,
+            "obj": tot_o,
+            "rate": tot_rate,
+            "acm_cur": tot_acm_c,
+            "acm_prev": tot_acm_p
+        }
+
+        # Compute multi-week progression
+        all_sorted_dates = sorted(dates)
+        weeks_dict = {}
+        for d in all_sorted_dates:
+            try:
+                dt = datetime.strptime(d, "%Y-%m-%d")
+                w_num = dt.isocalendar()[1]
+                weeks_dict.setdefault(w_num, []).append(d)
+            except:
+                pass
+
+        sorted_week_nums = sorted(weeks_dict.keys())
+        week_keys = [f"S{i+1}" for i in range(len(sorted_week_nums))]
+        week_endpoints = [max(weeks_dict[w]) for w in sorted_week_nums]
+
+        multi_weekly_cumuls = {}
+        for w_lbl, ep in zip(week_keys, week_endpoints):
+            ep_params = [ep]
+            if snapshot_id:
+                ep_params.append(snapshot_id)
+            cursor.execute(f"SELECT vendeur, famille, real, obj FROM h_quantitative_data WHERE date = ? {c_snap}", ep_params)
+            ep_rows = [dict(r) for r in cursor.fetchall()]
+            for r in ep_rows:
+                v = r.get("vendeur", "").strip().upper()
+                if v not in allowed_vendeurs or r.get("famille") not in ("C.A (ht)", "C.A (TTC)"):
+                    continue
+                r_val = r.get("real", 0) or 0
+                o_val = r.get("obj", 0) or 0
+                if tax_mode == "HT":
+                    r_val = int(round(r_val / 1.2))
+                    o_val = int(round(o_val / 1.2))
+                multi_weekly_cumuls.setdefault(v, {})[w_lbl] = r_val
+                multi_weekly_cumuls[v]["obj"] = o_val
+
+        vendor_multi_week = []
+        for v in sorted(allowed_vendeurs):
+            cumuls = multi_weekly_cumuls.get(v, {})
+            discrete = {}
+            prev_val = 0
+            for w_lbl in week_keys:
+                cur_val = cumuls.get(w_lbl, prev_val)
+                discrete[w_lbl] = max(0, cur_val - prev_val)
+                prev_val = cur_val
+            tot_val = prev_val
+            obj_val = cumuls.get("obj", 0)
+            rate_val = ((tot_val - obj_val) / obj_val * 100) if obj_val > 0 else -100.0
+
+            vals = [discrete[w] for w in week_keys]
+            if len(vals) >= 2:
+                if vals[-1] > vals[-2] * 1.15:
+                    dyn = "🚀 Accélération"
+                elif vals[-1] < vals[-2] * 0.85:
+                    dyn = "📉 Ralentissement"
+                else:
+                    dyn = "➡️ Régulier"
+            else:
+                dyn = "➡️ Stable"
+
+            vendor_multi_week.append({
+                "vendeur": v,
+                "cdz": v_to_cdz.get(v, "AUTRE"),
+                "weeks": discrete,
+                "total": tot_val,
+                "obj": obj_val,
+                "rate": rate_val,
+                "trend": dyn
+            })
+
+        cdz_multi_week = []
+        for cdz_name in cdz_teams:
+            cdz_vends = [x for x in vendor_multi_week if x["cdz"].strip().upper() == cdz_name.strip().upper()]
+            weeks_sum = {}
+            for w_lbl in week_keys:
+                weeks_sum[w_lbl] = sum(x["weeks"].get(w_lbl, 0) for x in cdz_vends)
+            tot_cdz = sum(x["total"] for x in cdz_vends)
+            obj_cdz = sum(x["obj"] for x in cdz_vends)
+            rate_cdz = ((tot_cdz - obj_cdz) / obj_cdz * 100) if obj_cdz > 0 else -100.0
+
+            vals = [weeks_sum[w] for w in week_keys]
+            if len(vals) >= 2:
+                if vals[-1] > vals[-2] * 1.15:
+                    dyn = "🚀 Accélération"
+                elif vals[-1] < vals[-2] * 0.85:
+                    dyn = "📉 Ralentissement"
+                else:
+                    dyn = "➡️ Régulier"
+            else:
+                dyn = "➡️ Stable"
+
+            cdz_multi_week.append({
+                "cdz": f"Équipe {cdz_name.title()}",
+                "cdz_raw": cdz_name,
+                "weeks": weeks_sum,
+                "total": tot_cdz,
+                "obj": obj_cdz,
+                "rate": rate_cdz,
+                "trend": dyn
+            })
+
+        agency_weeks_sum = {}
+        for w_lbl in week_keys:
+            agency_weeks_sum[w_lbl] = sum(x["weeks"].get(w_lbl, 0) for x in cdz_multi_week)
+        tot_agency_m = sum(x["total"] for x in cdz_multi_week)
+        obj_agency_m = sum(x["obj"] for x in cdz_multi_week)
+        rate_agency_m = ((tot_agency_m - obj_agency_m) / obj_agency_m * 100) if obj_agency_m > 0 else -100.0
+
+        agency_multi_week = {
+            "cdz": "TOTAL AGENCE CONSOLIDÉ",
+            "weeks": agency_weeks_sum,
+            "total": tot_agency_m,
+            "obj": obj_agency_m,
+            "rate": rate_agency_m,
+            "trend": "➡️ Global"
+        }
+
+        return {
+            "current_date": cur_date,
+            "previous_date": prev_date or "S-1",
+            "tax_mode": tax_mode,
+            "cdz_summary": cdz_summary,
+            "agency_total": agency_total,
+            "vendeurs": vendeurs_data,
+            "cdz_multi_week": cdz_multi_week,
+            "vendor_multi_week": vendor_multi_week,
+            "agency_multi_week": agency_multi_week,
+            "week_keys": week_keys
+        }
+    except Exception as e:
+        print(f"Error computing historical weekly comparison: {e}")
+        return {}
+    finally:
+        conn.close()
+
+
+def save_historique_generated_report(snapshot_id, report_text, title=None, vendeur=None, format="complet", lang="fr", report_date=None):
+    """Save or update an AI generated report associated with a historical snapshot in historique.db."""
+    init_historique_db()
+    conn = get_historique_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM h_rapports WHERE snapshot_id = ?", (snapshot_id,))
+        cursor.execute("""
+            INSERT INTO h_rapports (snapshot_id, report_text, title, vendeur, format, lang, report_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            snapshot_id,
+            report_text,
+            title or "Rapport IA Généré (Historique)",
+            vendeur or None,
+            format,
+            lang,
+            report_date or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error saving report to historique snapshot #{snapshot_id}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def delete_and_recreate_db_file(report_data=None):
+    """Backs up data to historique.db, then deletes database.db and creates a new clean one."""
     import gc
+
+    # Step 1: Backup to historique.db BEFORE deleting
+    snapshot_id = None
+    try:
+        snapshot_id = backup_to_historique(report_data=report_data, note="Sauvegarde automatique avant réinitialisation database.db")
+        print(f"[DB] Backup to historique.db completed (snapshot #{snapshot_id})")
+    except Exception as e:
+        print(f"[DB] WARNING: Backup to historique.db failed: {e}")
+        # Continue with delete even if backup fails (data might be empty)
+
+    # Step 2: Delete and recreate
     gc.collect()
     
     if os.path.exists(DB_PATH):
@@ -1722,7 +3044,7 @@ def delete_and_recreate_db_file():
                 print(f"Fallback drop error: {inner_e}")
 
     init_db()
-    return True
+    return {"success": True, "snapshot_id": snapshot_id}
 
 
 
@@ -2731,25 +4053,71 @@ def save_focus_cdz_rankings(upload_date, cdz_rankings):
     conn.close()
 
 
+def resolve_vendor_cdz(vendeur, secteur=""):
+    """Accurately match any vendor name or code to their CDZ / Equipe."""
+    if not vendeur:
+        return ""
+    v_clean = str(vendeur).strip().upper()
+    v_code = v_clean.split()[0] if v_clean else ""
+
+    # Check known keywords first
+    CHAKIB_KEYWORDS = ['CHAKIB', 'IBACH', 'BAIZ', 'ACHAOUI', 'ELHAOUZI', 'BOUALLALI', 'LASRI', 'AKNOUN', 'GHOUSMI', 'BOUMDIANE', 'BOUBAKER']
+    BOUTMEZGUINE_KEYWORDS = ['BOUTMEZGUINE', 'FAICAL', 'NAMOUSS', 'NAMOUS', 'YOUSSEF', 'ASERY', 'ATOUAOU', 'GHANMI', 'OUARSSASSA', 'BENOUALLAD', 'BOUDHOUR', 'OUAHMI', 'ACHTOUK', 'MEZRAOUI', 'KHALI', 'AKKA']
+    
+    for kw in CHAKIB_KEYWORDS:
+        if kw in v_clean:
+            return 'CHAKIB ELFIL'
+    for kw in BOUTMEZGUINE_KEYWORDS:
+        if kw in v_clean:
+            return 'BOUTMEZGUINE EL MOSTAFA'
+
+    # Check from database (fdv or vendeurs)
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT vendeur, cdz FROM fdv WHERE cdz IS NOT NULL AND cdz != ''")
+        fdv_rows = cursor.fetchall()
+        conn.close()
+        for f in fdv_rows:
+            f_v = (f["vendeur"] or "").strip().upper()
+            f_cdz = (f["cdz"] or "").strip().upper()
+            if f_v == v_clean:
+                return f_cdz
+            f_code = f_v.split()[0] if f_v else ""
+            if len(v_code) >= 2 and f_code == v_code:
+                return f_cdz
+    except Exception:
+        pass
+
+    return ""
+
+
 def save_focus_objectives(objectives):
-    """Save parsed objectives from Focus.xlsx"""
+    """Save parsed objectives from Focus.xlsx including CDZ / Equipe"""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM focus_objectives")
     for o in objectives:
+        vendeur = o.get("vendeur")
+        secteur = o.get("secteur")
+        cdz = (o.get("cdz") or "").strip()
+        if not cdz:
+            cdz = resolve_vendor_cdz(vendeur, secteur)
+
         cursor.execute("""
         INSERT INTO focus_objectives 
-        (focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc, cdz)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             o.get("focus_type"),
-            o.get("vendeur"),
-            o.get("secteur"),
+            vendeur,
+            secteur,
             o.get("number_client", 0),
             o.get("obj_acm", 0.0),
             o.get("obj_juin", 0.0),
             o.get("glace_ht", 0.0),
-            o.get("ttc", 0.0)
+            o.get("ttc", 0.0),
+            cdz
         ))
     conn.commit()
     conn.close()
@@ -2765,6 +4133,192 @@ def save_focus_names(som_name, vmm_name):
         cursor.execute("INSERT OR REPLACE INTO focus_names (focus_type, focus_name) VALUES ('TOMATE_FRITO', ?)", (vmm_name.strip(),))
     conn.commit()
     conn.close()
+
+
+def get_focus_whatsapp_data(vendeur=None, cdz=None):
+    """
+    Retrieves paired SOM and VMM focus objectives per vendor,
+    including CDZ, sector, and normalized phone number.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, focus_type, vendeur, secteur, number_client, obj_acm, obj_juin, glace_ht, ttc, cdz 
+        FROM focus_objectives
+    """)
+    rows = [dict(o) for o in cursor.fetchall()]
+    conn.close()
+
+    focus_names = get_focus_names()
+    som_product_name = focus_names.get("GLACE", "PAPILLOTE")
+    vmm_product_name = focus_names.get("TOMATE_FRITO", "BIGGY TASTY T/B")
+
+    # Group objectives by normalized vendor code/name
+    vendors_dict = {}
+    for r in rows:
+        v_raw = (r.get("vendeur") or "").strip()
+        if not v_raw:
+            continue
+        v_key = v_raw.upper()
+        if v_key not in vendors_dict:
+            cdz_val = (r.get("cdz") or "").strip()
+            if not cdz_val:
+                cdz_val = resolve_vendor_cdz(v_raw, r.get("secteur", ""))
+            
+            phone = get_vendeur_phone_from_fdv(v_raw) or ""
+
+            vendors_dict[v_key] = {
+                "vendeur": v_raw,
+                "secteur": (r.get("secteur") or "").strip(),
+                "cdz": cdz_val,
+                "phone": phone,
+                "som": {"ht": 0.0, "ttc": 0.0},
+                "vmm": {"ht": 0.0, "ttc": 0.0, "nb_clients": 0, "obj_acm": 0.0}
+            }
+
+        ft = r.get("focus_type")
+        ht = float(r.get("glace_ht") or r.get("obj_juin") or 0.0)
+        ttc = float(r.get("ttc") or 0.0)
+        if 0.0 < ht < 500.0:
+            ht = round(ht * 1000.0, 2)
+        if 0.0 < ttc < 500.0:
+            ttc = round(ttc * 1000.0, 2)
+        if ttc <= 0.0 and ht > 0.0:
+            ttc = round(ht * 1.2, 2)
+
+        if ft == "GLACE":
+            vendors_dict[v_key]["som"]["ht"] = ht
+            vendors_dict[v_key]["som"]["ttc"] = ttc
+            if r.get("secteur"):
+                vendors_dict[v_key]["secteur"] = r.get("secteur").strip()
+        else:
+            vendors_dict[v_key]["vmm"]["ht"] = ht
+            vendors_dict[v_key]["vmm"]["ttc"] = ttc
+            vendors_dict[v_key]["vmm"]["nb_clients"] = int(r.get("number_client") or 0)
+            vendors_dict[v_key]["vmm"]["obj_acm"] = float(r.get("obj_acm") or 0.0)
+            if r.get("secteur"):
+                vendors_dict[v_key]["secteur"] = r.get("secteur").strip()
+
+    vendor_list = list(vendors_dict.values())
+    vendor_list.sort(key=lambda x: x["vendeur"])
+
+    if cdz:
+        vendor_list = [v for v in vendor_list if v.get("cdz", "").upper() == cdz.strip().upper()]
+    if vendeur:
+        v_clean = vendeur.strip().upper()
+        v_code = v_clean.split()[0] if v_clean else ""
+        vendor_list = [v for v in vendor_list if v["vendeur"].upper() == v_clean or (len(v_code) >= 2 and v["vendeur"].upper().startswith(v_code))]
+
+    return {
+        "som_name": som_product_name,
+        "vmm_name": vmm_product_name,
+        "vendors": vendor_list
+    }
+
+
+def build_focus_vendor_whatsapp_message(vendor_info, som_name="PAPILLOTE", vmm_name="BIGGY TASTY T/B"):
+    """Format single vendor focus objectives message for WhatsApp"""
+    v_name = vendor_info.get("vendeur", "")
+    secteur = vendor_info.get("secteur", "")
+    cdz = vendor_info.get("cdz", "")
+    som = vendor_info.get("som", {})
+    vmm = vendor_info.get("vmm", {})
+
+    lines = [
+        "🎯 *OBJECTIFS FOCUS - MADEC*",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"👤 *Vendeur* : {v_name}",
+    ]
+    if secteur:
+        lines.append(f"📍 *Secteur* : {secteur}")
+    if cdz:
+        lines.append(f"👔 *Équipe CDZ* : {cdz}")
+
+    lines.extend([
+        "",
+        f"📌 *1. FOCUS SOM ({som_name})* :",
+        f"• Objectif TTC : *{som.get('ttc', 0):,.0f} DH*",
+        f"• Objectif HT  : *{som.get('ht', 0):,.0f} DH*",
+        "",
+        f"📌 *2. FOCUS VMM ({vmm_name})* :",
+        f"• Objectif TTC : *{vmm.get('ttc', 0):,.0f} DH*",
+        f"• Objectif HT  : *{vmm.get('ht', 0):,.0f} DH*",
+    ])
+    if vmm.get("nb_clients", 0) > 0 or vmm.get("obj_acm", 0) > 0:
+        lines.append(f"• Objectif Clients : *{vmm.get('nb_clients', 0)} clients* (Obj ACM: {vmm.get('obj_acm', 0):,.0f})")
+
+    lines.extend([
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "💪 *Bonne vente et plein succès pour l'atteinte de vos objectifs !*",
+        "— _Direction Commerciale MADEC_"
+    ])
+
+    return "\n".join(lines)
+
+
+def build_focus_cdz_summary_whatsapp_message(cdz_name, vendors, som_name="PAPILLOTE", vmm_name="BIGGY TASTY T/B"):
+    """Format CDZ team focus objectives summary message for WhatsApp"""
+    return build_focus_group_list_whatsapp_message(cdz_name=cdz_name, vendors=vendors, som_name=som_name, vmm_name=vmm_name)
+
+
+def build_focus_group_list_whatsapp_message(cdz_name=None, vendors=None, som_name="PAPILLOTE", vmm_name="BIGGY TASTY T/B"):
+    """
+    Format a complete, beautiful list of focus objectives for sharing directly
+    to a team or agency WhatsApp Group.
+    """
+    if vendors is None:
+        vendors = []
+
+    filtered = [v for v in vendors if (v.get("cdz") or "").strip().upper() == cdz_name.strip().upper()] if cdz_name else vendors
+    total_som_ttc = sum(v["som"]["ttc"] for v in filtered)
+    total_som_ht = sum(v["som"]["ht"] for v in filtered)
+    total_vmm_ttc = sum(v["vmm"]["ttc"] for v in filtered)
+    total_vmm_ht = sum(v["vmm"]["ht"] for v in filtered)
+
+    team_header = f"ÉQUIPE CDZ {cdz_name.upper()}" if cdz_name else "TOUTES LES ÉQUIPES - MADEC"
+
+    lines = [
+        "🎯 *LISTE DES OBJECTIFS FOCUS DU MOIS* 🎯",
+        f"👔 *{team_header}*",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"🍦 *1. Focus SOM :* {som_name}",
+        f"🥫 *2. Focus VMM :* {vmm_name}",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "",
+        "📋 *OBJECTIFS ASSIGNÉS PAR VENDEUR :*",
+        ""
+    ]
+
+    for i, v in enumerate(filtered, start=1):
+        v_name = v.get("vendeur", "")
+        sec = v.get("secteur", "")
+        sec_str = f" _({sec})_" if sec else ""
+        s_ttc = v["som"]["ttc"]
+        v_ttc = v["vmm"]["ttc"]
+        v_cli = v.get("vmm", {}).get("nb_clients", 0)
+
+        lines.append(f"*{i}. {v_name}*{sec_str}")
+        lines.append(f"   🍦 *SOM :* {s_ttc:,.0f} DH TTC")
+        if v_cli > 0:
+            lines.append(f"   🥫 *VMM :* {v_ttc:,.0f} DH TTC ({v_cli} clients)")
+        else:
+            lines.append(f"   🥫 *VMM :* {v_ttc:,.0f} DH TTC")
+        lines.append("   ─────────────────────────────")
+
+    lines.extend([
+        "",
+        "📈 *RÉCAPITULATIF GLOBAL DE L'ÉQUIPE :*",
+        f"• 👥 *Total Vendeurs :* {len(filtered)}",
+        f"• 🍦 *Total SOM ({som_name}) :* *{total_som_ttc:,.0f} DH TTC* ({total_som_ht:,.0f} DH HT)",
+        f"• 🥫 *Total VMM ({vmm_name}) :* *{total_vmm_ttc:,.0f} DH TTC* ({total_vmm_ht:,.0f} DH HT)",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "💪 *Excellentes ventes et bonne chance à toute l'équipe !*",
+        "— _Direction Commerciale MADEC_"
+    ])
+
+    return "\n".join(lines)
 
 
 def save_focus_obj_records(records, som_name=None, vmm_name=None):
@@ -4320,7 +5874,7 @@ def import_all_secteurs_tournees():
     return inserted_count
 
 
-def get_vendeur_tournees_summary(vendeur_identifier):
+def get_vendeur_tournees_summary(vendeur_identifier, is_cdz=False):
     """Retrieve structured tournées summary & visit KPIs for a given seller.
     If no specific seller is requested, retrieves data ONLY for the first vendeur.
     Ultra-fast cross-referencing of visites_rapports with clients_vendeurs.db.

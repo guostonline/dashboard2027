@@ -22,6 +22,32 @@
     let focusTerrainRecords = [];
     let autoAddTerrainSum = localStorage.getItem('focusAutoAddTerrain') !== 'OFF';
 
+    function resolveClientCdz(vendeur, secteur) {
+        if (!vendeur) return "";
+        const vClean = String(vendeur).trim().toUpperCase();
+        const vCode = vClean.split(/\s+/)[0] || "";
+
+        const chakibKeywords = ['CHAKIB', 'IBACH', 'BAIZ', 'ACHAOUI', 'ELHAOUZI', 'BOUALLALI', 'LASRI', 'AKNOUN', 'GHOUSMI', 'BOUMDIANE', 'BOUBAKER'];
+        const boutmezguineKeywords = ['BOUTMEZGUINE', 'FAICAL', 'NAMOUSS', 'NAMOUS', 'YOUSSEF', 'ASERY', 'ATOUAOU', 'GHANMI', 'OUARSSASSA', 'BENOUALLAD', 'BOUDHOUR', 'OUAHMI', 'ACHTOUK', 'MEZRAOUI', 'KHALI', 'AKKA'];
+
+        for (const kw of chakibKeywords) {
+            if (vClean.includes(kw)) return 'CHAKIB ELFIL';
+        }
+        for (const kw of boutmezguineKeywords) {
+            if (vClean.includes(kw)) return 'BOUTMEZGUINE EL MOSTAFA';
+        }
+
+        if (focusData && focusData.objectives) {
+            const match = focusData.objectives.find(o => {
+                const ov = (o.vendeur || '').trim().toUpperCase();
+                return ov === vClean || (vCode.length >= 2 && ov.startsWith(vCode));
+            });
+            if (match && match.cdz) return match.cdz.trim().toUpperCase();
+        }
+
+        return "";
+    }
+
     // Wait until DOM is ready
     document.addEventListener('DOMContentLoaded', function () {
         const focusContainer = document.getElementById('focus-container');
@@ -291,7 +317,31 @@
             }
         }
 
-        // 3. Bind Vendeur filter select dropdown
+        // 3a. Bind CDZ / Equipe filter select dropdown
+        const cdzFilter = document.getElementById('focus-cdz-filter');
+        if (cdzFilter) {
+            cdzFilter.addEventListener('change', function () {
+                selectedCdzFilter = (cdzFilter.value || '').trim();
+                console.log("Selected CDZ filter:", selectedCdzFilter);
+                
+                // If vendor was selected, check if vendor belongs to this CDZ; if not, reset vendor selection
+                if (selectedVendeurFilter && selectedCdzFilter) {
+                    const cohort = (focusData && (currentFocusType === 'GLACE' ? focusData.glace : focusData.tomate)) || { reps: [] };
+                    const reps = cohort.reps || [];
+                    const curRep = reps.find(r => r.representative.startsWith(selectedVendeurFilter));
+                    const repCdz = (curRep?.cdz || resolveClientCdz(curRep?.representative, curRep?.secteur)).trim().toUpperCase();
+                    if (repCdz && repCdz !== selectedCdzFilter.toUpperCase()) {
+                        selectedVendeurFilter = '';
+                    }
+                }
+                
+                renderFocusView();
+                renderFocusTrendChart();
+                renderFocusDailySection();
+            });
+        }
+
+        // 3b. Bind Vendeur filter select dropdown
         const vendeurFilter = document.getElementById('focus-vendeur-filter');
         if (vendeurFilter) {
             vendeurFilter.addEventListener('change', function () {
@@ -299,7 +349,15 @@
                 console.log("Selected vendeur filter:", selectedVendeurFilter);
                 
                 if (selectedVendeurFilter) {
-                    selectedCdzFilter = ''; // Reset CDZ filter when vendor selected
+                    // Automatically sync CDZ dropdown to this vendor's CDZ if not already matching
+                    const cohort = (focusData && (currentFocusType === 'GLACE' ? focusData.glace : focusData.tomate)) || { reps: [] };
+                    const reps = cohort.reps || [];
+                    const curRep = reps.find(r => r.representative.startsWith(selectedVendeurFilter));
+                    const repCdz = (curRep?.cdz || resolveClientCdz(curRep?.representative, curRep?.secteur)).trim().toUpperCase();
+                    if (repCdz && (!selectedCdzFilter || selectedCdzFilter !== repCdz)) {
+                        selectedCdzFilter = repCdz;
+                        if (cdzFilter) cdzFilter.value = repCdz;
+                    }
                 }
                 
                 const comparisonCard = document.getElementById('focus-comparison-card');
@@ -392,6 +450,7 @@
                     editTabVmm.style.color = 'var(--text-muted)';
                     somContainer.style.display = 'block';
                     vmmContainer.style.display = 'none';
+                    filterEditModalRows();
                 });
                 editTabVmm.addEventListener('click', function () {
                     editTabVmm.classList.add('active');
@@ -402,6 +461,15 @@
                     editTabSom.style.color = 'var(--text-muted)';
                     vmmContainer.style.display = 'block';
                     somContainer.style.display = 'none';
+                    filterEditModalRows();
+                });
+            }
+
+            // Bind CDZ / Equipe filter inside modal
+            const editCdzFilter = document.getElementById('focus-edit-cdz-filter');
+            if (editCdzFilter) {
+                editCdzFilter.addEventListener('change', function () {
+                    filterEditModalRows();
                 });
             }
             
@@ -461,9 +529,383 @@
             }
         }
 
+        // 6. Bind WhatsApp Focus Buttons & Modal
+        const focusWaBtn = document.getElementById('focus-whatsapp-btn');
+        const focusWaGroupBtn = document.getElementById('focus-whatsapp-group-btn');
+        const focusEditWaAllBtn = document.getElementById('focus-edit-whatsapp-all-btn');
+        const waModal = document.getElementById('focus-whatsapp-modal');
+        const closeWaModalBtn = document.getElementById('close-focus-whatsapp-modal');
+        const closeWaModalFooterBtn = document.getElementById('close-focus-whatsapp-modal-btn');
+
+        if (focusWaBtn) {
+            focusWaBtn.addEventListener('click', function () {
+                openFocusWhatsAppModal(selectedCdzFilter, selectedVendeurFilter);
+            });
+        }
+
+        if (focusWaGroupBtn) {
+            focusWaGroupBtn.addEventListener('click', function () {
+                // Open modal directly focused on the group list preview
+                openFocusWhatsAppModal(selectedCdzFilter, '', true);
+            });
+        }
+
+        if (focusEditWaAllBtn) {
+            focusEditWaAllBtn.addEventListener('click', function () {
+                const editCdz = document.getElementById('focus-edit-cdz-filter')?.value || selectedCdzFilter || '';
+                openFocusWhatsAppModal(editCdz, '', true);
+            });
+        }
+
+        const closeWaModal = function () {
+            if (waModal) waModal.classList.remove('open');
+        };
+
+        if (closeWaModalBtn) closeWaModalBtn.addEventListener('click', closeWaModal);
+        if (closeWaModalFooterBtn) closeWaModalFooterBtn.addEventListener('click', closeWaModal);
+        if (waModal) {
+            waModal.addEventListener('click', function (e) {
+                if (e.target === waModal) closeWaModal();
+            });
+        }
+
+        const waModalCdzFilter = document.getElementById('focus-wa-modal-cdz-filter');
+        if (waModalCdzFilter) {
+            waModalCdzFilter.addEventListener('change', function () {
+                filterWhatsAppModalRows();
+                loadGroupListPreview();
+            });
+        }
+
+        const waChakibBtn = document.getElementById('focus-wa-send-cdz-chakib-btn');
+        if (waChakibBtn) {
+            waChakibBtn.addEventListener('click', function () {
+                sendCdzSummaryWhatsApp('CHAKIB ELFIL');
+            });
+        }
+
+        const waBoutmezguineBtn = document.getElementById('focus-wa-send-cdz-boutmezguine-btn');
+        if (waBoutmezguineBtn) {
+            waBoutmezguineBtn.addEventListener('click', function () {
+                sendCdzSummaryWhatsApp('BOUTMEZGUINE EL MOSTAFA');
+            });
+        }
+
+        // Group list buttons
+        const waSendGroupDirectBtn = document.getElementById('focus-wa-send-group-direct-btn');
+        if (waSendGroupDirectBtn) {
+            waSendGroupDirectBtn.addEventListener('click', function () {
+                const curCdz = document.getElementById('focus-wa-modal-cdz-filter')?.value || selectedCdzFilter || '';
+                sendCdzSummaryWhatsApp(curCdz);
+            });
+        }
+
+        const waPreviewGroupBtn = document.getElementById('focus-wa-preview-group-btn');
+        if (waPreviewGroupBtn) {
+            waPreviewGroupBtn.addEventListener('click', function () {
+                loadGroupListPreview();
+            });
+        }
+
+        const waCopyGroupBtn = document.getElementById('focus-wa-copy-group-btn');
+        if (waCopyGroupBtn) {
+            waCopyGroupBtn.addEventListener('click', function () {
+                const curCdz = document.getElementById('focus-wa-modal-cdz-filter')?.value || selectedCdzFilter || '';
+                fetch('/api/focus/whatsapp_link?mode=cdz_summary&cdz=' + encodeURIComponent(curCdz))
+                .then(r => r.json())
+                .then(res => {
+                    if (res.status === 'success' && res.message) {
+                        navigator.clipboard.writeText(res.message).then(() => {
+                            if (window.showToast) window.showToast("📋 Liste du groupe copiée dans le presse-papiers !", "success");
+                        });
+                    }
+                });
+            });
+        }
+
+        const waCopyBtn = document.getElementById('focus-wa-copy-preview-btn');
+        if (waCopyBtn) {
+            waCopyBtn.addEventListener('click', function () {
+                const previewEl = document.getElementById('focus-wa-preview-text');
+                const text = previewEl ? previewEl.innerText : '';
+                if (text && !text.startsWith('Cliquez sur')) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        if (window.showToast) window.showToast("Message WhatsApp copié !", "success");
+                    });
+                } else {
+                    if (window.showToast) window.showToast("Aucun message sélectionné à copier.", "warning");
+                }
+            });
+        }
+
         // 4. Load initial rankings and historical trend data
         loadFocusData();
         loadFocusTrendData();
+    }
+
+    function sendSingleVendorFocusWhatsApp(vendeur, customPhone = '') {
+        if (!vendeur) return;
+        const vClean = String(vendeur).trim();
+        const urlParam = '/api/focus/whatsapp_link?vendeur=' + encodeURIComponent(vClean) + (customPhone ? '&phone=' + encodeURIComponent(customPhone) : '');
+
+        fetch(urlParam)
+        .then(response => response.json())
+        .then(res => {
+            if (res.status === 'success' && res.url) {
+                if (!res.phone && !customPhone) {
+                    const enteredPhone = prompt(`Numéro WhatsApp non configuré pour ${res.vendeur}.\nVeuillez saisir le numéro de téléphone (ex: 0612345678) :`, "");
+                    if (enteredPhone && enteredPhone.trim()) {
+                        sendSingleVendorFocusWhatsApp(vClean, enteredPhone.trim());
+                    } else {
+                        window.open(res.url, '_blank');
+                    }
+                } else {
+                    window.open(res.url, '_blank');
+                }
+            } else {
+                if (window.showToast) window.showToast(res.message || "Erreur lors de la préparation du message WhatsApp.", "error");
+            }
+        })
+        .catch(err => {
+            console.error("WhatsApp focus error:", err);
+            if (window.showToast) window.showToast("Impossible de contacter le serveur WhatsApp.", "error");
+        });
+    }
+
+    function sendCdzSummaryWhatsApp(cdzName) {
+        if (!cdzName) return;
+        fetch('/api/focus/whatsapp_link?mode=cdz_summary&cdz=' + encodeURIComponent(cdzName))
+        .then(response => response.json())
+        .then(res => {
+            if (res.status === 'success' && res.url) {
+                window.open(res.url, '_blank');
+            } else {
+                if (window.showToast) window.showToast(res.message || "Erreur récapitulatif CDZ.", "error");
+            }
+        })
+        .catch(err => {
+            console.error("WhatsApp CDZ summary error:", err);
+        });
+    }
+
+    let focusWhatsAppVendorsList = [];
+
+    function loadGroupListPreview() {
+        const cdzFilter = document.getElementById('focus-wa-modal-cdz-filter');
+        const curCdz = cdzFilter ? (cdzFilter.value || '').trim() : '';
+        const prevName = document.getElementById('focus-wa-preview-vendor-name');
+        const prevText = document.getElementById('focus-wa-preview-text');
+
+        const teamLabel = curCdz ? (curCdz === 'CHAKIB ELFIL' ? 'Équipe Chakib Elfil' : 'Équipe Boutmezguine') : "Toute l'Agence";
+        if (prevName) prevName.innerText = `LISTE GROUPE WHATSAPP (${teamLabel})`;
+
+        fetch('/api/focus/whatsapp_link?mode=cdz_summary&cdz=' + encodeURIComponent(curCdz))
+        .then(r => r.json())
+        .then(res => {
+            if (res.status === 'success' && res.message && prevText) {
+                prevText.innerText = res.message;
+            }
+        })
+        .catch(err => console.error("Error loading group preview:", err));
+    }
+
+    function openFocusWhatsAppModal(defaultCdz = '', defaultVendor = '', showGroupPreview = false) {
+        const modal = document.getElementById('focus-whatsapp-modal');
+        if (!modal) return;
+
+        const cdzSelect = document.getElementById('focus-wa-modal-cdz-filter');
+        if (cdzSelect) {
+            cdzSelect.value = defaultCdz || '';
+        }
+
+        const somNameEls = modal.querySelectorAll('.som-focus-name');
+        const vmmNameEls = modal.querySelectorAll('.vmm-focus-name');
+        const somName = focusNames.GLACE || "GLACE";
+        const vmmName = focusNames.TOMATE_FRITO || "TOMATE FRITO";
+        somNameEls.forEach(el => el.innerText = somName);
+        vmmNameEls.forEach(el => el.innerText = vmmName);
+
+        fetch('/api/focus/whatsapp_data')
+        .then(response => response.json())
+        .then(res => {
+            if (res.status === 'success' && res.data) {
+                focusWhatsAppVendorsList = res.data.vendors || [];
+                populateWhatsAppModalTable(focusWhatsAppVendorsList, res.data.som_name, res.data.vmm_name, defaultVendor, showGroupPreview);
+                filterWhatsAppModalRows();
+                if (showGroupPreview) {
+                    loadGroupListPreview();
+                }
+                modal.classList.add('open');
+            } else {
+                if (window.showToast) window.showToast("Erreur de chargement des données WhatsApp.", "error");
+            }
+        })
+        .catch(err => {
+            console.error("Failed to load WhatsApp focus data:", err);
+        });
+    }
+
+    function populateWhatsAppModalTable(vendors, somName, vmmName, highlightVendor = '', showGroupPreview = false) {
+        const tbody = document.getElementById('focus-whatsapp-tbody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        vendors.forEach(v => {
+            const tr = document.createElement('tr');
+            tr.setAttribute('data-cdz', (v.cdz || '').toUpperCase());
+            tr.setAttribute('data-vendeur', v.vendeur.toUpperCase());
+
+            const isChakib = v.cdz === 'CHAKIB ELFIL';
+            const isBoutmezguine = v.cdz === 'BOUTMEZGUINE EL MOSTAFA';
+            const cdzColor = isChakib ? 'var(--neon-blue)' : (isBoutmezguine ? '#c084fc' : 'var(--text-muted)');
+            const cdzLabel = isChakib ? 'Équipe Chakib' : (isBoutmezguine ? 'Équipe Boutmezguine' : 'Non assigné');
+
+            const somTtcFormatted = formatCurrency(v.som.ttc) + ' DH';
+            const vmmTtcFormatted = formatCurrency(v.vmm.ttc) + ' DH';
+            const phoneVal = v.phone || '';
+
+            tr.innerHTML = `
+                <td style="padding: 0.5rem;"><strong>${v.vendeur}</strong></td>
+                <td style="padding: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">${v.secteur || '-'}</td>
+                <td style="padding: 0.5rem;">
+                    <span style="color: ${cdzColor}; font-weight: 600; font-size: 0.8rem; font-family: var(--font-mono);">
+                        <i class="fa-solid fa-user-tie"></i> ${cdzLabel}
+                    </span>
+                </td>
+                <td style="padding: 0.5rem; text-align: right; color: var(--neon-blue); font-weight: 700; font-family: var(--font-mono);">${somTtcFormatted}</td>
+                <td style="padding: 0.5rem; text-align: right; color: var(--neon-pink); font-weight: 700; font-family: var(--font-mono);">${vmmTtcFormatted}</td>
+                <td style="padding: 0.5rem;">
+                    <input type="text" class="cyber-input wa-vendor-phone" style="width: 100%; box-sizing: border-box; height: 30px; font-size: 0.8rem; padding: 0 0.4rem; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color); font-family: var(--font-mono);" value="${phoneVal}" placeholder="ex: 0661234567" />
+                </td>
+                <td style="padding: 0.5rem; text-align: center; white-space: nowrap;">
+                    <button type="button" class="cyber-btn wa-send-single-btn" style="border-color: #25D366; color: #25D366; background: rgba(37, 211, 102, 0.1); padding: 0.25rem 0.6rem; font-size: 0.78rem; font-weight: bold; cursor: pointer;">
+                        <i class="fa-brands fa-whatsapp"></i> Envoyer
+                    </button>
+                </td>
+            `;
+
+            // Row click / select preview
+            tr.style.cursor = 'pointer';
+            const showPreview = function () {
+                const prevName = document.getElementById('focus-wa-preview-vendor-name');
+                const prevText = document.getElementById('focus-wa-preview-text');
+                if (prevName) prevName.innerText = v.vendeur;
+                if (prevText) {
+                    const curPhone = tr.querySelector('.wa-vendor-phone')?.value.trim() || '';
+                    fetch('/api/focus/whatsapp_link?vendeur=' + encodeURIComponent(v.vendeur) + (curPhone ? '&phone=' + encodeURIComponent(curPhone) : ''))
+                    .then(r => r.json())
+                    .then(res => {
+                        if (res.status === 'success' && res.message) {
+                            prevText.innerText = res.message;
+                        }
+                    });
+                }
+            };
+
+            tr.addEventListener('click', function (e) {
+                if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.closest('button')) {
+                    showPreview();
+                }
+            });
+
+            tr.querySelector('.wa-send-single-btn')?.addEventListener('click', function (e) {
+                e.stopPropagation();
+                const curPhone = tr.querySelector('.wa-vendor-phone')?.value.trim() || '';
+                sendSingleVendorFocusWhatsApp(v.vendeur, curPhone);
+            });
+
+            tbody.appendChild(tr);
+
+            if (highlightVendor && v.vendeur.toUpperCase().includes(highlightVendor.toUpperCase())) {
+                tr.style.background = 'rgba(37, 211, 102, 0.12)';
+                showPreview();
+            }
+        });
+
+        if (!highlightVendor && !showGroupPreview && vendors.length > 0) {
+            const firstTr = tbody.querySelector('tr');
+            if (firstTr) {
+                firstTr.click();
+            }
+        }
+    }
+
+    function filterWhatsAppModalRows() {
+        const cdzFilter = document.getElementById('focus-wa-modal-cdz-filter');
+        const filterVal = cdzFilter ? (cdzFilter.value || '').trim().toUpperCase() : '';
+        const tbody = document.getElementById('focus-whatsapp-tbody');
+        if (!tbody) return;
+
+        const rows = tbody.querySelectorAll('tr');
+        let visibleCount = 0;
+        let withPhoneCount = 0;
+
+        rows.forEach(tr => {
+            const rowCdz = (tr.getAttribute('data-cdz') || '').trim().toUpperCase();
+            if (!filterVal || rowCdz === filterVal) {
+                tr.style.display = '';
+                visibleCount++;
+                const phoneInput = tr.querySelector('.wa-vendor-phone');
+                if (phoneInput && phoneInput.value.trim().length >= 8) {
+                    withPhoneCount++;
+                }
+            } else {
+                tr.style.display = 'none';
+            }
+        });
+
+        const badge = document.getElementById('focus-wa-stats-badge');
+        if (badge) {
+            badge.innerHTML = `<i class="fa-brands fa-whatsapp" style="color:#25D366;"></i> <strong>${visibleCount}</strong> vendeurs affichés • <span style="color:#25D366;">${withPhoneCount} numéros WhatsApp configurés</span>`;
+        }
+    }
+
+    function filterEditModalRows() {
+        const editCdzFilter = document.getElementById('focus-edit-cdz-filter');
+        const filterVal = editCdzFilter ? (editCdzFilter.value || '').trim().toUpperCase() : '';
+        
+        const somTbody = document.getElementById('focus-edit-som-tbody');
+        const vmmTbody = document.getElementById('focus-edit-vmm-tbody');
+        
+        const somActive = document.getElementById('focus-edit-tab-som')?.classList.contains('active');
+        const activeTbody = somActive ? somTbody : vmmTbody;
+        
+        [somTbody, vmmTbody].forEach(tbody => {
+            if (!tbody) return;
+            const rows = tbody.querySelectorAll('tr');
+            rows.forEach(tr => {
+                const rowCdz = (tr.getAttribute('data-cdz') || '').trim().toUpperCase();
+                if (!filterVal || rowCdz === filterVal) {
+                    tr.style.display = '';
+                } else {
+                    tr.style.display = 'none';
+                }
+            });
+        });
+        
+        const countBadge = document.getElementById('focus-edit-count-badge');
+        if (countBadge && activeTbody) {
+            const allRows = activeTbody.querySelectorAll('tr');
+            const totalRows = allRows.length;
+            const visibleRows = Array.from(allRows).filter(tr => tr.style.display !== 'none').length;
+            countBadge.innerText = `${visibleRows} / ${totalRows} VENDEURS AFFICHÉS`;
+        }
+    }
+
+    function updateRowCdzTag(tr, cdz) {
+        const tag = tr.querySelector('.edit-cdz-tag');
+        if (!tag) return;
+        const isChakib = cdz === 'CHAKIB ELFIL';
+        const isBoutmezguine = cdz === 'BOUTMEZGUINE EL MOSTAFA';
+        const color = isChakib ? 'var(--neon-blue)' : (isBoutmezguine ? '#c084fc' : 'var(--text-muted)');
+        const label = isChakib ? 'Équipe Chakib Elfil' : (isBoutmezguine ? 'Équipe Boutmezguine' : 'Non assigné');
+        const icon = tag.querySelector('i');
+        const nameEl = tag.querySelector('.edit-cdz-name');
+        if (icon) icon.style.color = color;
+        if (nameEl) {
+            nameEl.style.color = color;
+            nameEl.innerText = label;
+        }
     }
 
     function openObjectivesEditor() {
@@ -478,6 +920,12 @@
         
         somNameEls.forEach(el => el.innerText = somName);
         vmmNameEls.forEach(el => el.innerText = vmmName);
+
+        // Pre-select CDZ filter in modal based on main tab filter
+        const editCdzFilter = document.getElementById('focus-edit-cdz-filter');
+        if (editCdzFilter) {
+            editCdzFilter.value = selectedCdzFilter || '';
+        }
 
         // Reset VMM edit mode to CA
         selectedVmmEditMode = 'CA';
@@ -502,6 +950,7 @@
             if (res.status === 'success') {
                 populateEditTables(res.objectives);
                 updateVmmEditHeadersAndRows();
+                filterEditModalRows();
                 editModal.classList.add('open');
             } else {
                 if (window.showToast) {
@@ -568,12 +1017,39 @@
         objectives.forEach(obj => {
             const tr = document.createElement('tr');
             const focusType = obj.focus_type;
-            const rowHtml = createEditRowHtml(focusType, obj);
+            const cdz = (obj.cdz || resolveClientCdz(obj.vendeur, obj.secteur)).trim();
+            tr.setAttribute('data-cdz', cdz);
+            const rowHtml = createEditRowHtml(focusType, { ...obj, cdz: cdz });
             tr.innerHTML = rowHtml;
             
             tr.querySelector('.edit-delete-row')?.addEventListener('click', function () {
                 tr.remove();
+                filterEditModalRows();
             });
+
+            tr.querySelector('.edit-whatsapp-row')?.addEventListener('click', function () {
+                const curV = tr.querySelector('.edit-vendeur')?.value.trim() || '';
+                if (!curV) {
+                    if (window.showToast) window.showToast("Veuillez saisir un nom de vendeur", "warning");
+                    return;
+                }
+                sendSingleVendorFocusWhatsApp(curV);
+            });
+
+            // Dynamically update CDZ on typing vendor or sector
+            const vInput = tr.querySelector('.edit-vendeur');
+            const secInput = tr.querySelector('.edit-secteur');
+            const onVendorChanged = function () {
+                const curV = vInput ? vInput.value.trim() : '';
+                const curS = secInput ? secInput.value.trim() : '';
+                const newCdz = resolveClientCdz(curV, curS);
+                if (newCdz) {
+                    tr.setAttribute('data-cdz', newCdz);
+                    updateRowCdzTag(tr, newCdz);
+                }
+            };
+            if (vInput) vInput.addEventListener('input', onVendorChanged);
+            if (secInput) secInput.addEventListener('input', onVendorChanged);
             
             if (focusType === 'GLACE') {
                 if (somTbody) somTbody.appendChild(tr);
@@ -586,15 +1062,34 @@
     function createEditRowHtml(focusType, obj = {}) {
         const vendeur = obj.vendeur || '';
         const secteur = obj.secteur || '';
+        const cdz = (obj.cdz || resolveClientCdz(vendeur, secteur)).trim();
+        const isChakib = cdz === 'CHAKIB ELFIL';
+        const isBoutmezguine = cdz === 'BOUTMEZGUINE EL MOSTAFA';
+        const cdzColor = isChakib ? 'var(--neon-blue)' : (isBoutmezguine ? '#c084fc' : 'var(--text-muted)');
+        const cdzLabel = isChakib ? 'Équipe Chakib Elfil' : (isBoutmezguine ? 'Équipe Boutmezguine' : 'Non assigné');
+
+        const cdzTagHtml = `
+            <div class="edit-cdz-tag" style="display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">
+                <i class="fa-solid fa-user-tie" style="font-size: 0.65rem; color: ${cdzColor};"></i>
+                <span class="edit-cdz-name" style="color: ${cdzColor}; font-weight: 600;">${cdzLabel}</span>
+            </div>
+        `;
+
         if (focusType === 'GLACE') {
             const glace_ht = obj.glace_ht || 0;
             const ttc = obj.ttc || 0;
             return `
-                <td style="padding: 0.5rem;"><input type="text" class="cyber-input edit-vendeur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${vendeur}" placeholder="ex: 03 ALAMI" required /></td>
+                <td style="padding: 0.5rem;">
+                    <input type="text" class="cyber-input edit-vendeur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${vendeur}" placeholder="ex: 03 ALAMI" required />
+                    ${cdzTagHtml}
+                </td>
                 <td style="padding: 0.5rem;"><input type="text" class="cyber-input edit-secteur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${secteur}" placeholder="ex: SECTEUR 1" required /></td>
                 <td style="padding: 0.5rem;"><input type="number" step="any" class="cyber-input edit-glace-ht" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${glace_ht}" /></td>
                 <td style="padding: 0.5rem;"><input type="number" step="any" class="cyber-input edit-ttc" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${ttc}" /></td>
-                <td style="padding: 0.5rem; text-align: center;"><button type="button" class="cyber-btn edit-delete-row" style="border-color: var(--neon-red); color: var(--neon-red); padding: 0.2rem 0.5rem;"><i class="fa-solid fa-trash"></i></button></td>
+                <td style="padding: 0.5rem; text-align: center; white-space: nowrap;">
+                    <button type="button" class="cyber-btn edit-whatsapp-row" title="Envoyer objectif WhatsApp à ce vendeur" style="border-color: #25D366; color: #25D366; background: rgba(37, 211, 102, 0.08); padding: 0.2rem 0.5rem; margin-right: 4px;"><i class="fa-brands fa-whatsapp"></i></button>
+                    <button type="button" class="cyber-btn edit-delete-row" title="Supprimer" style="border-color: var(--neon-red); color: var(--neon-red); padding: 0.2rem 0.5rem;"><i class="fa-solid fa-trash"></i></button>
+                </td>
             `;
         } else {
             const number_client = obj.number_client || 0;
@@ -607,7 +1102,10 @@
             const qualiDisplay = selectedVmmEditMode === 'QUALI' ? '' : 'display: none;';
             
             return `
-                <td style="padding: 0.5rem;"><input type="text" class="cyber-input edit-vendeur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${vendeur}" placeholder="ex: 03 ALAMI" required /></td>
+                <td style="padding: 0.5rem;">
+                    <input type="text" class="cyber-input edit-vendeur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${vendeur}" placeholder="ex: 03 ALAMI" required />
+                    ${cdzTagHtml}
+                </td>
                 <td style="padding: 0.5rem;"><input type="text" class="cyber-input edit-secteur" style="width: 100%; box-sizing: border-box; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${secteur}" placeholder="ex: SECTEUR 1" required /></td>
                 
                 <!-- CA fields -->
@@ -619,7 +1117,10 @@
                 <td class="vmm-edit-col-quali" style="padding: 0.5rem; ${qualiDisplay}"><input type="number" step="any" class="cyber-input edit-obj-acm" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${obj_acm}" /></td>
                 <td class="vmm-edit-col-quali" style="padding: 0.5rem; ${qualiDisplay}"><input type="number" step="any" class="cyber-input edit-obj-juin" style="width: 100%; box-sizing: border-box; text-align: right; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color);" value="${obj_juin}" /></td>
                 
-                <td style="padding: 0.5rem; text-align: center;"><button type="button" class="cyber-btn edit-delete-row" style="border-color: var(--neon-red); color: var(--neon-red); padding: 0.2rem 0.5rem;"><i class="fa-solid fa-trash"></i></button></td>
+                <td style="padding: 0.5rem; text-align: center; white-space: nowrap;">
+                    <button type="button" class="cyber-btn edit-whatsapp-row" title="Envoyer objectif WhatsApp à ce vendeur" style="border-color: #25D366; color: #25D366; background: rgba(37, 211, 102, 0.08); padding: 0.2rem 0.5rem; margin-right: 4px;"><i class="fa-brands fa-whatsapp"></i></button>
+                    <button type="button" class="cyber-btn edit-delete-row" title="Supprimer" style="border-color: var(--neon-red); color: var(--neon-red); padding: 0.2rem 0.5rem;"><i class="fa-solid fa-trash"></i></button>
+                </td>
             `;
         }
     }
@@ -629,12 +1130,43 @@
         const tbody = document.getElementById(tbodyId);
         if (!tbody) return;
         
+        const activeFilter = document.getElementById('focus-edit-cdz-filter')?.value || selectedCdzFilter || '';
+        const defaultCdz = activeFilter.trim();
+        const obj = { cdz: defaultCdz };
+
         const tr = document.createElement('tr');
-        tr.innerHTML = createEditRowHtml(focusType);
+        tr.setAttribute('data-cdz', defaultCdz);
+        tr.innerHTML = createEditRowHtml(focusType, obj);
         
         tr.querySelector('.edit-delete-row')?.addEventListener('click', function () {
             tr.remove();
+            filterEditModalRows();
         });
+
+        tr.querySelector('.edit-whatsapp-row')?.addEventListener('click', function () {
+            const curV = tr.querySelector('.edit-vendeur')?.value.trim() || '';
+            if (!curV) {
+                if (window.showToast) window.showToast("Veuillez saisir un nom de vendeur", "warning");
+                return;
+            }
+            sendSingleVendorFocusWhatsApp(curV);
+        });
+
+        // Dynamically update CDZ on typing vendor or sector
+        const vInput = tr.querySelector('.edit-vendeur');
+        const secInput = tr.querySelector('.edit-secteur');
+        const onVendorChanged = function () {
+            const curV = vInput ? vInput.value.trim() : '';
+            const curS = secInput ? secInput.value.trim() : '';
+            const newCdz = resolveClientCdz(curV, curS) || tr.getAttribute('data-cdz') || '';
+            if (newCdz) {
+                tr.setAttribute('data-cdz', newCdz);
+                updateRowCdzTag(tr, newCdz);
+                filterEditModalRows();
+            }
+        };
+        if (vInput) vInput.addEventListener('input', onVendorChanged);
+        if (secInput) secInput.addEventListener('input', onVendorChanged);
         
         tbody.appendChild(tr);
         
@@ -649,6 +1181,8 @@
                 qualiCols.forEach(col => col.style.display = '');
             }
         }
+
+        filterEditModalRows();
 
         const modalBody = tbody.closest('.modal-body');
         if (modalBody) {
@@ -670,6 +1204,7 @@
             rows.forEach(row => {
                 const vendeur = row.querySelector('.edit-vendeur')?.value.trim();
                 const secteur = row.querySelector('.edit-secteur')?.value.trim();
+                const cdz = (row.getAttribute('data-cdz') || resolveClientCdz(vendeur, secteur)).trim();
                 
                 if (!vendeur || !secteur) {
                     isValid = false;
@@ -686,7 +1221,8 @@
                         vendeur: vendeur,
                         secteur: secteur,
                         glace_ht: glace_ht,
-                        ttc: ttc
+                        ttc: ttc,
+                        cdz: cdz
                     });
                 } else {
                     const number_client = parseInt(row.querySelector('.edit-nb-clients')?.value || '0');
@@ -709,7 +1245,8 @@
                         obj_acm: finalAcm,
                         obj_juin: finalJuin,
                         glace_ht: finalHt,
-                        ttc: finalTtc
+                        ttc: finalTtc,
+                        cdz: cdz
                     });
                 }
             });
@@ -1418,14 +1955,23 @@
             }
         }
 
-        // Populate Vendeur filter select dropdown from all eligible category sellers
+        // Synchronize CDZ select element
+        const cdzSelect = document.getElementById('focus-cdz-filter');
+        if (cdzSelect && cdzSelect.value !== (selectedCdzFilter || '')) {
+            cdzSelect.value = selectedCdzFilter || '';
+        }
+
+        // Populate Vendeur filter select dropdown from all eligible category sellers (respecting selected CDZ if active)
         const vendeurFilter = document.getElementById('focus-vendeur-filter');
         if (vendeurFilter) {
             const prevSelected = selectedVendeurFilter;
             vendeurFilter.innerHTML = '<option value="">-- TOUS LES VENDEURS --</option>';
             
             const uniqueRepNames = new Map();
-            reps.forEach(r => {
+            const eligibleForDropdown = selectedCdzFilter
+                ? reps.filter(r => ((r.cdz || resolveClientCdz(r.representative, r.secteur)) || '').trim().toUpperCase() === selectedCdzFilter.trim().toUpperCase())
+                : reps;
+            eligibleForDropdown.forEach(r => {
                 const code = r.representative.split(' ')[0];
                 if (!uniqueRepNames.has(code)) {
                     uniqueRepNames.set(code, r.representative);
@@ -1450,14 +1996,14 @@
             }
         }
         
+        // Filter representatives based on CDZ selection
+        if (selectedCdzFilter) {
+            reps = reps.filter(r => ((r.cdz || resolveClientCdz(r.representative, r.secteur)) || '').trim().toUpperCase() === selectedCdzFilter.trim().toUpperCase());
+        }
+
         // Filter representatives based on vendeur selection
         if (selectedVendeurFilter) {
             reps = reps.filter(r => r.representative.startsWith(selectedVendeurFilter));
-        }
-        
-        // Filter representatives based on CDZ selection
-        if (selectedCdzFilter) {
-            reps = reps.filter(r => (r.cdz || '').trim().toUpperCase() === selectedCdzFilter.trim().toUpperCase());
         }
         
         // 1. Populate summary cards
@@ -1535,6 +2081,7 @@
                 <th>% Partiel</th>
                 <th>Écart (%)</th>
                 <th>Chef de Zone</th>
+                <th style="text-align: center; width: 60px;">Action</th>
             `;
         } else {
             tableTitle.innerHTML = `<i class="fa-solid fa-list-ol"></i> CLASSEMENT REPRÉSENTANTS ${focusNames.TOMATE_FRITO || "TOMATE FRITO"} (VMM)`;
@@ -1550,6 +2097,7 @@
                     <th>% Partiel</th>
                     <th>Écart (%)</th>
                     <th>Chef de Zone</th>
+                    <th style="text-align: center; width: 60px;">Action</th>
                 `;
             } else {
                 repsHeaders.innerHTML = `
@@ -1564,6 +2112,7 @@
                     <th>% Partiel</th>
                     <th>Écart (%)</th>
                     <th>Chef de Zone</th>
+                    <th style="text-align: center; width: 60px;">Action</th>
                 `;
             }
         }
@@ -1586,6 +2135,14 @@
                     terrainBadge = `<div style="color: var(--text-muted); font-size: 0.74rem; margin-top: 2px; opacity: 0.75;" title="Non inclus dans le réalisé">(Terrain: +${formatCurrency(terrainSum)})</div>`;
                 }
             }
+
+            const waBtnHtml = `
+                <td style="text-align: center; white-space: nowrap;">
+                    <button type="button" class="cyber-btn focus-rep-wa-btn" data-vendeur="${r.representative}" title="Envoyer objectif WhatsApp à ${r.representative}" style="border-color: #25D366; color: #25D366; background: rgba(37, 211, 102, 0.08); padding: 0.2rem 0.45rem; font-size: 0.8rem; cursor: pointer;">
+                        <i class="fa-brands fa-whatsapp"></i>
+                    </button>
+                </td>
+            `;
 
             if (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') {
                 const targetObj = taxMode === 'HT' ? r.obj_ht : r.obj_ttc;
@@ -1625,6 +2182,7 @@
                     <td class="${partielClass}"><strong>${partielFormatted}</strong></td>
                     <td class="${devClass}"><strong>${deviationFormatted}</strong></td>
                     <td>${r.cdz}</td>
+                    ${waBtnHtml}
                 `;
             } else {
                 // VMM Qualitatif Mode
@@ -1664,6 +2222,7 @@
                     <td class="${partielClass}"><strong>${partielFormatted}</strong></td>
                     <td class="${devClass}"><strong>${deviationFormatted}</strong></td>
                     <td>${r.cdz}</td>
+                    ${waBtnHtml}
                 `;
             }
             
@@ -1671,8 +2230,17 @@
             repsTbody.appendChild(tr);
         });
 
+        // Attach WhatsApp button listeners in reps table
+        repsTbody.querySelectorAll('.focus-rep-wa-btn').forEach(btn => {
+            btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                const vName = btn.getAttribute('data-vendeur');
+                sendSingleVendorFocusWhatsApp(vName);
+            });
+        });
+
         if (reps.length === 0) {
-            const colSpan = (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') ? 10 : 11;
+            const colSpan = (currentFocusType === 'GLACE' || selectedVmmMode === 'CA') ? 11 : 12;
             repsTbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align:center;">Aucune donnée disponible</td></tr>`;
         }
 
@@ -1738,7 +2306,11 @@
                         comparisonCard.style.display = 'block';
                     }
                 }
+                const cdzSelect = document.getElementById('focus-cdz-filter');
+                if (cdzSelect) cdzSelect.value = selectedCdzFilter;
                 renderFocusView();
+                renderFocusTrendChart();
+                renderFocusDailySection();
             });
             
             cdzTbody.appendChild(tr);
@@ -2033,8 +2605,47 @@
                 fill: false,
                 tension: 0.15
             });
+        } else if (selectedCdzFilter) {
+            displayBadgeName = "ÉQUIPE CDZ " + selectedCdzFilter;
+            trendTitle = `PROGRESSION ÉQUIPE CDZ : ${selectedCdzFilter} (%)`;
+
+            // Calculate CDZ team average dev for each date
+            const cdzTeamDeviations = dates.map(d => {
+                const dayReps = reps.filter(r => r.upload_date.startsWith(d) && ((r.cdz || resolveClientCdz(r.representative, r.secteur)) || '').trim().toUpperCase() === selectedCdzFilter.trim().toUpperCase());
+                if (dayReps.length === 0) return null;
+                const sum = dayReps.reduce((acc, r) => acc + r.deviation, 0);
+                return Math.round((sum / dayReps.length) * 100);
+            });
+
+            const mainColor = selectedCdzFilter.includes('CHAKIB') ? neonGreen : (currentFocusType === 'GLACE' ? neonBlue : neonPink);
+            datasets.push({
+                label: `Équipe CDZ ${selectedCdzFilter} (%)`,
+                data: cdzTeamDeviations,
+                borderColor: mainColor,
+                backgroundColor: mainColor + '20',
+                borderWidth: 3,
+                pointBackgroundColor: mainColor,
+                pointBorderColor: '#fff',
+                pointBorderWidth: 1.5,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                fill: false,
+                tension: 0.15
+            });
+
+            // Reference agency average
+            datasets.push({
+                label: 'Moyenne Agence (%)',
+                data: agencyAverages,
+                borderColor: isWhiteMode ? '#94a3b8' : '#475569',
+                borderWidth: 1.5,
+                borderDash: [5, 5],
+                pointRadius: 0,
+                fill: false,
+                tension: 0.15
+            });
         } else {
-            // No seller selected -> Show Agency Average trend as solid line
+            // No seller or CDZ selected -> Show Agency Average trend as solid line
             const avgColor = currentFocusType === 'GLACE' ? neonBlue : neonPink;
             datasets.push({
                 label: 'Moyenne Agence (%)',
@@ -2230,6 +2841,8 @@
         if (selectedVendeurFilter) {
             const sampleRep = reps.find(r => r.representative.startsWith(selectedVendeurFilter));
             displayBadgeName = sampleRep ? sampleRep.representative : selectedVendeurFilter;
+        } else if (selectedCdzFilter) {
+            displayBadgeName = "ÉQUIPE CDZ " + selectedCdzFilter;
         }
         if (dailySellerName) dailySellerName.innerText = displayBadgeName;
         
@@ -2288,8 +2901,11 @@
                     chartDataPoints.push(null);
                 }
             } else {
-                // Agency Global Mode
-                const dayReps = reps.filter(r => r.upload_date.startsWith(d));
+                // Agency Global or CDZ Mode
+                let dayReps = reps.filter(r => r.upload_date.startsWith(d));
+                if (selectedCdzFilter) {
+                    dayReps = dayReps.filter(r => ((r.cdz || resolveClientCdz(r.representative, r.secteur)) || '').trim().toUpperCase() === selectedCdzFilter.trim().toUpperCase());
+                }
                 if (dayReps.length > 0) {
                     let sumObj = 0, sumReal = 0;
                     dayReps.forEach(r => {

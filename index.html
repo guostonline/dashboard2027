@@ -18,7 +18,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css?v=3.6">
+    <link rel="stylesheet" href="/static/css/style.css?v=3.8">
     <!-- Global Safe Fetch Interceptor for Static Netlify Host -->
     <script>
         (function() {
@@ -90,7 +90,7 @@
                     body = {
                         rest_days: s.rest_days || 20,
                         exclude_families: s.exclude_families ? (typeof s.exclude_families === 'string' ? JSON.parse(s.exclude_families) : s.exclude_families) : [],
-                        theme: "theme-1",
+                        theme: "theme-6",
                         light_mode: true,
                         excluded_dates: [],
                         google_sheet_url: ""
@@ -254,8 +254,10 @@
             
             <nav class="sidebar-nav">
                 <a href="/dashboard" class="nav-item {% if active_tab != 'details' and active_tab != 'clients' and active_tab != 'fdv' and active_tab != 'terrain' and active_tab != 'focus' and active_tab != 'rapport' and active_tab != 'stock' and active_tab != 'anomalis' and active_tab != 'anomalies' and active_tab != 'tasks' and active_tab != 'engagement' and active_tab != 'visites' %}active{% endif %}" id="nav-dashboard"><i class="fa-solid fa-gauge"></i> <span>Tableau de bord</span></a>
-                <a href="/details" class="nav-item {% if active_tab == 'details' and active_sub_tab != 'vendeur360' %}active{% endif %}" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
+                <a href="/details" class="nav-item {% if active_tab == 'details' %}active{% endif %}" id="nav-details"><i class="fa-solid fa-chart-column"></i> <span>Détails</span></a>
+                <a href="/details" class="nav-item {% if active_tab == 'details' and active_sub_tab != 'vendeur360' and active_sub_tab != 'historique' %}active{% endif %}" id="nav-details-analytics" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'details' %}display: none;{% endif %}"><i class="fa-solid fa-chart-line neon-text-amber"></i> <span>Détails Analytiques</span></a>
                 <a href="/vendeur360" class="nav-item {% if active_tab == 'details' and active_sub_tab == 'vendeur360' %}active{% endif %}" id="nav-vendeur-360" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'details' %}display: none;{% endif %}"><i class="fa-solid fa-id-card neon-text-blue"></i> <span>Vendeur</span></a>
+                <a href="/historique" class="nav-item {% if active_tab == 'details' and active_sub_tab == 'historique' %}active{% endif %}" id="nav-historique" style="padding-left: 2rem; font-size: 0.8rem; margin-top: -0.25rem; {% if active_tab != 'details' %}display: none;{% endif %}"><i class="fa-solid fa-clock-rotate-left neon-text-green"></i> <span>Historique</span></a>
                 <a href="/clients" class="nav-item {% if active_tab == 'clients' %}active{% endif %}" id="nav-clients"><i class="fa-solid fa-address-book"></i> <span>Client</span></a>
                 <a href="/visites" class="nav-item {% if active_tab == 'visites' %}active{% endif %}" id="nav-visites"><i class="fa-solid fa-route neon-text-blue"></i> <span>Visites</span></a>
                 <a href="/fdv" class="nav-item {% if active_tab == 'fdv' %}active{% endif %}" id="nav-fdv"><i class="fa-solid fa-people-group"></i> <span>FDV</span></a>
@@ -294,6 +296,7 @@
                         <option value="theme-3">Matrix Hack</option>
                         <option value="theme-4">Crimson Gold</option>
                         <option value="theme-5">Aurora Ice</option>
+                        <option value="theme-6" selected>FundFlow Light (Glass)</option>
                     </select>
                 </div>
                 
@@ -440,7 +443,7 @@
         </div>
     </header>
 
-    <main class="dashboard-container" id="main-dashboard-container" style="{% if active_tab == 'details' or active_tab == 'clients' or active_tab == 'fdv' or active_tab == 'terrain' or active_tab == 'focus' or active_tab == 'rapport' or active_tab == 'stock' or active_tab == 'anomalis' or active_tab == 'tasks' or active_tab == 'engagement' or active_tab == 'visites' %}display: none;{% endif %}; position: relative; z-index: 10;">
+    <main class="dashboard-container" id="main-dashboard-container" style="{% if active_tab == 'details' or active_tab == 'clients' or active_tab == 'fdv' or active_tab == 'terrain' or active_tab == 'focus' or active_tab == 'rapport' or active_tab == 'stock' or active_tab == 'anomalis' or active_tab == 'anomalies' or active_tab == 'tasks' or active_tab == 'engagement' or active_tab == 'visites' or active_tab == 'historique' %}display: none;{% endif %}; position: relative; z-index: 10;">
         <!-- TOP SUMMARY CARDS -->
         <section class="summary-section" id="summary-section">
             <div class="cyber-card summary-card glow-blue">
@@ -884,16 +887,19 @@
     <main class="dashboard-container" id="details-container" style="{% if active_tab != 'details' %}display: none;{% endif %}; position: relative; z-index: 10;">
         <!-- SUB-TAB SWITCHER FOR DETAILS VIEW -->
         <div class="sub-tab-group" style="display: flex; gap: 0.75rem; margin-bottom: 1.25rem;">
-            <button id="details-subtab-analytics" class="cyber-btn {% if active_sub_tab != 'vendeur360' %}active{% endif %}" style="font-size: 0.85rem;">
+            <a href="/details" id="details-subtab-analytics" class="cyber-btn {% if active_sub_tab != 'vendeur360' and active_sub_tab != 'historique' and active_tab != 'historique' %}active{% endif %}" style="font-size: 0.85rem; text-decoration: none;">
                 <i class="fa-solid fa-chart-column neon-text-amber"></i> <span>DÉTAILS ANALYTIQUES</span>
-            </button>
-            <button id="details-subtab-vendeur360" class="cyber-btn {% if active_sub_tab == 'vendeur360' %}active{% endif %}" style="font-size: 0.85rem;">
+            </a>
+            <a href="/vendeur360" id="details-subtab-vendeur360" class="cyber-btn {% if active_sub_tab == 'vendeur360' %}active{% endif %}" style="font-size: 0.85rem; text-decoration: none;">
                 <i class="fa-solid fa-user-gear neon-text-blue"></i> <span>VENDEUR</span>
-            </button>
+            </a>
+            <a href="/historique" id="details-subtab-historique" class="cyber-btn {% if active_sub_tab == 'historique' or active_tab == 'historique' %}active{% endif %}" style="font-size: 0.85rem; text-decoration: none;">
+                <i class="fa-solid fa-clock-rotate-left neon-text-green"></i> <span>HISTORIQUE</span>
+            </a>
         </div>
 
         <!-- DETAILS ANALYTICS SECTION -->
-        <div id="details-analytics-section" style="{% if active_sub_tab == 'vendeur360' %}display: none;{% endif %}">
+        <div id="details-analytics-section" style="{% if active_sub_tab == 'vendeur360' or active_sub_tab == 'historique' %}display: none;{% endif %}">
         <!-- Section Header / Controls -->
         <section class="filter-section cyber-card" style="margin-bottom: 1.5rem;">
             <div class="card-edge"></div>
@@ -1491,6 +1497,588 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- DETAILS HISTORIQUE SECTION (SUB-TAB UNDER DETAILS) -->
+        <div id="details-historique-section" style="{% if active_sub_tab != 'historique' %}display: none;{% endif %} flex-direction: column; gap: 1.5rem;">
+            <!-- TOP SUMMARY HEADER -->
+            <section class="summary-section" id="historique-summary-section">
+                <div class="summary-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 1rem;">
+                    <div class="summary-title">
+                        <h2><i class="fa-solid fa-clock-rotate-left neon-text-green"></i> HISTORIQUE &amp; ARCHIVES DES SAUVEGARDES</h2>
+                        <p class="summary-subtitle" style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono);">
+                            Instantanés complets (Quanti, Quali, Focus, Anomalies, Visites, Rapports IA) sauvegardés dans <code>historique.db</code>.
+                        </p>
+                    </div>
+                    <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <button type="button" class="cyber-btn" id="btn-create-snapshot-manual" style="border-color: var(--neon-green); color: var(--neon-green); font-size: 0.75rem; font-weight: bold; padding: 0.5rem 1rem;">
+                            <i class="fa-solid fa-camera"></i> CRÉER UN INSTANTANÉ MAINTENANT
+                        </button>
+                        <button type="button" class="cyber-btn" id="btn-refresh-historique" style="font-size: 0.75rem; padding: 0.5rem 1rem;">
+                            <i class="fa-solid fa-arrows-rotate"></i> ACTUALISER
+                        </button>
+                    </div>
+                </div>
+
+                <!-- HISTORIQUE STATS CARDS -->
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.85rem; margin-top: 1rem;">
+                    <div class="cyber-card summary-card glow-green" style="padding: 0.85rem 1rem;">
+                        <div class="card-edge"></div>
+                        <div class="summary-content">
+                            <span class="summary-label" style="font-size: 0.65rem; color: var(--neon-green);"><i class="fa-solid fa-database"></i> TOTAL INSTANTANÉS</span>
+                            <h3 class="summary-value neon-text-green" id="hist-kpi-total" style="margin: 0.25rem 0 0 0; font-size: 1.4rem;">0</h3>
+                        </div>
+                    </div>
+                    <div class="cyber-card summary-card glow-blue" style="padding: 0.85rem 1rem;">
+                        <div class="card-edge"></div>
+                        <div class="summary-content">
+                            <span class="summary-label" style="font-size: 0.65rem;"><i class="fa-solid fa-calendar-check"></i> DERNIER INSTANTANÉ</span>
+                            <h3 class="summary-value neon-text-blue" id="hist-kpi-last-date" style="margin: 0.25rem 0 0 0; font-size: 1.1rem; word-break: break-all;">--</h3>
+                        </div>
+                    </div>
+                    <div class="cyber-card summary-card glow-purple" style="padding: 0.85rem 1rem;">
+                        <div class="card-edge"></div>
+                        <div class="summary-content">
+                            <span class="summary-label" style="font-size: 0.65rem; color: var(--neon-purple);"><i class="fa-solid fa-layer-group"></i> MODULES ARCHIVÉS</span>
+                            <h3 class="summary-value" style="margin: 0.25rem 0 0 0; font-size: 1.1rem; color: var(--neon-purple);">6 Tables + IA</h3>
+                        </div>
+                    </div>
+                    <div class="cyber-card summary-card glow-amber" style="padding: 0.85rem 1rem;">
+                        <div class="card-edge"></div>
+                        <div class="summary-content">
+                            <span class="summary-label" style="font-size: 0.65rem; color: var(--neon-amber);"><i class="fa-solid fa-shield-halved"></i> SÉCURITÉ DES DONNÉES</span>
+                            <h3 class="summary-value" style="margin: 0.25rem 0 0 0; font-size: 1.1rem; color: var(--neon-amber);">Auto-Backup ON</h3>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MAIN SPLIT WORKSPACE: LIST (LEFT) & VIEWER (RIGHT) -->
+            <section style="display: grid; grid-template-columns: 340px 1fr; gap: 1rem; margin-top: 1.5rem; align-items: start;">
+                
+                <!-- LEFT PANEL: LIST OF SNAPSHOTS -->
+                <div class="cyber-card" style="padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; max-height: calc(100vh - 260px); overflow: hidden;">
+                    <div class="card-edge"></div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+                        <span class="tech-label" style="font-size: 0.75rem; color: var(--neon-green); margin: 0;">
+                            <i class="fa-solid fa-list-ol"></i> LISTE DES SAUVEGARDES
+                        </span>
+                        <span class="tech-label-mini" id="hist-list-count" style="font-size: 0.7rem; color: var(--text-muted);">0 élément(s)</span>
+                    </div>
+                    
+                    <!-- Search input -->
+                    <div class="search-input-wrapper" style="width: 100%; height: 32px; margin: 0;">
+                        <input type="text" id="hist-snapshots-search" placeholder="Filtrer instantanés..." style="font-size: 0.75rem; padding: 0.25rem 0.5rem; height: 32px; border-radius: 4px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-main); outline: none; width: 100%; box-sizing: border-box;">
+                    </div>
+
+                    <!-- Snapshots Scroll List -->
+                    <div id="hist-snapshots-list" style="display: flex; flex-direction: column; gap: 0.6rem; overflow-y: auto; padding-right: 0.25rem; max-height: calc(100vh - 350px);">
+                        <!-- Snapshot Cards Injected Dynamically -->
+                    </div>
+
+                    <!-- Empty State for List -->
+                    <div id="hist-snapshots-empty" style="display: none; text-align: center; padding: 2rem 1rem;">
+                        <i class="fa-solid fa-box-open" style="font-size: 2rem; color: var(--text-muted); margin-bottom: 0.5rem;"></i>
+                        <p style="color: var(--text-muted); font-size: 0.75rem; margin: 0;">Aucun instantané enregistré.</p>
+                    </div>
+
+                    <!-- Loading State for List -->
+                    <div id="hist-snapshots-loading" style="display: none; text-align: center; padding: 2rem 1rem;">
+                        <div class="cyber-spinner" style="margin: 0 auto 0.5rem; width: 24px; height: 24px;"></div>
+                        <span class="tech-label-mini neon-text-green" style="font-size: 0.7rem;">Chargement...</span>
+                    </div>
+                </div>
+
+                <!-- RIGHT PANEL: SNAPSHOT DETAIL EXPLORER -->
+                <div class="cyber-card" style="padding: 1rem; min-height: 520px; display: flex; flex-direction: column;">
+                    <div class="card-edge"></div>
+
+                    <!-- Placeholder when no snapshot is selected -->
+                    <div id="hist-detail-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 480px; text-align: center; color: var(--text-muted);">
+                        <i class="fa-solid fa-clock-rotate-left" style="font-size: 3.5rem; color: var(--border-color); margin-bottom: 1rem;"></i>
+                        <h3 style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 0.5rem;">Aucun instantané sélectionné</h3>
+                        <p style="max-width: 450px; font-size: 0.8rem; line-height: 1.5; color: var(--text-muted);">
+                            Sélectionnez un instantané dans la liste de gauche pour visualiser l'ensemble de ses tables archivées : Quantitatif, Qualitatif, Focus VMM &amp; SOM, Anomalies, Visites terrain et Rapport IA.
+                        </p>
+                    </div>
+
+                    <!-- Active Snapshot View -->
+                    <div id="hist-detail-content" style="display: none; flex-direction: column; gap: 1rem;">
+                        
+                        <!-- Detail Header Banner -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0, 255, 136, 0.04); border: 1px solid rgba(0, 255, 136, 0.25); border-radius: 4px; padding: 0.75rem 1rem; flex-wrap: wrap; gap: 0.75rem;">
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                                    <span class="tech-badge" id="hist-active-badge" style="background: rgba(0, 255, 136, 0.15); border-color: var(--neon-green); color: var(--neon-green); font-size: 0.8rem; font-weight: bold; padding: 0.2rem 0.5rem;">SNAPSHOT #1</span>
+                                    <h3 id="hist-active-title" style="margin: 0; font-size: 0.95rem; color: var(--text-main);">Instantané du --</h3>
+                                </div>
+                                <div style="display: flex; gap: 1.25rem; margin-top: 0.35rem; font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">
+                                    <span><i class="fa-solid fa-calendar-day neon-text-blue"></i> Source : <strong id="hist-active-source-date" style="color: var(--text-main);">--</strong></span>
+                                    <span><i class="fa-solid fa-clock neon-text-amber"></i> Créé le : <strong id="hist-active-created-at" style="color: var(--text-main);">--</strong></span>
+                                    <span><i class="fa-solid fa-note-sticky"></i> Note : <strong id="hist-active-note" style="color: var(--text-main);">--</strong></span>
+                                </div>
+                            </div>
+
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <button type="button" id="hist-btn-delete-active" class="cyber-btn-mini" style="border-color: var(--neon-pink); color: var(--neon-pink); font-size: 0.72rem; padding: 0.4rem 0.75rem;" title="Supprimer cet instantané de l'historique">
+                                    <i class="fa-solid fa-trash-can"></i> SUPPRIMER
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Sub-tabs Navigation -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <div class="sub-tab-group" id="hist-subtab-group" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                                <button type="button" class="cyber-btn hist-subtab-btn" id="hist-subtab-vendor-btn" data-hist-tab="vendor" style="display: none; font-size: 0.72rem; padding: 0.35rem 0.7rem; border-color: var(--neon-green); color: var(--neon-green); font-weight: bold;">
+                                    <i class="fa-solid fa-user-check"></i> VUE VENDEUR (4 TABLES)
+                                </button>
+                                <button type="button" class="cyber-btn active hist-subtab-btn" data-hist-tab="quanti" style="font-size: 0.72rem; padding: 0.35rem 0.7rem;">
+                                    <i class="fa-solid fa-chart-line"></i> QUANTITATIF (<span id="hist-count-quanti">0</span>)
+                                </button>
+                                <button type="button" class="cyber-btn hist-subtab-btn" data-hist-tab="quali" style="font-size: 0.72rem; padding: 0.35rem 0.7rem;">
+                                    <i class="fa-solid fa-list-check"></i> QUALITATIF (<span id="hist-count-quali">0</span>)
+                                </button>
+                                <button type="button" class="cyber-btn hist-subtab-btn" data-hist-tab="focus-vmm" style="font-size: 0.72rem; padding: 0.35rem 0.7rem;">
+                                    <i class="fa-solid fa-bullseye"></i> FOCUS VMM (<span id="hist-count-fvmm">0</span>)
+                                </button>
+                                <button type="button" class="cyber-btn hist-subtab-btn" data-hist-tab="focus-som" style="font-size: 0.72rem; padding: 0.35rem 0.7rem;">
+                                    <i class="fa-solid fa-bullseye"></i> FOCUS SOM (<span id="hist-count-fsom">0</span>)
+                                </button>
+                                <button type="button" class="cyber-btn hist-subtab-btn" data-hist-tab="anomalies" style="font-size: 0.72rem; padding: 0.35rem 0.7rem;">
+                                    <i class="fa-solid fa-triangle-exclamation"></i> ANOMALIES (<span id="hist-count-anom">0</span>)
+                                </button>
+                                <button type="button" class="cyber-btn hist-subtab-btn" data-hist-tab="visites" style="font-size: 0.72rem; padding: 0.35rem 0.7rem;">
+                                    <i class="fa-solid fa-route"></i> VISITES (<span id="hist-count-vis">0</span>)
+                                </button>
+                                <button type="button" class="cyber-btn hist-subtab-btn" data-hist-tab="rapport" style="font-size: 0.72rem; padding: 0.35rem 0.7rem;">
+                                    <i class="fa-solid fa-brain"></i> RAPPORT IA
+                                </button>
+                            </div>
+
+                            <!-- Filter Controls: Vendor Select + Search Input -->
+                            <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+                                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                    <label for="hist-vendeur-select" style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-family: var(--font-mono); white-space: nowrap;"><i class="fa-solid fa-user neon-text-blue"></i> VENDEUR :</label>
+                                    <select id="hist-vendeur-select" class="cyber-select" style="font-size: 0.72rem; padding: 0.2rem 0.6rem; height: 32px; min-width: 170px; border-color: var(--neon-blue); text-transform: uppercase; border-radius: 4px; background: rgba(0,0,0,0.35); color: var(--text-main);">
+                                        <option value="all">TOUS LES VENDEURS</option>
+                                    </select>
+                                </div>
+
+                                <!-- Data Table Search Input -->
+                                <div class="search-input-wrapper" style="width: 200px; height: 32px; margin: 0;">
+                                    <input type="text" id="hist-table-search" placeholder="Rechercher dans ce tableau..." style="font-size: 0.72rem; padding: 0.2rem 0.5rem; height: 32px; border-radius: 4px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-main); outline: none; width: 100%; box-sizing: border-box;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Dynamic Sub-tab Views -->
+                        <div id="hist-view-container" style="min-height: 380px;">
+                            
+                            <!-- 1. QUANTITATIF VIEW -->
+                            <div id="hist-view-quanti" class="hist-subview" style="display: block;">
+                                <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                                    <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                                        <thead>
+                                            <tr>
+                                                <th>DATE</th>
+                                                <th>VENDEUR</th>
+                                                <th>FAMILLE</th>
+                                                <th style="text-align: right;">J-1</th>
+                                                <th style="text-align: right;">REAL</th>
+                                                <th style="text-align: right;">OBJ</th>
+                                                <th style="text-align: right;">%</th>
+                                                <th style="text-align: right;">REAL 2025</th>
+                                                <th style="text-align: right;">H 2024</th>
+                                                <th style="text-align: right;">H %</th>
+                                                <th style="text-align: right;">ENCOURS</th>
+                                                <th style="text-align: right;">OBJ MOIS</th>
+                                                <th style="text-align: right;">RAF</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="hist-tbody-quanti"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- 2. QUALITATIF VIEW -->
+                            <div id="hist-view-quali" class="hist-subview" style="display: none;">
+                                <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                                    <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                                        <thead>
+                                            <tr>
+                                                <th>DATE</th>
+                                                <th>VENDEUR</th>
+                                                <th style="text-align: right;">CLT PROG.</th>
+                                                <th style="text-align: right;">CLT FACT.</th>
+                                                <th style="text-align: right;">ACM</th>
+                                                <th style="text-align: right;">TSM</th>
+                                                <th style="text-align: right;">LIGNE</th>
+                                                <th style="text-align: right;">RAF TSM</th>
+                                                <th style="text-align: right;">RAF ACM</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="hist-tbody-quali"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- 3. FOCUS VMM VIEW -->
+                            <div id="hist-view-focus-vmm" class="hist-subview" style="display: none;">
+                                <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                                    <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                                        <thead>
+                                            <tr>
+                                                <th>DATE</th>
+                                                <th>VENDEUR</th>
+                                                <th>SECTEUR</th>
+                                                <th style="text-align: right;">DN MAI</th>
+                                                <th style="text-align: right;">OBJ JUIN</th>
+                                                <th style="text-align: right;">NB CLT</th>
+                                                <th style="text-align: right;">OBJ ACM</th>
+                                                <th style="text-align: right;">%</th>
+                                                <th style="text-align: right;">RÉALISÉ</th>
+                                                <th style="text-align: right;">RESTE</th>
+                                                <th style="text-align: right;">JOUR REST</th>
+                                                <th style="text-align: right;">REST/JOUR</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="hist-tbody-focus-vmm"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- 4. FOCUS SOM VIEW -->
+                            <div id="hist-view-focus-som" class="hist-subview" style="display: none;">
+                                <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                                    <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                                        <thead>
+                                            <tr>
+                                                <th>DATE</th>
+                                                <th>VENDEUR</th>
+                                                <th>SECTEUR</th>
+                                                <th style="text-align: right;">GLACE HT</th>
+                                                <th style="text-align: right;">TTC</th>
+                                                <th style="text-align: right;">%</th>
+                                                <th style="text-align: right;">RÉALISÉ</th>
+                                                <th style="text-align: right;">RESTE</th>
+                                                <th style="text-align: right;">REST/JOUR</th>
+                                                <th style="text-align: right;">JOUR REST</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="hist-tbody-focus-som"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- 5. ANOMALIES VIEW -->
+                            <div id="hist-view-anomalies" class="hist-subview" style="display: none;">
+                                <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                                    <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                                        <thead>
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>DATE</th>
+                                                <th>VENDEUR</th>
+                                                <th>TYPE ANOMALIE</th>
+                                                <th>COMMENTAIRE</th>
+                                                <th>TAG</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="hist-tbody-anomalies"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- 6. VISITES VIEW -->
+                            <div id="hist-view-visites" class="hist-subview" style="display: none;">
+                                <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                                    <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                                        <thead>
+                                            <tr>
+                                                <th>DATE VISITE</th>
+                                                <th>HEURE</th>
+                                                <th>VENDEUR</th>
+                                                <th>CLIENT</th>
+                                                <th>TOURNÉE</th>
+                                                <th style="text-align: right;">DISTANCE</th>
+                                                <th>MOTIF</th>
+                                                <th>NOTE</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="hist-tbody-visites"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- 7. RAPPORT IA VIEW -->
+                            <div id="hist-view-rapport" class="hist-subview" style="display: none;">
+                                <!-- Historical Report Controls Header -->
+                                <div style="background: rgba(0, 212, 255, 0.04); border: 1px solid rgba(0, 212, 255, 0.25); border-radius: 6px; padding: 0.85rem 1rem; margin-bottom: 1rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;">
+                                    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                            <span class="tech-badge" style="background: rgba(0, 212, 255, 0.15); border-color: var(--neon-blue); color: var(--neon-blue); font-size: 0.75rem; font-weight: 700;">
+                                                <i class="fa-solid fa-database"></i> SOURCE : HISTORIQUE.DB
+                                            </span>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                            <label for="hist-report-scope-select" style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-family: var(--font-mono);"><i class="fa-solid fa-user-tie neon-text-blue"></i> Cible :</label>
+                                            <select id="hist-report-scope-select" class="cyber-select" style="font-size: 0.72rem; padding: 0.2rem 0.5rem; height: 30px; min-width: 180px; border-radius: 4px; background: rgba(0,0,0,0.35); color: var(--text-main); border-color: var(--neon-blue);">
+                                                <option value="all">🌐 Agence Globale (Tous)</option>
+                                                <option value="cdz_chakib">👔 Équipe CDZ Chakib Elfil</option>
+                                                <option value="cdz_boutmezguine">👔 Équipe CDZ Boutmezguine</option>
+                                                <option value="vendeur_selected">👤 Vendeur sélectionné dans le filtre</option>
+                                            </select>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                            <label for="hist-report-tax-select" style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-family: var(--font-mono);"><i class="fa-solid fa-receipt neon-text-green"></i> Taxe :</label>
+                                            <select id="hist-report-tax-select" class="cyber-select" style="font-size: 0.72rem; padding: 0.2rem 0.5rem; height: 30px; border-radius: 4px; background: rgba(0,0,0,0.35); color: var(--text-main); border-color: var(--border-color);">
+                                                <option value="TTC">Données TTC</option>
+                                                <option value="HT">Données HT</option>
+                                            </select>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                            <label for="hist-report-lang-select" style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-family: var(--font-mono);"><i class="fa-solid fa-language neon-text-amber"></i> Langue :</label>
+                                            <select id="hist-report-lang-select" class="cyber-select" style="font-size: 0.72rem; padding: 0.2rem 0.5rem; height: 30px; border-radius: 4px; background: rgba(0,0,0,0.35); color: var(--text-main); border-color: var(--border-color);">
+                                                <option value="fr">🇫🇷 Français</option>
+                                                <option value="ar">🇲🇦 Arabe</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <button type="button" id="btn-generate-hist-report" class="cyber-btn" style="background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(0,255,136,0.15)); border-color: var(--neon-blue); color: #fff; font-weight: 700; font-size: 0.75rem; padding: 0.45rem 1rem;">
+                                            <i class="fa-solid fa-wand-magic-sparkles neon-text-blue"></i> GÉNÉRER RAPPORT IA HISTORIQUE
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Loading State -->
+                                <div id="hist-rapport-loading" style="display: none; flex-direction: column; align-items: center; justify-content: center; padding: 3.5rem 1rem; text-align: center;">
+                                    <div class="cyber-spinner" style="width: 48px; height: 48px; margin-bottom: 1rem; border-width: 3px; border-top-color: var(--neon-blue);"></div>
+                                    <h4 class="neon-text-blue" style="margin: 0 0 0.5rem 0; font-size: 1.05rem;">GÉNÉRATION DU RAPPORT IA EN COURS...</h4>
+                                    <p style="color: var(--text-muted); font-size: 0.8rem; max-width: 420px; line-height: 1.5; margin: 0;">
+                                        Extraction des données consolidées depuis <code style="color: var(--neon-green);">historique.db</code> (Quanti, Quali, Focus, Anomalies, Visites, Tournées) et synthèse multi-dimensionnelle par l'IA.
+                                    </p>
+                                </div>
+
+                                <!-- Empty State -->
+                                <div id="hist-rapport-empty" style="display: none; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                                    <i class="fa-solid fa-brain" style="font-size: 3rem; color: var(--border-color); margin-bottom: 0.75rem;"></i>
+                                    <h4 style="color: var(--text-main); font-size: 1rem; margin-bottom: 0.4rem;">Aucun rapport IA archivé pour cet instantané</h4>
+                                    <p style="font-size: 0.8rem; max-width: 450px; margin: 0 auto 1.25rem auto;">
+                                        Vous pouvez générer un rapport complet et motivant basé à 100% sur les données de cet instantané sauvegardé dans <code>historique.db</code>.
+                                    </p>
+                                    <button type="button" id="btn-generate-hist-report-empty" class="cyber-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); font-size: 0.8rem; padding: 0.5rem 1.2rem;">
+                                        <i class="fa-solid fa-wand-magic-sparkles"></i> Générer le Rapport IA Maintenant
+                                    </button>
+                                </div>
+
+                                <!-- Result Body -->
+                                <div id="hist-rapport-body" style="display: none;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                                        <div>
+                                            <span class="tech-label" id="hist-rapport-title" style="color: var(--neon-blue); font-size: 0.85rem;"><i class="fa-solid fa-brain"></i> RAPPORT IA ARCHIVÉ</span>
+                                            <span class="tech-badge" id="hist-rapport-date-badge" style="margin-left: 0.5rem; font-size: 0.68rem; background: rgba(0,255,136,0.1); color: var(--neon-green); border-color: var(--neon-green);">--</span>
+                                        </div>
+                                        <div style="display: flex; gap: 0.4rem; align-items: center;">
+                                            <button type="button" id="hist-btn-copy-report" class="cyber-btn-mini" style="font-size: 0.72rem; padding: 0.35rem 0.75rem;"><i class="fa-solid fa-copy"></i> Copier</button>
+                                            <button type="button" id="hist-btn-print-report" class="cyber-btn-mini" style="font-size: 0.72rem; padding: 0.35rem 0.75rem;"><i class="fa-solid fa-print"></i> Imprimer</button>
+                                        </div>
+                                    </div>
+                                    <div id="hist-rapport-text" class="report-content" style="background: rgba(0,0,0,0.35); border: 1px solid var(--border-color); border-radius: 6px; padding: 1.5rem; max-height: 520px; overflow-y: auto; font-size: 0.85rem; line-height: 1.65; color: var(--text-main);"></div>
+                                </div>
+                            </div>
+
+                            <!-- 8. VENDOR UNIFIED VIEW (QUALI, QUANTI, FOCUS, TOURNÉE DÉTAILS) -->
+                            <div id="hist-view-vendor" class="hist-subview" style="display: none; flex-direction: column; gap: 1.5rem;">
+                                <!-- Vendor Header Summary Ribbon -->
+                                <div style="background: rgba(0, 212, 255, 0.05); border: 1px solid rgba(0, 212, 255, 0.25); border-radius: 6px; padding: 0.85rem 1.2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                        <div style="width: 38px; height: 38px; border-radius: 50%; background: rgba(0, 212, 255, 0.15); border: 1.5px solid var(--neon-blue); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--neon-blue);">
+                                            <i class="fa-solid fa-user-tie"></i>
+                                        </div>
+                                        <div>
+                                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <strong id="hist-vendor-title-name" style="font-size: 1rem; color: var(--text-main); text-transform: uppercase;">--</strong>
+                                                <span class="tech-badge" style="font-size: 0.68rem; background: rgba(0, 255, 136, 0.15); color: var(--neon-green); border-color: var(--neon-green);">ARCHIVE</span>
+                                            </div>
+                                            <div style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">
+                                                Instantané du <span id="hist-vendor-snapshot-date" style="color: var(--neon-blue);">--</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Quick navigation pills -->
+                                    <div class="cf-view-toggle" id="hist-vendor-pills" role="tablist" style="display: inline-flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 30px;">
+                                        <button type="button" class="cf-view-btn is-active" data-vsec="all" style="font-size: 0.72rem; padding: 0 0.75rem; border: none; cursor: pointer;"><i class="fa-solid fa-layer-group"></i> TOUS</button>
+                                        <button type="button" class="cf-view-btn" data-vsec="quali" style="font-size: 0.72rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-green); font-weight: bold;"><i class="fa-solid fa-list-check"></i> QUALI</button>
+                                        <button type="button" class="cf-view-btn" data-vsec="quanti" style="font-size: 0.72rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-blue); font-weight: bold;"><i class="fa-solid fa-chart-line"></i> QUANTI</button>
+                                        <button type="button" class="cf-view-btn" data-vsec="focus" style="font-size: 0.72rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-amber); font-weight: bold;"><i class="fa-solid fa-bullseye"></i> FOCUS</button>
+                                        <button type="button" class="cf-view-btn" data-vsec="tournees" style="font-size: 0.72rem; padding: 0 0.75rem; border: none; cursor: pointer; color: var(--neon-pink); font-weight: bold;"><i class="fa-solid fa-route"></i> TOURNÉE DÉTAILS</button>
+                                    </div>
+                                </div>
+
+                                <!-- 1. TABLE QUALITATIF (QUALI) -->
+                                <div id="hist-vendor-sec-quali" class="cyber-card hist-vsec-card" style="padding: 1rem; border-radius: 6px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fa-solid fa-list-check neon-text-green" style="font-size: 1rem;"></i>
+                                            <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main); text-transform: uppercase;">1. Indicateurs Qualitatifs (Quali)</span>
+                                        </div>
+                                        <span class="badge badge-green" id="hist-vendor-badge-quali">0 Donnée</span>
+                                    </div>
+                                    <div class="table-container" style="overflow-x: auto;">
+                                        <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                                            <thead>
+                                                <tr>
+                                                    <th>DATE</th>
+                                                    <th>VENDEUR</th>
+                                                    <th style="text-align: right;">CLT PROG.</th>
+                                                    <th style="text-align: right;">CLT FACT.</th>
+                                                    <th style="text-align: right;">ACM</th>
+                                                    <th style="text-align: right;">TSM</th>
+                                                    <th style="text-align: right;">LIGNE</th>
+                                                    <th style="text-align: right;">RAF TSM</th>
+                                                    <th style="text-align: right;">RAF ACM</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="hist-vendor-tbody-quali"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- 2. TABLE QUANTITATIF (QUANTI) -->
+                                <div id="hist-vendor-sec-quanti" class="cyber-card hist-vsec-card" style="padding: 1rem; border-radius: 6px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fa-solid fa-chart-line neon-text-blue" style="font-size: 1rem;"></i>
+                                            <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main); text-transform: uppercase;">2. Performance Quantitative par Famille (Quanti)</span>
+                                        </div>
+                                        <span class="badge badge-blue" id="hist-vendor-badge-quanti">0 Famille(s)</span>
+                                    </div>
+                                    <div class="table-container" style="overflow-x: auto; max-height: 400px;">
+                                        <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                                            <thead>
+                                                <tr>
+                                                    <th>DATE</th>
+                                                    <th>FAMILLE</th>
+                                                    <th style="text-align: right;">J-1</th>
+                                                    <th style="text-align: right;">RÉALISÉ</th>
+                                                    <th style="text-align: right;">OBJECTIF</th>
+                                                    <th style="text-align: right;">%</th>
+                                                    <th style="text-align: right;">RÉAL 2025</th>
+                                                    <th style="text-align: right;">H 2024</th>
+                                                    <th style="text-align: right;">H %</th>
+                                                    <th style="text-align: right;">ENCOURS</th>
+                                                    <th style="text-align: right;">OBJ MOIS</th>
+                                                    <th style="text-align: right;">RAF</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="hist-vendor-tbody-quanti"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- 3. TABLE FOCUS -->
+                                <div id="hist-vendor-sec-focus" class="cyber-card hist-vsec-card" style="padding: 1rem; border-radius: 6px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fa-solid fa-bullseye neon-text-amber" style="font-size: 1rem;"></i>
+                                            <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main); text-transform: uppercase;">3. Suivi Focus (SOM &amp; VMM)</span>
+                                        </div>
+                                        <span class="badge badge-amber" id="hist-vendor-badge-focus">0 Focus</span>
+                                    </div>
+                                    <div id="hist-vendor-focus-container" style="display: flex; flex-direction: column; gap: 1rem;">
+                                        <!-- Rendered dynamically: Focus SOM table and/or Focus VMM table -->
+                                    </div>
+                                </div>
+
+                                <!-- 4. TABLE TOURNÉE DÉTAILS -->
+                                <div id="hist-vendor-sec-tournees" class="cyber-card hist-vsec-card" style="padding: 1rem; border-radius: 6px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fa-solid fa-route neon-text-pink" style="font-size: 1rem;"></i>
+                                            <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main); text-transform: uppercase;">4. Tournée Détails &amp; Synthèse des Visites</span>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <span class="badge badge-blue" id="hist-vendor-badge-tournees">0 Tournée(s)</span>
+                                            <span class="badge badge-green" id="hist-vendor-badge-visites">0 Visite(s)</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Part A: Tournée Breakdown Table -->
+                                    <div style="margin-bottom: 1.25rem;">
+                                        <div style="font-size: 0.76rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.45rem; text-transform: uppercase; font-family: var(--font-mono);">
+                                            <i class="fa-solid fa-map-location-dot neon-text-blue"></i> Synthèse par Tournée
+                                            <span style="font-weight: normal; font-size: 0.7rem; color: var(--text-muted); margin-left: 0.5rem;">(Cliquez sur une tournée pour filtrer le journal ci-dessous)</span>
+                                        </div>
+                                        <div class="table-container" style="overflow-x: auto; max-height: 350px;">
+                                            <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                                                <thead>
+                                                    <tr>
+                                                        <th>TOURNÉE / LOCALITÉ</th>
+                                                        <th style="text-align: center;">VISITES EFFECTUÉES</th>
+                                                        <th style="text-align: center; color: var(--neon-green);">MOTIF OK</th>
+                                                        <th style="text-align: center; color: var(--neon-amber);">FERMÉ</th>
+                                                        <th style="text-align: center; color: #ff9966;">ABSENT</th>
+                                                        <th style="text-align: center; color: var(--neon-blue);">STOCK SUFF.</th>
+                                                        <th style="text-align: center;">AUTRES</th>
+                                                        <th style="text-align: center;">TAUX TRANSFORMATION</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="hist-vendor-tbody-tournees"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- Part B: Journal Détaillé des Visites -->
+                                    <div style="border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.6rem;">
+                                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <span style="font-size: 0.76rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; font-family: var(--font-mono);">
+                                                    <i class="fa-solid fa-list-ul neon-text-pink"></i> Journal des Visites
+                                                </span>
+                                                <span id="hist-vendor-tournee-filter-tag" style="display: none; font-size: 0.7rem; padding: 1px 6px; border-radius: 3px; background: rgba(0, 212, 255, 0.2); color: var(--neon-blue); border: 1px solid var(--neon-blue);">
+                                                    Tournée : <strong id="hist-vendor-current-filtered-tournee"></strong>
+                                                    <i class="fa-solid fa-xmark" id="hist-vendor-clear-tournee-filter" style="cursor: pointer; margin-left: 4px;" title="Réinitialiser le filtre tournée"></i>
+                                                </span>
+                                            </div>
+
+                                            <!-- Visite Status Filters -->
+                                            <div class="cf-view-toggle" id="hist-vendor-visite-filters" role="tablist" style="display: inline-flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; height: 26px;">
+                                                <button type="button" class="cf-view-btn is-active" data-vfilter="all" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer;">TOUS</button>
+                                                <button type="button" class="cf-view-btn" data-vfilter="ok" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer; color: var(--neon-green); font-weight: bold;">OK</button>
+                                                <button type="button" class="cf-view-btn" data-vfilter="ferme" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer; color: var(--neon-amber);">FERMÉ</button>
+                                                <button type="button" class="cf-view-btn" data-vfilter="absent" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer; color: #ff9966;">ABSENT</button>
+                                                <button type="button" class="cf-view-btn" data-vfilter="stock" style="font-size: 0.68rem; padding: 0 0.55rem; border: none; cursor: pointer; color: var(--neon-blue);">STOCK SUFF.</button>
+                                            </div>
+                                        </div>
+
+                                        <div class="table-container" style="overflow-x: auto; max-height: 400px;">
+                                            <table class="cyber-table" style="width: 100%; font-size: 0.73rem;">
+                                                <thead>
+                                                    <tr>
+                                                        <th>DATE</th>
+                                                        <th>HEURE</th>
+                                                        <th>CODE CLIENT</th>
+                                                        <th>NOM DU CLIENT</th>
+                                                        <th>TOURNÉE</th>
+                                                        <th style="text-align: right;">DISTANCE</th>
+                                                        <th>MOTIF</th>
+                                                        <th>NOTE</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="hist-vendor-tbody-visites"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                </div>
+            </section>
         </div>
     </main>
 
@@ -2576,6 +3164,16 @@
                 </p>
             </div>
             <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                <!-- CDZ / Equipe filter -->
+                <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 250px;">
+                    <label class="tech-label" style="font-size: 0.8rem; white-space: nowrap; color: var(--text-muted);"><i class="fa-solid fa-user-tie neon-text-blue"></i> ÉQUIPE CDZ :</label>
+                    <select id="focus-cdz-filter" class="cyber-input" style="flex: 1; height: 38px; padding: 0 0.5rem; font-size: 0.85rem;">
+                        <option value="">-- TOUTES LES ÉQUIPES --</option>
+                        <option value="CHAKIB ELFIL">👔 Équipe CDZ Chakib Elfil</option>
+                        <option value="BOUTMEZGUINE EL MOSTAFA">👔 Équipe CDZ Boutmezguine</option>
+                    </select>
+                </div>
+
                 <!-- Vendeur filter -->
                 <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 250px;">
                     <label class="tech-label" style="font-size: 0.8rem; white-space: nowrap; color: var(--text-muted);"><i class="fa-solid fa-user-tag"></i> FILTRER VENDEUR :</label>
@@ -2594,6 +3192,14 @@
 
                 <button type="button" class="cyber-btn" id="focus-objectifs-edit-btn" style="border-color: var(--neon-green); height: 38px; padding: 0 1rem; font-size: 0.85rem;">
                     <i class="fa-solid fa-pen-to-square"></i> ÉDITER OBJECTIFS
+                </button>
+
+                <button type="button" class="cyber-btn" id="focus-whatsapp-group-btn" style="border-color: #25D366; color: #25D366; background: rgba(37, 211, 102, 0.16); height: 38px; padding: 0 1rem; font-size: 0.85rem; font-weight: bold;" title="Envoyer la liste complète des objectifs au groupe WhatsApp de l'équipe">
+                    <i class="fa-solid fa-users"></i> LISTE GROUPE WHATSAPP
+                </button>
+
+                <button type="button" class="cyber-btn" id="focus-whatsapp-btn" style="border-color: #25D366; color: #25D366; background: rgba(37, 211, 102, 0.08); height: 38px; padding: 0 1rem; font-size: 0.85rem;" title="Envoyer les objectifs Focus par WhatsApp">
+                    <i class="fa-brands fa-whatsapp"></i> ENVOYER WHATSAPP
                 </button>
             </div>
         </section>
@@ -2873,7 +3479,30 @@
             <!-- LEFT COLUMN: SIDEBAR CONTROLS -->
             <aside class="rp-sidebar-panel">
                 <div class="rp-sidebar-card cyber-card">
-                    <div class="card-edge"></div>
+                    <!-- SECTION 0: SOURCE DES DONNÉES -->
+                    <div class="sidebar-section" style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.85rem; margin-bottom: 0.85rem;">
+                        <h4 class="sidebar-section-title"><i class="fa-solid fa-database neon-text-green"></i> Source des Données</h4>
+                        
+                        <div class="rp-segmented-control" role="tablist" style="width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 0.5rem;">
+                            <button type="button" class="report-source-btn active" data-source="active" id="btn-source-active" style="font-size: 0.72rem; padding: 0.4rem 0.3rem;">
+                                <i class="fa-solid fa-bolt neon-text-blue"></i> Base Active
+                            </button>
+                            <button type="button" class="report-source-btn" data-source="historique" id="btn-source-historique" style="font-size: 0.72rem; padding: 0.4rem 0.3rem;">
+                                <i class="fa-solid fa-clock-rotate-left neon-text-green"></i> Historique
+                            </button>
+                        </div>
+
+                        <!-- Historique Month Picker (Shown when Historique is active) -->
+                        <div id="rp-historique-month-picker" style="display: none; flex-direction: column; gap: 0.35rem; margin-top: 0.5rem; background: rgba(0, 255, 136, 0.05); border: 1px solid rgba(0, 255, 136, 0.25); border-radius: 6px; padding: 0.5rem 0.65rem;">
+                            <label for="rp-historique-month-select" class="tech-label" style="font-size: 0.7rem; color: var(--neon-green); margin: 0; display: flex; align-items: center; justify-content: space-between;">
+                                <span><i class="fa-solid fa-calendar-days"></i> Mois de l'Archive :</span>
+                                <span class="tech-badge-mini" style="font-size: 0.62rem; color: var(--text-muted);">historique.db</span>
+                            </label>
+                            <select id="rp-historique-month-select" class="cyber-select" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; height: 32px; border-radius: 4px; background: rgba(0,0,0,0.4); color: var(--text-main); border-color: var(--neon-green); width: 100%;">
+                                <option value="2026-08">Août 2026 (2026-08)</option>
+                            </select>
+                        </div>
+                    </div>
 
                     <!-- SECTION 1: CIBLE -->
                     <div class="sidebar-section" style="position: relative; z-index: 200;">
@@ -4188,6 +4817,7 @@
         </section>
     </main>
 
+
     <!-- PDF Generation Overlay -->
     <div id="pdf-overlay" class="pdf-overlay" style="display:none;">
         <div class="pdf-overlay-card">
@@ -4552,6 +5182,10 @@
                                         <div class="theme-color-bar" style="background: linear-gradient(135deg, #0b131a 30%, #00f0ff 70%, #2dd4bf 100%);"></div>
                                         <span class="theme-name">Aurora Ice</span>
                                     </div>
+                                    <div class="theme-card active" data-theme="theme-6">
+                                        <div class="theme-color-bar" style="background: linear-gradient(135deg, #dce4f2 20%, #688af9 60%, #111318 100%);"></div>
+                                        <span class="theme-name">FundFlow Light</span>
+                                    </div>
                                 </div>
                                 <select id="modal-theme-select" class="cyber-select" style="display: none;" title="Sélectionner le thème visuel">
                                     <option value="theme-1">Contemporary Dark</option>
@@ -4559,6 +5193,7 @@
                                     <option value="theme-3">Matrix Hack</option>
                                     <option value="theme-4">Crimson Gold</option>
                                     <option value="theme-5">Aurora Ice</option>
+                                    <option value="theme-6" selected>FundFlow Light (Glass)</option>
                                 </select>
                                 <span class="input-help">Sélectionnez la palette de couleurs de l'application.</span>
                             </div>
@@ -4792,6 +5427,23 @@
                     </button>
                 </div>
 
+                <!-- CDZ / Equipe filter inside Edit Modal -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem; background: rgba(0, 212, 255, 0.04); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.6rem 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.6rem;">
+                        <label class="tech-label" style="font-size: 0.8rem; white-space: nowrap; color: var(--text-muted); margin: 0;">
+                            <i class="fa-solid fa-user-tie neon-text-blue"></i> FILTRER PAR ÉQUIPE CDZ :
+                        </label>
+                        <select id="focus-edit-cdz-filter" class="cyber-select" style="height: 34px; padding: 0 0.75rem; font-size: 0.82rem; font-family: var(--font-mono); font-weight: bold; border-color: var(--neon-blue); background: var(--bg-card); color: var(--text-main); border-radius: 4px; cursor: pointer;">
+                            <option value="">-- TOUTES LES ÉQUIPES (TOUS LES CDZ) --</option>
+                            <option value="CHAKIB ELFIL">👔 Équipe CDZ Chakib Elfil</option>
+                            <option value="BOUTMEZGUINE EL MOSTAFA">👔 Équipe CDZ Boutmezguine</option>
+                        </select>
+                    </div>
+                    <div id="focus-edit-count-badge" style="font-size: 0.75rem; color: var(--neon-blue); font-family: var(--font-mono); font-weight: bold; background: rgba(0,212,255,0.1); padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(0,212,255,0.25);">
+                        0 VENDEURS AFFICHÉS
+                    </div>
+                </div>
+
                 <!-- SOM Tab Table -->
                 <div id="focus-edit-som-container" style="display: block;">
                     <button type="button" class="cyber-btn" id="focus-edit-add-row-som" style="border-color: var(--neon-blue); margin-bottom: 1rem; font-size: 0.8rem; padding: 0.25rem 0.75rem;">
@@ -4836,9 +5488,109 @@
                     </div>
                 </div>
             </div>
-            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem;">
-                <button class="cyber-btn" id="cancel-focus-edit-objectifs" style="border-color: var(--text-muted); color: var(--text-muted); padding: 0.5rem 1.25rem; font-size: 0.8rem;">ANNULER</button>
-                <button class="cyber-btn" id="submit-focus-edit-objectifs" style="border-color: var(--neon-green); color: var(--neon-green); padding: 0.5rem 1.25rem; font-size: 0.8rem;"><i class="fa-solid fa-save"></i> SAUVEGARDER</button>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                <button type="button" class="cyber-btn" id="focus-edit-whatsapp-all-btn" style="border-color: #25D366; color: #25D366; background: rgba(37, 211, 102, 0.08); padding: 0.5rem 1.25rem; font-size: 0.8rem;" title="Partager les objectifs via WhatsApp">
+                    <i class="fa-brands fa-whatsapp"></i> ENVOYER OBJECTIFS WHATSAPP
+                </button>
+                <div style="display: flex; gap: 0.75rem;">
+                    <button class="cyber-btn" id="cancel-focus-edit-objectifs" style="border-color: var(--text-muted); color: var(--text-muted); padding: 0.5rem 1.25rem; font-size: 0.8rem;">ANNULER</button>
+                    <button class="cyber-btn" id="submit-focus-edit-objectifs" style="border-color: var(--neon-green); color: var(--neon-green); padding: 0.5rem 1.25rem; font-size: 0.8rem;"><i class="fa-solid fa-save"></i> SAUVEGARDER</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== FOCUS WHATSAPP MODAL ===== -->
+    <div class="modal-backdrop" id="focus-whatsapp-modal">
+        <div class="cyber-modal" style="max-width: 950px; width: 95%;">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(37, 211, 102, 0.3);">
+                <h3><i class="fa-brands fa-whatsapp" style="color: #25D366;"></i> ENVOYER LES OBJECTIFS FOCUS PAR WHATSAPP</h3>
+                <button class="close-btn" id="close-focus-whatsapp-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 1.5rem; max-height: 75vh; overflow-y: auto;">
+                <!-- Toolbar & Filter -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; background: rgba(37, 211, 102, 0.05); border: 1px solid rgba(37, 211, 102, 0.2); border-radius: 8px; padding: 0.75rem 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                        <label class="tech-label" style="font-size: 0.8rem; white-space: nowrap; color: var(--text-muted); margin: 0;">
+                            <i class="fa-solid fa-user-tie neon-text-blue"></i> FILTRER PAR ÉQUIPE :
+                        </label>
+                        <select id="focus-wa-modal-cdz-filter" class="cyber-select" style="height: 34px; padding: 0 0.75rem; font-size: 0.82rem; font-family: var(--font-mono); font-weight: bold; border-color: #25D366; background: var(--bg-card); color: var(--text-main); border-radius: 4px; cursor: pointer;">
+                            <option value="">-- TOUTES LES ÉQUIPES (TOUS LES CDZ) --</option>
+                            <option value="CHAKIB ELFIL">👔 Équipe CDZ Chakib Elfil</option>
+                            <option value="BOUTMEZGUINE EL MOSTAFA">👔 Équipe CDZ Boutmezguine</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button type="button" class="cyber-btn" id="focus-wa-send-cdz-chakib-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); font-size: 0.75rem; padding: 0.35rem 0.75rem;" title="Envoyer le récapitulatif global à l'équipe Chakib Elfil">
+                            <i class="fa-brands fa-whatsapp"></i> Récap Chakib
+                        </button>
+                        <button type="button" class="cyber-btn" id="focus-wa-send-cdz-boutmezguine-btn" style="border-color: #c084fc; color: #c084fc; font-size: 0.75rem; padding: 0.35rem 0.75rem;" title="Envoyer le récapitulatif global à l'équipe Boutmezguine">
+                            <i class="fa-brands fa-whatsapp"></i> Récap Boutmezguine
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Group WhatsApp Share Banner -->
+                <div style="margin-bottom: 1.25rem; background: linear-gradient(135deg, rgba(37, 211, 102, 0.12) 0%, rgba(0, 212, 255, 0.08) 100%); border: 1px solid rgba(37, 211, 102, 0.35); border-radius: 8px; padding: 0.85rem 1.1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.85rem;">
+                    <div>
+                        <div style="font-weight: 700; color: #25D366; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-users-viewfinder"></i> PARTAGER LA LISTE COMPLÈTE SUR LE GROUPE WHATSAPP
+                        </div>
+                        <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">
+                            Envoie en 1 seul message toute la liste des vendeurs avec leurs objectifs SOM & VMM pour le groupe de l'équipe.
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+                        <button type="button" class="cyber-btn" id="focus-wa-send-group-direct-btn" style="border-color: #25D366; color: #ffffff; background: #25D366; font-weight: 700; font-size: 0.8rem; padding: 0.45rem 0.9rem; cursor: pointer; box-shadow: 0 0 10px rgba(37, 211, 102, 0.4);" title="Ouvrir WhatsApp pour envoyer la liste au groupe">
+                            <i class="fa-brands fa-whatsapp"></i> ENVOYER AU GROUPE
+                        </button>
+                        <button type="button" class="cyber-btn" id="focus-wa-preview-group-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); font-size: 0.8rem; padding: 0.45rem 0.85rem; cursor: pointer;" title="Afficher l'aperçu de la liste complète dans l'encadré ci-dessous">
+                            <i class="fa-solid fa-eye"></i> Aperçu Liste
+                        </button>
+                        <button type="button" class="cyber-btn" id="focus-wa-copy-group-btn" style="border-color: var(--border-color); font-size: 0.8rem; padding: 0.45rem 0.85rem; cursor: pointer;" title="Copier le texte de la liste pour le coller dans WhatsApp">
+                            <i class="fa-regular fa-copy"></i> Copier la liste
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Message Preview Box -->
+                <div id="focus-wa-preview-box" style="margin-bottom: 1.25rem; background: rgba(0,0,0,0.45); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.85rem 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <span style="font-size: 0.78rem; font-weight: bold; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase;">
+                            <i class="fa-solid fa-eye" style="color: #25D366;"></i> Aperçu du message WhatsApp (<span id="focus-wa-preview-vendor-name">Sélectionnez un vendeur</span>) :
+                        </span>
+                        <button type="button" class="cyber-btn" id="focus-wa-copy-preview-btn" style="border-color: var(--border-color); font-size: 0.72rem; padding: 0.2rem 0.5rem;">
+                            <i class="fa-regular fa-copy"></i> Copier le texte
+                        </button>
+                    </div>
+                    <pre id="focus-wa-preview-text" style="white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); font-size: 0.78rem; color: #a7f3d0; margin: 0; max-height: 140px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 0.6rem; border-radius: 4px; border: 1px dashed rgba(37, 211, 102, 0.25);">Cliquez sur un vendeur ci-dessous pour prévisualiser son message d'objectifs.</pre>
+                </div>
+
+                <!-- Vendors Table -->
+                <div style="overflow-x: auto;">
+                    <table class="cyber-table" style="width: 100%; border-collapse: collapse; min-width: 700px;">
+                        <thead>
+                            <tr>
+                                <th style="text-align: left; padding: 0.5rem;">Vendeur</th>
+                                <th style="text-align: left; padding: 0.5rem;">Secteur</th>
+                                <th style="text-align: left; padding: 0.5rem;">Équipe CDZ</th>
+                                <th style="text-align: right; padding: 0.5rem;"><span class="som-focus-name">SOM</span> TTC</th>
+                                <th style="text-align: right; padding: 0.5rem;"><span class="vmm-focus-name">VMM</span> TTC</th>
+                                <th style="text-align: left; padding: 0.5rem; width: 145px;">Téléphone WhatsApp</th>
+                                <th style="text-align: center; padding: 0.5rem; width: 110px;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="focus-whatsapp-tbody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;">
+                <div id="focus-wa-stats-badge" style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);">
+                    <!-- e.g. 14 vendeurs • 14 avec WhatsApp -->
+                </div>
+                <button class="cyber-btn" id="close-focus-whatsapp-modal-btn" style="border-color: var(--text-muted); color: var(--text-muted); padding: 0.5rem 1.25rem; font-size: 0.8rem;">FERMER</button>
             </div>
         </div>
     </div>
@@ -5542,11 +6294,11 @@
 
     <!-- Custom Script JS -->
     <script src="/static/js/vendeur360.js?v=66.0"></script>
-    <script src="/static/js/dashboard.js?v=62.0"></script>
+    <script src="/static/js/dashboard.js?v=64.0"></script>
     <script src="/static/js/fdv.js?v=5.0"></script>
     <script src="/static/js/bg-anim.js?v=5.0"></script>
     <script src="/static/js/terrain.js?v=5.1"></script>
-    <script src="/static/js/focus.js?v=15.0"></script>
+    <script src="/static/js/focus.js?v=18.0"></script>
 
 
     <script src="/static/js/stock.js?v=5.0"></script>

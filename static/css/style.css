@@ -166,6 +166,40 @@ body.theme-5 {
     --orb-opacity: 0.12;
 }
 
+/* --- Theme 6: FundFlow Light (Modern Glass / Periwinkle Glow) --- */
+body.theme-6,
+body.theme-6.light-mode {
+    --bg-color: #dce4f2;
+    --card-bg: rgba(255, 255, 255, 0.72);
+    --border-color: rgba(255, 255, 255, 0.85);
+    --border-hover: rgba(91, 107, 249, 0.35);
+    --neon-blue: #5b6bf9;
+    --neon-blue-glow: rgba(91, 107, 249, 0.22);
+    --neon-green: #10b981;
+    --neon-green-glow: rgba(16, 185, 129, 0.22);
+    --neon-amber: #f59e0b;
+    --neon-amber-glow: rgba(245, 158, 11, 0.22);
+    --neon-pink: #6c5ce7;
+    --neon-pink-glow: rgba(108, 92, 231, 0.22);
+    --primary-color: #5b6bf9;
+    --primary-glow: rgba(91, 107, 249, 0.22);
+    --secondary-color: #6c5ce7;
+    --warning-color: #f59e0b;
+    --text-main: #161a26;
+    --text-muted: #64748b;
+    --text-highlight: #0f172a;
+    --grid-color-1: rgba(91, 107, 249, 0.025);
+    --orb-opacity: 0.18;
+}
+
+body.theme-6 .orb-1 {
+    background: radial-gradient(circle, #6c5ce7 0%, transparent 70%);
+}
+
+body.theme-6 .orb-2 {
+    background: radial-gradient(circle, #446bf2 0%, transparent 70%);
+}
+
 body.light-mode {
     --bg-color: #f1f5f9;
     --card-bg: rgba(255, 255, 255, 0.9);
@@ -1378,6 +1412,14 @@ body.light-mode .bg-vignette {
 }
 
 /* Light Mode Specific Overrides */
+body.light-mode .cyber-btn,
+body.light-mode .cyber-btn-mini,
+body.light-mode .cyber-btn-submit {
+    clip-path: none !important;
+    -webkit-clip-path: none !important;
+    border-radius: 9999px;
+}
+
 body.light-mode .progress-bar-container {
     background: rgba(0, 0, 0, 0.08);
 }
@@ -1569,6 +1611,16 @@ body.light-mode .flow-canvas-wrapper {
     box-shadow: 0 0 15px var(--neon-pink-glow);
 }
 
+.toast-warning {
+    border-color: var(--neon-amber);
+    box-shadow: 0 0 15px var(--neon-amber-glow);
+}
+
+.toast-info {
+    border-color: var(--neon-blue);
+    box-shadow: 0 0 15px var(--neon-blue-glow);
+}
+
 .toast-icon {
     font-size: 1.1rem;
 }
@@ -1577,6 +1629,34 @@ body.light-mode .flow-canvas-wrapper {
 }
 .toast-error .toast-icon {
     color: var(--neon-pink);
+}
+.toast-warning .toast-icon {
+    color: var(--neon-amber);
+}
+.toast-info .toast-icon {
+    color: var(--neon-blue);
+}
+
+.toast-countdown {
+    font-size: 0.75rem;
+    font-weight: 600;
+    opacity: 0.8;
+    font-family: var(--font-mono, monospace);
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    margin-left: 8px;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.5px;
+    line-height: 1.2;
+}
+
+body.light-mode .toast-countdown {
+    background: rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    color: var(--text-highlight);
 }
 
 body.light-mode .toast {
@@ -6544,6 +6624,423 @@ body.light-mode .sage-chart-card {
     .sage-ca-card {
         grid-column: auto !important;
     }
+}
+
+/* ====================================================
+   THEME 6: FUNDFLOW LIGHT (Soft Glassmorphic Light Mode)
+   Inspired by modern fintech glass UI (FundFlow)
+   ==================================================== */
+
+body.theme-6,
+body.theme-6.light-mode {
+    background: radial-gradient(circle at 18% 18%, #e4ecf9 0%, #d8e2f3 45%, #e2eaf7 75%, #d5dfef 100%) fixed !important;
+    color: #161a26 !important;
+}
+
+/* Cyber grid & background ambient effects */
+body.theme-6 .bg-scanline,
+body.theme-6.light-mode .bg-scanline {
+    display: none !important;
+}
+
+body.theme-6 .bg-vignette,
+body.theme-6.light-mode .bg-vignette {
+    opacity: 0.08 !important;
+}
+
+body.theme-6 #bg-particles,
+body.theme-6.light-mode #bg-particles {
+    opacity: 0.15 !important;
+}
+
+body.theme-6 .cyber-grid::before,
+body.theme-6.light-mode .cyber-grid::before {
+    opacity: 0.08 !important;
+    mask-image: none !important;
+    -webkit-mask-image: none !important;
+}
+
+body.theme-6 .cyber-grid::after,
+body.theme-6.light-mode .cyber-grid::after {
+    opacity: 0.18 !important;
+}
+
+/* Glowing background ambient orbs */
+body.theme-6 .glow-orb.orb-1 {
+    background: radial-gradient(circle, rgba(108, 92, 231, 0.2) 0%, rgba(220, 230, 248, 0) 70%) !important;
+    filter: blur(40px);
+}
+
+body.theme-6 .glow-orb.orb-2 {
+    background: radial-gradient(circle, rgba(68, 107, 242, 0.22) 0%, rgba(220, 230, 248, 0) 70%) !important;
+    filter: blur(40px);
+}
+
+/* Sidebar translucent glassmorphism */
+body.theme-6 .sidebar-container,
+body.theme-6 .cyber-sidebar,
+body.theme-6 aside {
+    background: rgba(255, 255, 255, 0.58) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.85) !important;
+    box-shadow: 4px 0 24px rgba(80, 100, 140, 0.06) !important;
+}
+
+body.theme-6 .sidebar-nav-item,
+body.theme-6 .nav-item,
+body.theme-6 .sidebar-link {
+    border-radius: 14px !important;
+    color: #64748b !important;
+    transition: all 0.2s ease !important;
+}
+
+body.theme-6 .sidebar-nav-item:hover,
+body.theme-6 .nav-item:hover,
+body.theme-6 .sidebar-link:hover {
+    background: rgba(255, 255, 255, 0.5) !important;
+    color: #121520 !important;
+}
+
+body.theme-6 .sidebar-nav-item.active,
+body.theme-6 .nav-item.active,
+body.theme-6 .sidebar-link.active {
+    background: rgba(255, 255, 255, 0.95) !important;
+    color: #11141d !important;
+    border-radius: 16px !important;
+    box-shadow: 0 4px 14px rgba(70, 90, 130, 0.12) !important;
+    font-weight: 600 !important;
+}
+
+/* Header translucent frosted bar */
+body.theme-6 .cyber-header {
+    background: rgba(255, 255, 255, 0.65) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.85) !important;
+    box-shadow: 0 4px 20px rgba(80, 100, 140, 0.04) !important;
+}
+
+/* Frosted Glass Cards (FundFlow style) */
+body.theme-6 .cyber-card,
+body.theme-6 .metric-card,
+body.theme-6 .focus-card,
+body.theme-6 .report-card,
+body.theme-6 .details-card,
+body.theme-6 .kpi-card,
+body.theme-6 .glass-card,
+body.theme-6 .section-card,
+body.theme-6 .dashboard-card,
+body.theme-6 .quanti-card,
+body.theme-6 .table-card-wrapper,
+body.theme-6 .vendeur-card,
+body.theme-6 .pday-card,
+body.theme-6 .focus-item-card,
+body.theme-6 .stat-item,
+body.theme-6 .ranking-card,
+body.theme-6 .focus-box,
+body.theme-6 .filter-section,
+body.theme-6 .card,
+body.theme-6 .layout-card,
+body.theme-6 .v360-header,
+body.theme-6 .v360-kpi-card,
+body.theme-6 .v360-detail-card,
+body.theme-6 .historique-summary-card,
+body.theme-6 .tasks-card,
+body.theme-6 .visites-card,
+body.theme-6 .anomalies-card,
+body.theme-6 .sage-family-card {
+    background: rgba(255, 255, 255, 0.72) !important;
+    backdrop-filter: blur(24px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.88) !important;
+    border-radius: 22px !important;
+    box-shadow: 0 12px 32px -6px rgba(80, 105, 145, 0.08), 0 2px 6px rgba(80, 105, 145, 0.03) !important;
+    color: #161a26 !important;
+    transition: transform 0.25s ease, box-shadow 0.25s ease !important;
+}
+
+body.theme-6 .cyber-card:hover,
+body.theme-6 .metric-card:hover,
+body.theme-6 .focus-item-card:hover,
+body.theme-6 .vendeur-card:hover {
+    box-shadow: 0 18px 38px -6px rgba(70, 95, 140, 0.12), 0 4px 10px rgba(70, 95, 140, 0.05) !important;
+}
+
+/* Special Featured Blue-Purple Gradient Card (Financial Health inspired) */
+body.theme-6 .featured-card-gradient,
+body.theme-6 .card-featured-blue,
+body.theme-6 #chakib-focus-progress-card {
+    background: linear-gradient(135deg, #446bf2 0%, #688af9 50%, #8ca5ff 100%) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.4) !important;
+    box-shadow: 0 14px 34px -4px rgba(68, 107, 242, 0.28) !important;
+}
+
+body.theme-6 #chakib-focus-progress-card h2,
+body.theme-6 #chakib-focus-progress-card h3,
+body.theme-6 #chakib-focus-progress-card span,
+body.theme-6 #chakib-focus-progress-card div,
+body.theme-6 #chakib-focus-progress-card i,
+body.theme-6 #chakib-focus-progress-card strong {
+    color: #ffffff !important;
+}
+
+/* Obsidian Pill Buttons (Send Money, View All style) */
+body.theme-6 .cyber-btn,
+body.theme-6 .cyber-btn-primary,
+body.theme-6 .cyber-btn-mini,
+body.theme-6 .cyber-btn-submit,
+body.theme-6 .btn-primary,
+body.theme-6 #view-all-btn,
+body.theme-6 .action-btn-primary,
+body.theme-6 button.cyber-btn,
+body.theme-6 button[class*="cyber-btn"],
+body.theme-6 #focus-upload-btn,
+body.theme-6 #focus-objectifs-upload-btn,
+body.theme-6 #focus-objectifs-edit-btn {
+    clip-path: none !important;
+    -webkit-clip-path: none !important;
+    background: #111318 !important;
+    color: #ffffff !important;
+    border: 1px solid #111318 !important;
+    border-color: #111318 !important;
+    border-radius: 9999px !important;
+    padding: 0.45rem 1.25rem !important;
+    font-weight: 500 !important;
+    box-shadow: 0 4px 14px rgba(17, 19, 24, 0.16) !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+body.theme-6 .cyber-btn:hover,
+body.theme-6 .cyber-btn-primary:hover,
+body.theme-6 .cyber-btn-mini:hover,
+body.theme-6 .cyber-btn-submit:hover,
+body.theme-6 .btn-primary:hover,
+body.theme-6 #focus-upload-btn:hover,
+body.theme-6 #focus-objectifs-upload-btn:hover,
+body.theme-6 #focus-objectifs-edit-btn:hover {
+    background: #232734 !important;
+    border-color: #232734 !important;
+    color: #ffffff !important;
+    transform: translateY(-1.5px) !important;
+    box-shadow: 0 8px 20px rgba(17, 19, 24, 0.24) !important;
+}
+
+body.theme-6 .cyber-btn i,
+body.theme-6 .cyber-btn-primary i,
+body.theme-6 .btn-primary i,
+body.theme-6 #focus-upload-btn i,
+body.theme-6 #focus-objectifs-upload-btn i,
+body.theme-6 #focus-objectifs-edit-btn i {
+    color: #ffffff !important;
+}
+
+/* Secondary Frosted Pill Buttons */
+body.theme-6 .cyber-btn-secondary,
+body.theme-6 .cyber-btn-outline,
+body.theme-6 #settings-btn,
+body.theme-6 #refresh-btn {
+    clip-path: none !important;
+    -webkit-clip-path: none !important;
+    background: rgba(255, 255, 255, 0.82) !important;
+    color: #1a1d26 !important;
+    border: 1px solid rgba(255, 255, 255, 0.95) !important;
+    border-color: rgba(255, 255, 255, 0.95) !important;
+    border-radius: 9999px !important;
+    box-shadow: 0 2px 8px rgba(80, 100, 140, 0.05) !important;
+}
+
+body.theme-6 #settings-btn i,
+body.theme-6 #refresh-btn i,
+body.theme-6 #settings-btn span,
+body.theme-6 #refresh-btn span {
+    color: #1a1d26 !important;
+}
+
+/* Theme Toggle Button */
+body.theme-6 #theme-toggle-btn {
+    clip-path: none !important;
+    -webkit-clip-path: none !important;
+    background: #111318 !important;
+    color: #ffffff !important;
+    border: 1px solid #111318 !important;
+    border-color: #111318 !important;
+    border-radius: 9999px !important;
+}
+
+body.theme-6 #theme-toggle-btn i,
+body.theme-6 #theme-toggle-btn span {
+    color: #ffffff !important;
+}
+
+/* Soft Badges & Pills */
+body.theme-6 .badge,
+body.theme-6 .status-badge,
+body.theme-6 .tag-pill {
+    border-radius: 9999px !important;
+    font-weight: 500 !important;
+    padding: 0.2rem 0.75rem !important;
+}
+
+body.theme-6 .badge-pending,
+body.theme-6 .badge-info,
+body.theme-6 .badge-blue {
+    background: #6287fa !important;
+    color: #ffffff !important;
+}
+
+body.theme-6 .badge-done,
+body.theme-6 .badge-success,
+body.theme-6 .badge-neutral {
+    background: #e6ebf5 !important;
+    color: #434e62 !important;
+}
+
+/* Tab buttons & Segmented Controls */
+body.theme-6 .tab-buttons,
+body.theme-6 .segmented-control {
+    background: rgba(220, 230, 245, 0.6) !important;
+    border-radius: 9999px !important;
+    padding: 4px !important;
+    border: 1px solid rgba(255, 255, 255, 0.8) !important;
+}
+
+body.theme-6 .tab-btn {
+    border-radius: 9999px !important;
+    font-size: 0.8rem !important;
+    border: none !important;
+    color: #64748b !important;
+    transition: all 0.2s ease !important;
+}
+
+body.theme-6 .tab-btn.active {
+    background: #ffffff !important;
+    color: #121520 !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 8px rgba(90, 110, 150, 0.12) !important;
+}
+
+/* Frosted Tables */
+body.theme-6 .cyber-table th {
+    background: rgba(240, 244, 252, 0.88) !important;
+    color: #161a26 !important;
+    font-weight: 600 !important;
+    border-bottom: 1.5px solid rgba(100, 120, 160, 0.12) !important;
+    font-size: 0.78rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+}
+
+body.theme-6 .cyber-table td {
+    border-bottom: 1px solid rgba(100, 120, 160, 0.08) !important;
+    color: #1e293b !important;
+}
+
+body.theme-6 .cyber-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* Modern Inputs & Dropdowns */
+body.theme-6 .cyber-input,
+body.theme-6 .cyber-select,
+body.theme-6 .search-input-wrapper input {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.95) !important;
+    border-radius: 14px !important;
+    color: #161a26 !important;
+    box-shadow: 0 2px 8px rgba(80, 100, 140, 0.04) !important;
+}
+
+body.theme-6 .cyber-input:focus,
+body.theme-6 .cyber-select:focus,
+body.theme-6 .search-input-wrapper input:focus {
+    border-color: #5b6bf9 !important;
+    box-shadow: 0 0 0 3px rgba(91, 107, 249, 0.18) !important;
+    outline: none !important;
+}
+
+body.theme-6 .search-input-wrapper {
+    border-radius: 9999px !important;
+}
+
+body.theme-6 .search-input-wrapper input {
+    border-radius: 9999px !important;
+}
+
+body.theme-6 #search-dropdown.dropdown-list,
+body.theme-6 .dropdown-list {
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(20px) !important;
+    border-radius: 18px !important;
+    border: 1px solid rgba(255, 255, 255, 0.95) !important;
+    box-shadow: 0 16px 36px rgba(70, 90, 130, 0.14) !important;
+}
+
+body.theme-6 .dropdown-item {
+    border-bottom: 1px solid rgba(100, 120, 160, 0.06) !important;
+    color: #1e293b !important;
+}
+
+body.theme-6 .dropdown-item:hover {
+    background: rgba(91, 107, 249, 0.08) !important;
+    color: #5b6bf9 !important;
+}
+
+/* Modals */
+body.theme-6 .cyber-modal {
+    background: rgba(255, 255, 255, 0.92) !important;
+    backdrop-filter: blur(28px) !important;
+    -webkit-backdrop-filter: blur(28px) !important;
+    border-radius: 26px !important;
+    border: 1px solid rgba(255, 255, 255, 0.95) !important;
+    box-shadow: 0 24px 60px rgba(60, 80, 120, 0.18) !important;
+}
+
+body.theme-6 .modal-header {
+    background: rgba(240, 245, 255, 0.6) !important;
+    border-bottom: 1px solid rgba(100, 120, 160, 0.1) !important;
+    border-radius: 26px 26px 0 0 !important;
+}
+
+body.theme-6 .modal-backdrop {
+    background: rgba(30, 41, 59, 0.35) !important;
+    backdrop-filter: blur(4px) !important;
+}
+
+/* Progress Bars */
+body.theme-6 .progress-bar-container,
+body.theme-6 .focus-progress-track {
+    background: rgba(210, 222, 240, 0.6) !important;
+    border-radius: 9999px !important;
+}
+
+body.theme-6 .progress-bar,
+body.theme-6 .focus-progress-bar {
+    border-radius: 9999px !important;
+    background: linear-gradient(90deg, #5b6bf9 0%, #7687fa 100%) !important;
+    box-shadow: 0 2px 8px rgba(91, 107, 249, 0.3) !important;
+}
+
+/* Typography headings */
+body.theme-6 h1,
+body.theme-6 h2,
+body.theme-6 h3,
+body.theme-6 .metric-title,
+body.theme-6 .card-title,
+body.theme-6 .section-title {
+    color: #121520 !important;
+}
+
+body.theme-6 .text-muted,
+body.theme-6 .metric-subtitle,
+body.theme-6 .card-subtitle {
+    color: #64748b !important;
+}
+
+/* Visual Theme Selector Card for Theme 6 */
+.theme-card[data-theme="theme-6"] .theme-color-bar {
+    background: linear-gradient(135deg, #dce4f2 20%, #688af9 60%, #111318 100%) !important;
 }
 
 

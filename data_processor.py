@@ -562,62 +562,60 @@ class ExcelProcessor:
             df_quali = pd.read_excel(self.output_path, sheet_name="QUALI NV")
         except Exception as e:
             print(f"Error reading QUALI NV: {e}")
-            df_quali = pd.DataFrame()
-
-        # Parse Focus data
+            df_quali = pd.DataF        # Parse Focus data
         focus_vmm_data = []
         focus_som_data = []
         
         if os.path.exists(self.focus_path):
+            def to_clean_float(val, fallback=0.0):
+                if val is None or pd.isna(val):
+                    return fallback
+                if isinstance(val, (int, float)):
+                    return float(val)
+                s = str(val).replace('\xa0', '').replace(' ', '').replace('\'', '').replace('"', '').strip().replace(',', '.')
+                try:
+                    return float(s)
+                except Exception:
+                    return fallback
+
             try:
                 xl_f = pd.ExcelFile(self.focus_path)
                 sheet_vmm_name = next((s for s in xl_f.sheet_names if "VMM" in s.upper()), None)
                 if sheet_vmm_name:
                     df_focus_vmm = xl_f.parse(sheet_vmm_name)
-                    # Clean and parse rows
+                    cols = [str(c).strip() for c in df_focus_vmm.columns]
+                    
+                    rep_idx = next((i for i, c in enumerate(cols) if any(k in c.lower() for k in ["repr", "vend"])), None)
+                    sect_idx = next((i for i, c in enumerate(cols) if "sect" in c.lower()), None)
+                    val_idx = next((i for i, c in enumerate(cols) if any(k in c.lower() for k in ["ht", "obj", "pesc", "tom"])), None)
+                    
                     for _, row in df_focus_vmm.iterrows():
-                        vendeur = row.iloc[0]
-                        secteur = row.iloc[1]
-                        if pd.isna(secteur) or str(secteur).strip().lower() == 'nan':
+                        vendeur = row.iloc[rep_idx] if rep_idx is not None else row.iloc[0]
+                        secteur = row.iloc[sect_idx] if sect_idx is not None else (row.iloc[1] if len(row) > 1 else "")
+                        if pd.isna(secteur) or str(secteur).strip().lower() in ('nan', '', 'none'):
                             continue
                         
-                        dn_fin_mai = row.iloc[2]
-                        obj_juin = row.iloc[3]
-                        nb_clients = row.iloc[4] if len(row) > 4 else 0
-                        
-                        obj_acm = row.iloc[5] if len(row) > 5 else 0
-                        percent = row.iloc[6] if len(row) > 6 else 0
-                        realise = row.iloc[7] if len(row) > 7 else 0
-                        rest = row.iloc[8] if len(row) > 8 else 0
-                        jour_rest = row.iloc[9] if len(row) > 9 else 20
-                        rest_jour = row.iloc[10] if len(row) > 10 else 0
-                        
-                        # Compute ACM Objective safely in Python
-                        try:
-                            nb_clients = float(nb_clients) if not pd.isna(nb_clients) else 0.0
-                            obj_juin = float(obj_juin) if not pd.isna(obj_juin) else 0.0
-                            obj_acm_val = nb_clients * obj_juin
-                        except Exception:
-                            obj_acm_val = 0.0
-                            
-                        # Safely convert to float
-                        def to_float(val, fallback=0.0):
-                            if pd.isna(val) or isinstance(val, str):
-                                return fallback
-                            return float(val)
+                        obj_val = to_clean_float(row.iloc[val_idx]) if val_idx is not None else to_clean_float(row.iloc[3] if len(row) > 3 else row.iloc[2])
+                        dn_fin_mai = to_clean_float(row.iloc[2]) if len(row) > 4 else 0.0
+                        nb_clients = int(to_clean_float(row.iloc[4])) if len(row) > 5 else 0
+                        percent = to_clean_float(row.iloc[6]) if len(row) > 6 else 0.0
+                        realise = to_clean_float(row.iloc[7]) if len(row) > 7 else 0.0
+                        rest = to_clean_float(row.iloc[8]) if len(row) > 8 else 0.0
+                        jour_rest = int(to_clean_float(row.iloc[9], 20)) if len(row) > 9 else 20
+                        rest_jour = to_clean_float(row.iloc[10]) if len(row) > 10 else 0.0
 
                         focus_vmm_data.append({
                             "vendeur": str(vendeur).strip() if pd.notna(vendeur) else "",
                             "secteur": str(secteur).strip(),
-                            "dn_fin_mai": to_float(dn_fin_mai),
-                            "obj_juin": to_float(obj_juin),
-                            "nb_clients": int(to_float(nb_clients)),
-                            "obj_acm": int(to_float(obj_acm, obj_acm_val)),
-                            "percent": to_float(percent),
-                            "realise": to_float(realise),
-                            "rest": to_float(rest),
-                            "jour_rest": int(to_float(jour_rest, 20)),
-                            "rest_jour": to_float(rest_jour)
+                            "dn_fin_mai": dn_fin_mai,
+                            "obj_juin": obj_val,
+                            "nb_clients": nb_clients,
+                            "obj_acm": int(obj_val),
+                            "percent": percent,
+                            "realise": realise,
+                            "rest": rest,
+                            "jour_rest": jour_rest,
+                            "rest_jour": rest_jour
                         })
             except Exception as e:
                 import traceback
@@ -625,48 +623,40 @@ class ExcelProcessor:
                 traceback.print_exc()
                 
             try:
-                # Load Focus SOM
                 sheet_som_name = next((s for s in xl_f.sheet_names if "SOM" in s.upper()), None) if 'xl_f' in locals() else None
                 if sheet_som_name:
                     df_focus_som = xl_f.parse(sheet_som_name)
-
-                for _, row in df_focus_som.iterrows():
-                    vendeur = row.iloc[0]
-                    secteur = row.iloc[1]
-                    if pd.isna(secteur) or str(secteur).strip().lower() == 'nan':
-                        continue
-                        
-                    glace_ht = row.iloc[2] if len(row) > 2 else 0
-                    ttc = row.iloc[3] if len(row) > 3 else 0
-                    percent = row.iloc[4] if len(row) > 4 else 0
-                    realise = row.iloc[5] if len(row) > 5 else 0
-                    rest = row.iloc[6] if len(row) > 6 else 0
-                    jour_rest = row.iloc[7] if len(row) > 7 else 20
-                    rest_jour = row.iloc[8] if len(row) > 8 else 0
-
+                    cols_s = [str(c).strip() for c in df_focus_som.columns]
                     
-                    try:
-                        glace_val = float(glace_ht) if pd.notna(glace_ht) else 0.0
-                        ttc_val = glace_val * 1.2
-                    except Exception:
-                        ttc_val = 0.0
+                    rep_idx_s = next((i for i, c in enumerate(cols_s) if any(k in c.lower() for k in ["repr", "vend"])), None)
+                    sect_idx_s = next((i for i, c in enumerate(cols_s) if "sect" in c.lower()), None)
+                    val_idx_s = next((i for i, c in enumerate(cols_s) if any(k in c.lower() for k in ["ht", "obj", "glac", "mouss"])), None)
+                    
+                    for _, row in df_focus_som.iterrows():
+                        vendeur = row.iloc[rep_idx_s] if rep_idx_s is not None else row.iloc[0]
+                        secteur = row.iloc[sect_idx_s] if sect_idx_s is not None else (row.iloc[1] if len(row) > 1 else "")
+                        if pd.isna(secteur) or str(secteur).strip().lower() in ('nan', '', 'none'):
+                            continue
                         
-                    def to_float(val, fallback=0.0):
-                        if pd.isna(val) or isinstance(val, str):
-                            return fallback
-                        return float(val)
+                        glace_ht = to_clean_float(row.iloc[val_idx_s]) if val_idx_s is not None else to_clean_float(row.iloc[3] if len(row) > 3 else row.iloc[2])
+                        ttc_val = glace_ht * 1.2
+                        percent = to_clean_float(row.iloc[4]) if len(row) > 4 else 0.0
+                        realise = to_clean_float(row.iloc[5]) if len(row) > 5 else 0.0
+                        rest = to_clean_float(row.iloc[6]) if len(row) > 6 else 0.0
+                        jour_rest = int(to_clean_float(row.iloc[7], 20)) if len(row) > 7 else 20
+                        rest_jour = to_clean_float(row.iloc[8]) if len(row) > 8 else 0.0
 
-                    focus_som_data.append({
-                        "vendeur": str(vendeur).strip() if pd.notna(vendeur) else "",
-                        "secteur": str(secteur).strip(),
-                        "glace_ht": to_float(glace_ht),
-                        "ttc": to_float(ttc, ttc_val),
-                        "percent": to_float(percent),
-                        "realise": to_float(realise),
-                        "rest": to_float(rest),
-                        "rest_jour": to_float(rest_jour),
-                        "jour_rest": int(to_float(jour_rest, 20))
-                    })
+                        focus_som_data.append({
+                            "vendeur": str(vendeur).strip() if pd.notna(vendeur) else "",
+                            "secteur": str(secteur).strip(),
+                            "glace_ht": glace_ht,
+                            "ttc": ttc_val,
+                            "percent": percent,
+                            "realise": realise,
+                            "rest": rest,
+                            "rest_jour": rest_jour,
+                            "jour_rest": jour_rest
+                        })
             except Exception as e:
                 import traceback
                 print("Error parsing Focus SOM:")

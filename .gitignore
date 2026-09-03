@@ -47,6 +47,20 @@ Downloads/
 *.png
 *.xlsx
 
+# Security & credentials
+token.json
+PyWhatKit_DB.txt
 
+# Backups & separate repos
+Backup/
+blog-analyser/
+seo-insights/
+
+# Temporary / redundant files
+dashboard.db
+data.db
+db.sqlite
+excel/bulk_task_*.json
+static/dashboard.js
 
 .vercel

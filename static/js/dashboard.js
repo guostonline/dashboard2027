@@ -2844,12 +2844,16 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                const config = data.config;
+                const config = data.config || {};
                 if (config.theme) {
                     applyThemeClass(config.theme);
+                } else {
+                    applyThemeClass('theme-6');
                 }
                 if (config.light_mode !== undefined) {
                     toggleTheme(config.light_mode);
+                } else {
+                    toggleTheme(true);
                 }
                 if (config.excluded_dates) {
                     excludedDates = config.excluded_dates;
@@ -2877,6 +2881,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const onAnomalisRoute = path === '/anomalis' || path === '/anomalies';
             const onTasksRoute = path === '/tasks';
             const onEngagementRoute = path === '/engagement';
+            const onHistoriqueRoute = path === '/historique';
             
             if (onVendeur360Route) {
                 activeView = 'vendeur360';
@@ -2902,6 +2907,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 activeView = 'tasks';
             } else if (onEngagementRoute) {
                 activeView = 'engagement';
+            } else if (onHistoriqueRoute) {
+                activeView = 'historique';
             } else {
                 activeView = 'dashboard';
             }
@@ -2909,7 +2916,7 @@ document.addEventListener('DOMContentLoaded', () => {
             switchView(activeView);
             
             // Skip the main dashboard fetch when the user is on sub routes
-            if (!onDetailsRoute && !onVendeur360Route && !onClientsRoute && !onFdvRoute && !onTerrainRoute && !onVisitesRoute && !onFocusRoute && !onRapportRoute && !onStockRoute && !onAnomalisRoute && !onTasksRoute && !onEngagementRoute) {
+            if (!onDetailsRoute && !onVendeur360Route && !onClientsRoute && !onFdvRoute && !onTerrainRoute && !onVisitesRoute && !onFocusRoute && !onRapportRoute && !onStockRoute && !onAnomalisRoute && !onTasksRoute && !onEngagementRoute && !onHistoriqueRoute) {
                 fetchSuiviDates(() => {
                     fetchDashboardData();
                 });
@@ -2923,6 +2930,8 @@ document.addEventListener('DOMContentLoaded', () => {
             initTasksView();
             initVisitesTabView();
             initVisitesUploadModal();
+            initHistoriqueView();
+            initReportSourceSelector();
             const dropdownList = document.getElementById('vendeur-dropdown-list');
             if (dropdownList) {
                 loadVendeursList();
@@ -2931,16 +2940,19 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(err => {
             console.error("Error loading config:", err);
             // Fallback: Check local storage for saved theme
-            if (localStorage.getItem('theme') === 'light') {
+            if (localStorage.getItem('theme') === 'dark') {
+                toggleTheme(false);
+            } else {
                 toggleTheme(true);
             }
-            let initialTheme = 'theme-1';
+            let initialTheme = 'theme-6';
             const path = window.location.pathname;
             if (path.includes('/theme1')) initialTheme = 'theme-1';
             else if (path.includes('/theme2')) initialTheme = 'theme-2';
             else if (path.includes('/theme3')) initialTheme = 'theme-3';
             else if (path.includes('/theme4')) initialTheme = 'theme-4';
             else if (path.includes('/theme5')) initialTheme = 'theme-5';
+            else if (path.includes('/theme6')) initialTheme = 'theme-6';
             else {
                 const classes = Array.from(document.body.classList);
                 const bodyTheme = classes.find(c => c.startsWith('theme-'));
@@ -3013,6 +3025,7 @@ function switchView(viewName) {
     const navDashboard = document.getElementById('nav-dashboard');
     const navRealisation = document.getElementById('nav-realisation');
     const navDetails = document.getElementById('nav-details');
+    const navDetailsAnalytics = document.getElementById('nav-details-analytics');
     const navVendeur360 = document.getElementById('nav-vendeur-360');
     const navClients = document.getElementById('nav-clients');
     const navClientsFacturation = document.getElementById('nav-clients-facturation');
@@ -3026,6 +3039,7 @@ function switchView(viewName) {
     const navAnomalis = document.getElementById('nav-anomalis');
     const navTasks = document.getElementById('nav-tasks');
     const navEngagement = document.getElementById('nav-engagement');
+    const navHistorique = document.getElementById('nav-historique');
     
     const mainDashboard = document.getElementById('main-dashboard-container');
     const detailsContainer = document.getElementById('details-container');
@@ -3039,17 +3053,18 @@ function switchView(viewName) {
     const anomalisContainer = document.getElementById('anomalis-container');
     const tasksContainer = document.getElementById('tasks-container');
     const engagementContainer = document.getElementById('engagement-container');
+    const historiqueContainer = document.getElementById('historique-container');
     
     const dateSelect = document.getElementById('date-select');
     const timelapseCtrl = document.getElementById('timelapse-control');
     
     // Remove active class from all nav items
-    [navDashboard, navRealisation, navDetails, navVendeur360, navClients, navClientsFacturation, navFdv, navTerrain, navVisites, navFocus, navRapport, navStock, navStockFavorites, navAnomalis, navTasks, navEngagement].forEach(nav => {
+    [navDashboard, navRealisation, navDetails, navDetailsAnalytics, navVendeur360, navClients, navClientsFacturation, navFdv, navTerrain, navVisites, navFocus, navRapport, navStock, navStockFavorites, navAnomalis, navTasks, navEngagement, navHistorique].forEach(nav => {
         if (nav) nav.classList.remove('active');
     });
     
     // Hide all view containers
-    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, visitesContainer, focusContainer, rapportContainer, stockContainer, anomalisContainer, tasksContainer, engagementContainer].forEach(container => {
+    [mainDashboard, detailsContainer, clientsContainer, fdvContainer, terrainContainer, visitesContainer, focusContainer, rapportContainer, stockContainer, anomalisContainer, tasksContainer, engagementContainer, historiqueContainer].forEach(container => {
         if (container) container.style.display = 'none';
     });
     
@@ -3071,13 +3086,16 @@ function switchView(viewName) {
         }
     }
 
-    // Show/hide Vendeur 360 sub nav item depending on active view
+    // Show/hide Details sub nav items (Détails Analytiques, Vendeur 360, Historique)
+    const onDetailsAny = (viewName === 'details' || viewName === 'vendeur360' || viewName === 'historique');
+    if (navDetailsAnalytics) {
+        navDetailsAnalytics.style.display = onDetailsAny ? 'flex' : 'none';
+    }
     if (navVendeur360) {
-        if (viewName === 'details' || viewName === 'vendeur360') {
-            navVendeur360.style.display = 'flex';
-        } else {
-            navVendeur360.style.display = 'none';
-        }
+        navVendeur360.style.display = onDetailsAny ? 'flex' : 'none';
+    }
+    if (navHistorique) {
+        navHistorique.style.display = onDetailsAny ? 'flex' : 'none';
     }
     
     // Default: hide date selector and timelapse control for subviews
@@ -3085,35 +3103,43 @@ function switchView(viewName) {
     if (timelapseCtrl) timelapseCtrl.style.display = 'none';
     if (timelapseIsPlaying) stopTimelapse();
     
-    if (viewName === 'details' || viewName === 'vendeur360') {
+    if (onDetailsAny) {
         if (detailsContainer) detailsContainer.style.display = '';
         const searchView = new URLSearchParams(window.location.search).get('view');
         const is360 = viewName === 'vendeur360' || searchView === 'vendeur360' || window.location.pathname === '/vendeur360';
-        if (is360) {
+        const isHist = viewName === 'historique' || searchView === 'historique' || window.location.pathname === '/historique';
+        
+        const btnAnalytics = document.getElementById('details-subtab-analytics');
+        const btn360 = document.getElementById('details-subtab-vendeur360');
+        const btnHist = document.getElementById('details-subtab-historique');
+        
+        const secAnalytics = document.getElementById('details-analytics-section');
+        const sec360 = document.getElementById('vendeur-360-section');
+        const secHist = document.getElementById('details-historique-section');
+        
+        if (btnAnalytics) btnAnalytics.classList.remove('active');
+        if (btn360) btn360.classList.remove('active');
+        if (btnHist) btnHist.classList.remove('active');
+        
+        if (secAnalytics) secAnalytics.style.display = 'none';
+        if (sec360) sec360.style.display = 'none';
+        if (secHist) secHist.style.display = 'none';
+        
+        if (isHist) {
+            if (navHistorique) navHistorique.classList.add('active');
+            if (btnHist) btnHist.classList.add('active');
+            if (secHist) secHist.style.display = 'flex';
+            loadHistoriqueSnapshots();
+        } else if (is360) {
             if (navVendeur360) navVendeur360.classList.add('active');
-            const btn360 = document.getElementById('details-subtab-vendeur360');
-            if (btn360) {
-                btn360.classList.add('active');
-                const btnAnalytics = document.getElementById('details-subtab-analytics');
-                if (btnAnalytics) btnAnalytics.classList.remove('active');
-                const secAnalytics = document.getElementById('details-analytics-section');
-                const sec360 = document.getElementById('vendeur-360-section');
-                if (secAnalytics) secAnalytics.style.display = 'none';
-                if (sec360) sec360.style.display = 'flex';
-                if (typeof loadVendeur360Data === 'function') loadVendeur360Data();
-            }
+            if (btn360) btn360.classList.add('active');
+            if (sec360) sec360.style.display = 'flex';
+            if (typeof loadVendeur360Data === 'function') loadVendeur360Data();
         } else {
             if (navDetails) navDetails.classList.add('active');
-            const btnAnalytics = document.getElementById('details-subtab-analytics');
-            if (btnAnalytics) {
-                btnAnalytics.classList.add('active');
-                const btn360 = document.getElementById('details-subtab-vendeur360');
-                if (btn360) btn360.classList.remove('active');
-                const secAnalytics = document.getElementById('details-analytics-section');
-                const sec360 = document.getElementById('vendeur-360-section');
-                if (secAnalytics) secAnalytics.style.display = 'block';
-                if (sec360) sec360.style.display = 'none';
-            }
+            if (navDetailsAnalytics) navDetailsAnalytics.classList.add('active');
+            if (btnAnalytics) btnAnalytics.classList.add('active');
+            if (secAnalytics) secAnalytics.style.display = 'block';
             loadTrendsData();
         }
     } else if (viewName === 'clients') {
@@ -4417,9 +4443,14 @@ function toggleTheme(toLight) {
 
 // Apply visual theme class
 function applyThemeClass(themeName) {
-    document.body.classList.remove('theme-1', 'theme-2', 'theme-3', 'theme-4', 'theme-5');
+    document.body.classList.remove('theme-1', 'theme-2', 'theme-3', 'theme-4', 'theme-5', 'theme-6');
     document.body.classList.add(themeName);
     localStorage.setItem('selected-theme', themeName);
+    
+    // Auto-enable light mode if FundFlow Light is selected
+    if (themeName === 'theme-6' && !isWhiteMode) {
+        toggleTheme(true);
+    }
     
     // Save theme configuration to server
     saveAppConfig({ theme: themeName });
@@ -4536,7 +4567,7 @@ function openSettingsModal() {
     const modalThemeSelect = document.getElementById('modal-theme-select');
     if (modalThemeSelect) {
         const classes = Array.from(document.body.classList);
-        const bodyTheme = classes.find(c => c.startsWith('theme-')) || 'theme-1';
+        const bodyTheme = classes.find(c => c.startsWith('theme-')) || 'theme-6';
         modalThemeSelect.value = bodyTheme;
 
         // Highlight correct card in theme grid
@@ -4759,8 +4790,9 @@ function handleSelectedTablesReset() {
 }
 
 // Delete database.db file from disk and recreate a clean database
+// Before deleting, backs up quanti, quali, focus, anomalies, visites & rapport to historique.db
 function handleRecreateDatabaseFile() {
-    const warningMsg = "⚠️ ATTENTION : ACTION CRITIQUE !\n\nVous allez SUPPRIMER le fichier database.db et créer une nouvelle base de données totalement vide avec les schémas par défaut.\n\nToutes les données enregistrées dans database.db seront définitivement effacées.\n\nÊtes-vous absolument sûr de vouloir continuer ?";
+    const warningMsg = "⚠️ ATTENTION : ACTION CRITIQUE !\n\nVous allez SUPPRIMER le fichier database.db et créer une nouvelle base de données totalement vide avec les schémas par défaut.\n\n✅ Avant la suppression, les données suivantes seront sauvegardées dans historique.db :\n• Quantitatif (quanti)\n• Qualitatif (quali)\n• Focus VMM & SOM\n• Anomalies\n• Visites terrain\n• Dernier rapport IA généré\n\nÊtes-vous absolument sûr de vouloir continuer ?";
     
     if (!confirm(warningMsg)) {
         return;
@@ -4769,23 +4801,46 @@ function handleRecreateDatabaseFile() {
     const btnRecreateDb = document.getElementById('btn-recreate-db-file');
     if (btnRecreateDb) {
         btnRecreateDb.disabled = true;
-        btnRecreateDb.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> SUPPRESSION EN COURS...';
+        btnRecreateDb.innerHTML = '<i class="fa-solid fa-database fa-spin"></i> SAUVEGARDE HISTORIQUE EN COURS...';
+    }
+    
+    // Collect cached report from localStorage to include in backup
+    let reportPayload = {};
+    try {
+        const raw = localStorage.getItem('cached_kpi_report');
+        if (raw) {
+            const cached = JSON.parse(raw);
+            if (cached && cached.report) {
+                reportPayload = {
+                    report_text: cached.report || '',
+                    title: cached.title || '',
+                    vendeur: cached.vendeur || '',
+                    format: cached.format || '',
+                    lang: cached.lang || '',
+                    report_date: cached.date || ''
+                };
+            }
+        }
+    } catch (e) {
+        console.warn('Could not read cached report for backup:', e);
     }
     
     fetch('/api/recreate_db_file', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify(reportPayload)
     })
     .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            showToast("Base de données database.db récréée avec succès !", "success");
+            const snapshotInfo = data.snapshot_id ? ` (snapshot #${data.snapshot_id})` : '';
+            showToast(`✅ Données sauvegardées dans historique.db${snapshotInfo}, database.db récréée !`, "success");
             closeSettingsModal();
             setTimeout(() => {
                 window.location.reload();
-            }, 1500);
+            }, 2000);
         } else {
             showToast("Erreur lors de la récréation : " + data.message, "error");
             if (btnRecreateDb) {
@@ -7418,7 +7473,7 @@ function updateDropdownHighlight(items) {
 }
 
 // Cybernetic Toast notification system
-function showToast(message, type = 'info', duration = 0) {
+function showToast(message, type = 'info', duration = 5000) {
     if (!message) return;
     const msgStr = String(message);
     if (msgStr.includes("Unexpected token") || msgStr.includes("<!DOCTYPE") || msgStr.includes("JSON.parse") || msgStr.includes("Failed to execute 'json'")) {
@@ -7445,16 +7500,34 @@ function showToast(message, type = 'info', duration = 0) {
     else if (type === 'warning') iconClass = 'fa-triangle-exclamation';
     else if (type === 'loading') iconClass = 'fa-solid fa-circle-notch fa-spin';
     
+    // Auto close non-loading toasts after 5 seconds by default (or custom positive duration)
+    let effectiveDuration = duration;
+    if (type !== 'loading') {
+        if (effectiveDuration === undefined || effectiveDuration === null || effectiveDuration <= 0) {
+            effectiveDuration = 5000;
+        }
+    } else {
+        if (!effectiveDuration || effectiveDuration <= 0) {
+            effectiveDuration = 0;
+        }
+    }
+
+    const countdownHtml = (effectiveDuration > 0)
+        ? `<span class="toast-countdown">${Math.ceil(effectiveDuration / 1000)}s</span>`
+        : '';
+
     let contentHtml = `
         <span class="toast-icon"><i class="fa-solid ${iconClass}"></i></span>
         <span class="toast-message" style="flex-grow: 1;">${message}</span>
-        <button class="toast-close-x-btn" aria-label="Fermer" style="background: transparent; border: none; color: inherit; font-size: 1.1rem; cursor: pointer; margin-left: 0.5rem; padding: 0 4px; opacity: 0.8;">&times;</button>
+        ${countdownHtml}
+        <button class="toast-close-x-btn" aria-label="Fermer" style="background: transparent; border: none; color: inherit; font-size: 1.1rem; cursor: pointer; margin-left: 0.5rem; padding: 0 4px; opacity: 0.8; line-height: 1;">&times;</button>
     `;
     if (type === 'loading') {
         contentHtml = `
             <div class="cyber-spinner" style="width: 18px; height: 18px; border-width: 2.5px; margin-right: 8px; flex-shrink: 0;"></div>
             <span class="toast-message" style="flex-grow: 1;">${message}</span>
-            <button class="toast-close-x-btn" aria-label="Fermer" style="background: transparent; border: none; color: inherit; font-size: 1.1rem; cursor: pointer; margin-left: 0.5rem; padding: 0 4px; opacity: 0.8;">&times;</button>
+            ${countdownHtml}
+            <button class="toast-close-x-btn" aria-label="Fermer" style="background: transparent; border: none; color: inherit; font-size: 1.1rem; cursor: pointer; margin-left: 0.5rem; padding: 0 4px; opacity: 0.8; line-height: 1;">&times;</button>
         `;
     }
     
@@ -7466,7 +7539,22 @@ function showToast(message, type = 'info', duration = 0) {
         toast.classList.add('show');
     }, 10);
     
+    let autoCloseTimer = null;
+    let countdownInterval = null;
+
+    const cleanupTimers = () => {
+        if (autoCloseTimer) {
+            clearTimeout(autoCloseTimer);
+            autoCloseTimer = null;
+        }
+        if (countdownInterval) {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+        }
+    };
+
     const closeHandle = () => {
+        cleanupTimers();
         toast.classList.remove('show');
         setTimeout(() => {
             toast.remove();
@@ -7480,23 +7568,35 @@ function showToast(message, type = 'info', duration = 0) {
     if (xBtn) {
         xBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (autoCloseTimer) clearTimeout(autoCloseTimer);
             closeHandle();
         });
     }
 
-    
-    // Auto close non-loading toasts only if duration is explicitly passed (> 0)
-    let autoCloseTimer = null;
-    if (type !== 'loading' && duration > 0) {
-        autoCloseTimer = setTimeout(closeHandle, duration);
-    }
+    if (effectiveDuration > 0) {
+        let remainingSec = Math.ceil(effectiveDuration / 1000);
+        const countdownEl = toast.querySelector('.toast-countdown');
+        
+        countdownInterval = setInterval(() => {
+            remainingSec--;
+            if (countdownEl) {
+                if (remainingSec > 0) {
+                    countdownEl.textContent = `${remainingSec}s`;
+                } else {
+                    countdownEl.textContent = `0s`;
+                }
+            }
+            if (remainingSec <= 0) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+        }, 1000);
 
+        autoCloseTimer = setTimeout(closeHandle, effectiveDuration);
+    }
     
     return {
         element: toast,
         close: () => {
-            if (autoCloseTimer) clearTimeout(autoCloseTimer);
             closeHandle();
         }
     };
@@ -8492,7 +8592,11 @@ function openAiReportModalForVendeur(vendeurName, options = null) {
         params.push(`category=${encodeURIComponent(selectedCategory)}`);
     }
 
-    if (selectedDate && selectedDate !== 'default') {
+    if (window.currentReportSource === 'historique') {
+        params.push('source_db=historique');
+        const histMonth = document.getElementById('rp-historique-month-select')?.value || '2026-08';
+        params.push(`month=${encodeURIComponent(histMonth)}`);
+    } else if (selectedDate && selectedDate !== 'default') {
         params.push(`date=${encodeURIComponent(selectedDate)}`);
     }
 
@@ -11344,6 +11448,14 @@ function initDetailsView() {
             // Real navigation so the URL reflects the current page.
             window.location.href = '/details';
         });
+
+        const navDetailsAnalytics = document.getElementById('nav-details-analytics');
+        if (navDetailsAnalytics) {
+            navDetailsAnalytics.addEventListener('click', (e) => {
+                e.preventDefault();
+                window.location.href = '/details';
+            });
+        }
 
         const goBack = (e) => {
             e.preventDefault();
@@ -17264,4 +17376,1503 @@ function renderVisitesTabContent(hasVendorSelected) {
         emptyState.style.display = 'none';
     }
 }
+
+// =========================================================================
+// HISTORIQUE & ARCHIVES MODULE
+// =========================================================================
+let cachedHistoriqueSnapshots = [];
+let currentHistSnapshotId = null;
+let currentHistSnapshotData = null;
+let currentHistSubTab = 'quanti';
+let histCurrentTourneeFilter = null;
+let histCurrentVisiteStatusFilter = 'all';
+let histCurrentVendorSecFilter = 'all';
+
+function isSameHistVendor(name1, name2) {
+    if (!name1 || !name2) return false;
+    const n1 = String(name1).trim().toUpperCase();
+    const n2 = String(name2).trim().toUpperCase();
+    if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
+    const c1 = n1.split(' ')[0];
+    const c2 = n2.split(' ')[0];
+    if (c1 && c2 && c1.length >= 2 && c1 === c2) return true;
+    return false;
+}
+
+function initHistoriqueView() {
+    const btnCreate = document.getElementById('btn-create-snapshot-manual');
+    const btnRefresh = document.getElementById('btn-refresh-historique');
+    const searchSnapshots = document.getElementById('hist-snapshots-search');
+    const searchTable = document.getElementById('hist-table-search');
+    const selectVendeur = document.getElementById('hist-vendeur-select');
+    const btnDeleteActive = document.getElementById('hist-btn-delete-active');
+    const btnCopyReport = document.getElementById('hist-btn-copy-report');
+    const btnPrintReport = document.getElementById('hist-btn-print-report');
+    const btnGenHistReport = document.getElementById('btn-generate-hist-report');
+    const btnGenHistReportEmpty = document.getElementById('btn-generate-hist-report-empty');
+
+    if (btnGenHistReport) {
+        btnGenHistReport.addEventListener('click', handleGenerateHistoriqueReport);
+    }
+    if (btnGenHistReportEmpty) {
+        btnGenHistReportEmpty.addEventListener('click', handleGenerateHistoriqueReport);
+    }
+    if (btnPrintReport) {
+        btnPrintReport.addEventListener('click', handlePrintHistoriqueReport);
+    }
+
+    if (btnCreate) {
+        btnCreate.addEventListener('click', handleCreateManualSnapshot);
+    }
+    if (btnRefresh) {
+        btnRefresh.addEventListener('click', () => {
+            loadHistoriqueSnapshots(true);
+        });
+    }
+    if (searchSnapshots) {
+        searchSnapshots.addEventListener('input', () => {
+            renderHistoriqueSnapshotsList();
+        });
+    }
+    if (searchTable) {
+        searchTable.addEventListener('input', () => {
+            renderActiveHistoriqueSubTab();
+        });
+    }
+    if (selectVendeur) {
+        selectVendeur.addEventListener('change', () => {
+            const vVal = selectVendeur.value;
+            const vendorBtn = document.getElementById('hist-subtab-vendor-btn');
+            histCurrentTourneeFilter = null;
+            histCurrentVisiteStatusFilter = 'all';
+
+            if (vVal && vVal !== 'all') {
+                if (vendorBtn) vendorBtn.style.display = 'inline-flex';
+                currentHistSubTab = 'vendor';
+            } else {
+                if (vendorBtn) vendorBtn.style.display = 'none';
+                if (currentHistSubTab === 'vendor') currentHistSubTab = 'quanti';
+            }
+            renderActiveHistoriqueSubTab();
+        });
+    }
+    if (btnDeleteActive) {
+        btnDeleteActive.addEventListener('click', () => {
+            if (currentHistSnapshotId) {
+                handleDeleteHistoriqueSnapshot(currentHistSnapshotId);
+            }
+        });
+    }
+    if (btnCopyReport) {
+        btnCopyReport.addEventListener('click', () => {
+            if (currentHistSnapshotData && currentHistSnapshotData.rapport && currentHistSnapshotData.rapport.report_text) {
+                navigator.clipboard.writeText(currentHistSnapshotData.rapport.report_text)
+                    .then(() => showToast("Rapport archivé copié dans le presse-papier !", "success"))
+                    .catch(() => showToast("Impossible de copier le rapport", "error"));
+            }
+        });
+    }
+
+    // Sub-tab button bindings
+    document.querySelectorAll('.hist-subtab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabName = btn.getAttribute('data-hist-tab');
+            if (tabName) {
+                switchHistoriqueSubTab(tabName);
+            }
+        });
+    });
+
+    // Vendor section quick navigation pills (TOUS, QUALI, QUANTI, FOCUS, TOURNÉES)
+    document.querySelectorAll('#hist-vendor-pills button[data-vsec]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const sec = btn.getAttribute('data-vsec') || 'all';
+            histCurrentVendorSecFilter = sec;
+            document.querySelectorAll('#hist-vendor-pills button[data-vsec]').forEach(b => b.classList.remove('is-active'));
+            btn.classList.add('is-active');
+
+            const secQuali = document.getElementById('hist-vendor-sec-quali');
+            const secQuanti = document.getElementById('hist-vendor-sec-quanti');
+            const secFocus = document.getElementById('hist-vendor-sec-focus');
+            const secTournees = document.getElementById('hist-vendor-sec-tournees');
+
+            if (sec === 'all') {
+                if (secQuali) secQuali.style.display = 'block';
+                if (secQuanti) secQuanti.style.display = 'block';
+                if (secFocus) secFocus.style.display = 'block';
+                if (secTournees) secTournees.style.display = 'block';
+            } else {
+                if (secQuali) secQuali.style.display = (sec === 'quali') ? 'block' : 'none';
+                if (secQuanti) secQuanti.style.display = (sec === 'quanti') ? 'block' : 'none';
+                if (secFocus) secFocus.style.display = (sec === 'focus') ? 'block' : 'none';
+                if (secTournees) secTournees.style.display = (sec === 'tournees') ? 'block' : 'none';
+            }
+        });
+    });
+
+    // Visite status filter buttons (TOUS, OK, FERMÉ, ABSENT, STOCK SUFF.)
+    document.querySelectorAll('#hist-vendor-visite-filters button[data-vfilter]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const vfilter = btn.getAttribute('data-vfilter') || 'all';
+            histCurrentVisiteStatusFilter = vfilter;
+            document.querySelectorAll('#hist-vendor-visite-filters button[data-vfilter]').forEach(b => b.classList.remove('is-active'));
+            btn.classList.add('is-active');
+            const filters = getHistoriqueFilters();
+            if (currentHistSnapshotData && filters.vendeur && filters.vendeur !== 'all') {
+                const allVisites = currentHistSnapshotData.visites || [];
+                const vVisites = allVisites.filter(v => isSameHistVendor(v.vendeur, filters.vendeur));
+                renderHistVendorVisitesJournal(vVisites, filters.query);
+            }
+        });
+    });
+
+    // Clear Tournée filter button
+    const clearTourneeBtn = document.getElementById('hist-vendor-clear-tournee-filter');
+    if (clearTourneeBtn) {
+        clearTourneeBtn.addEventListener('click', () => {
+            histCurrentTourneeFilter = null;
+            const filters = getHistoriqueFilters();
+            renderHistVendorTournees(filters.vendeur, filters.query);
+        });
+    }
+
+    if (window.location.pathname === '/historique' || window.location.search.includes('view=historique')) {
+        loadHistoriqueSnapshots();
+    }
+}
+
+function populateHistoriqueVendorsDropdown(snapshot) {
+    const select = document.getElementById('hist-vendeur-select');
+    if (!select || !snapshot) return;
+
+    const vendorsSet = new Set();
+    const sources = [
+        snapshot.quantitative || [],
+        snapshot.qualitative || [],
+        snapshot.focus_vmm || [],
+        snapshot.focus_som || [],
+        snapshot.anomalies || [],
+        snapshot.visites || []
+    ];
+
+    sources.forEach(list => {
+        list.forEach(item => {
+            if (item && item.vendeur && typeof item.vendeur === 'string') {
+                const v = item.vendeur.trim();
+                if (v && v.toUpperCase() !== 'TOTAL') vendorsSet.add(v);
+            }
+        });
+    });
+
+    const sortedVendors = Array.from(vendorsSet).sort((a, b) => a.localeCompare(b));
+    const previousVal = (select.value || 'all').toLowerCase();
+
+    select.innerHTML = '<option value="all">TOUS LES VENDEURS</option>' + 
+        sortedVendors.map(v => `<option value="${v.toLowerCase()}">${v.toUpperCase()}</option>`).join('');
+
+    if (sortedVendors.some(v => v.toLowerCase() === previousVal)) {
+        select.value = previousVal;
+    } else {
+        select.value = 'all';
+    }
+}
+
+async function loadHistoriqueSnapshots(forceRefresh = false) {
+    const loadingEl = document.getElementById('hist-snapshots-loading');
+    const emptyEl = document.getElementById('hist-snapshots-empty');
+    const listEl = document.getElementById('hist-snapshots-list');
+    const kpiTotalEl = document.getElementById('hist-kpi-total');
+    const kpiLastDateEl = document.getElementById('hist-kpi-last-date');
+    const listCountEl = document.getElementById('hist-list-count');
+
+    if (loadingEl) loadingEl.style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/historique/snapshots?_=' + Date.now());
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            cachedHistoriqueSnapshots = data.snapshots || [];
+            
+            if (kpiTotalEl) kpiTotalEl.innerText = cachedHistoriqueSnapshots.length;
+            if (listCountEl) listCountEl.innerText = `${cachedHistoriqueSnapshots.length} élément(s)`;
+            
+            if (kpiLastDateEl) {
+                if (cachedHistoriqueSnapshots.length > 0) {
+                    const first = cachedHistoriqueSnapshots[0];
+                    kpiLastDateEl.innerText = first.source_date || (first.created_at ? first.created_at.split(' ')[0] : 'N/A');
+                } else {
+                    kpiLastDateEl.innerText = '--';
+                }
+            }
+
+            renderHistoriqueSnapshotsList();
+
+            // Auto-select first snapshot if none selected or if selected was deleted
+            if (cachedHistoriqueSnapshots.length > 0) {
+                const stillExists = cachedHistoriqueSnapshots.some(s => s.id === currentHistSnapshotId);
+                if (!currentHistSnapshotId || !stillExists || forceRefresh) {
+                    selectHistoriqueSnapshot(cachedHistoriqueSnapshots[0].id);
+                }
+            } else {
+                currentHistSnapshotId = null;
+                currentHistSnapshotData = null;
+                const placeholder = document.getElementById('hist-detail-placeholder');
+                const content = document.getElementById('hist-detail-content');
+                if (placeholder) placeholder.style.display = 'flex';
+                if (content) content.style.display = 'none';
+            }
+        } else {
+            showToast("Erreur lors du chargement de l'historique : " + data.message, "error");
+        }
+    } catch (err) {
+        console.error("Error loading historique snapshots:", err);
+        showToast("Impossible de contacter le serveur pour l'historique.", "error");
+    } finally {
+        if (loadingEl) loadingEl.style.display = 'none';
+    }
+}
+
+function renderHistoriqueSnapshotsList() {
+    const listEl = document.getElementById('hist-snapshots-list');
+    const emptyEl = document.getElementById('hist-snapshots-empty');
+    const searchInput = document.getElementById('hist-snapshots-search');
+    const query = (searchInput ? searchInput.value : '').toLowerCase().trim();
+
+    if (!listEl) return;
+
+    let filtered = cachedHistoriqueSnapshots;
+    if (query) {
+        filtered = cachedHistoriqueSnapshots.filter(s => {
+            const idStr = `#${s.id}`;
+            const dateStr = s.source_date || '';
+            const createdStr = s.created_at || '';
+            const noteStr = s.note || '';
+            return idStr.includes(query) || dateStr.toLowerCase().includes(query) || createdStr.toLowerCase().includes(query) || noteStr.toLowerCase().includes(query);
+        });
+    }
+
+    if (filtered.length === 0) {
+        listEl.innerHTML = '';
+        if (emptyEl) emptyEl.style.display = 'block';
+        return;
+    }
+
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    listEl.innerHTML = filtered.map(s => {
+        const isSelected = s.id === currentHistSnapshotId;
+        const borderStyle = isSelected ? 'border-color: var(--neon-green); background: rgba(0, 255, 136, 0.12);' : 'border-color: var(--border-color); background: rgba(0, 0, 0, 0.25);';
+        
+        return `
+            <div class="cyber-card snapshot-item-card" data-snapshot-id="${s.id}" onclick="selectHistoriqueSnapshot(${s.id})" style="padding: 0.75rem; cursor: pointer; transition: all 0.2s; border-radius: 4px; ${borderStyle}">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                        <span class="tech-badge" style="font-size: 0.7rem; font-weight: bold; background: rgba(0, 255, 136, 0.2); color: var(--neon-green); border-color: var(--neon-green); padding: 1px 6px;">#${s.id}</span>
+                        <strong style="font-size: 0.8rem; color: var(--text-main);">${s.source_date || 'Date N/A'}</strong>
+                    </div>
+                    <span style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-mono);">${s.created_at || ''}</span>
+                </div>
+                
+                <p style="font-size: 0.7rem; color: var(--text-muted); margin: 0 0 0.45rem 0; line-height: 1.2; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                    ${s.note || 'Sauvegarde'}
+                </p>
+
+                <div style="display: flex; gap: 0.3rem; flex-wrap: wrap;">
+                    <span class="tech-label-mini" style="font-size: 0.62rem; padding: 1px 4px; border: 1px solid rgba(0, 212, 255, 0.4); color: var(--neon-blue); border-radius: 2px;">Q: ${s.quanti_count}</span>
+                    <span class="tech-label-mini" style="font-size: 0.62rem; padding: 1px 4px; border: 1px solid rgba(16, 185, 129, 0.4); color: var(--neon-green); border-radius: 2px;">Ql: ${s.quali_count}</span>
+                    <span class="tech-label-mini" style="font-size: 0.62rem; padding: 1px 4px; border: 1px solid rgba(234, 179, 8, 0.4); color: var(--neon-amber); border-radius: 2px;">F: ${s.focus_vmm_count + s.focus_som_count}</span>
+                    <span class="tech-label-mini" style="font-size: 0.62rem; padding: 1px 4px; border: 1px solid rgba(255, 77, 77, 0.4); color: #ff4d4d; border-radius: 2px;">Anom: ${s.anomalies_count}</span>
+                    <span class="tech-label-mini" style="font-size: 0.62rem; padding: 1px 4px; border: 1px solid rgba(255, 0, 110, 0.4); color: var(--neon-pink); border-radius: 2px;">Vis: ${s.visites_count}</span>
+                    ${s.has_rapport ? `<span class="tech-label-mini" style="font-size: 0.62rem; padding: 1px 4px; border: 1px solid var(--neon-purple); color: var(--neon-purple); border-radius: 2px;"><i class="fa-solid fa-brain"></i> IA</span>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function selectHistoriqueSnapshot(snapshotId) {
+    currentHistSnapshotId = snapshotId;
+    renderHistoriqueSnapshotsList();
+
+    const placeholder = document.getElementById('hist-detail-placeholder');
+    const content = document.getElementById('hist-detail-content');
+    const activeBadge = document.getElementById('hist-active-badge');
+    const activeTitle = document.getElementById('hist-active-title');
+    const activeSourceDate = document.getElementById('hist-active-source-date');
+    const activeCreatedAt = document.getElementById('hist-active-created-at');
+    const activeNote = document.getElementById('hist-active-note');
+
+    if (placeholder) placeholder.style.display = 'none';
+    if (content) content.style.display = 'flex';
+
+    if (activeBadge) activeBadge.innerText = `SNAPSHOT #${snapshotId}`;
+    if (activeTitle) activeTitle.innerText = `Chargement des données archivées...`;
+
+    try {
+        const res = await fetch(`/api/historique/snapshot/${snapshotId}?_=` + Date.now());
+        const data = await res.json();
+
+        if (data.status === 'success' && data.snapshot) {
+            currentHistSnapshotData = data.snapshot;
+
+            if (activeTitle) activeTitle.innerText = `Instantané des données du ${currentHistSnapshotData.source_date || 'N/A'}`;
+            if (activeSourceDate) activeSourceDate.innerText = currentHistSnapshotData.source_date || 'N/A';
+            if (activeCreatedAt) activeCreatedAt.innerText = currentHistSnapshotData.created_at || 'N/A';
+            if (activeNote) activeNote.innerText = currentHistSnapshotData.note || 'N/A';
+
+            // Populate Vendor Filter Dropdown
+            populateHistoriqueVendorsDropdown(currentHistSnapshotData);
+
+            // Update sub-tab badge counts
+            const quantiCountEl = document.getElementById('hist-count-quanti');
+            const qualiCountEl = document.getElementById('hist-count-quali');
+            const fvmmCountEl = document.getElementById('hist-count-fvmm');
+            const fsomCountEl = document.getElementById('hist-count-fsom');
+            const anomCountEl = document.getElementById('hist-count-anom');
+            const visCountEl = document.getElementById('hist-count-vis');
+
+            if (quantiCountEl) quantiCountEl.innerText = (currentHistSnapshotData.quantitative || []).length;
+            if (qualiCountEl) qualiCountEl.innerText = (currentHistSnapshotData.qualitative || []).length;
+            if (fvmmCountEl) fvmmCountEl.innerText = (currentHistSnapshotData.focus_vmm || []).length;
+            if (fsomCountEl) fsomCountEl.innerText = (currentHistSnapshotData.focus_som || []).length;
+            if (anomCountEl) anomCountEl.innerText = (currentHistSnapshotData.anomalies || []).length;
+            if (visCountEl) visCountEl.innerText = (currentHistSnapshotData.visites || []).length;
+
+            renderActiveHistoriqueSubTab();
+        } else {
+            showToast("Impossible de charger les données de cet instantané : " + data.message, "error");
+        }
+    } catch (err) {
+        console.error("Error loading snapshot details:", err);
+        showToast("Erreur de communication avec le serveur.", "error");
+    }
+}
+
+function switchHistoriqueSubTab(tabName) {
+    currentHistSubTab = tabName;
+    
+    // Update button active classes
+    document.querySelectorAll('.hist-subtab-btn').forEach(btn => {
+        if (btn.getAttribute('data-hist-tab') === tabName) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    // Toggle subview containers
+    document.querySelectorAll('.hist-subview').forEach(view => {
+        view.style.display = 'none';
+    });
+    
+    const activeView = document.getElementById(`hist-view-${tabName}`);
+    if (activeView) {
+        activeView.style.display = (tabName === 'vendor') ? 'flex' : 'block';
+    }
+
+    // Reset table search input for the newly active view
+    const searchInput = document.getElementById('hist-table-search');
+    if (searchInput) searchInput.value = '';
+
+    renderActiveHistoriqueSubTab();
+}
+
+function getHistoriqueFilters() {
+    const searchInput = document.getElementById('hist-table-search');
+    const selectVendeur = document.getElementById('hist-vendeur-select');
+    return {
+        query: (searchInput ? searchInput.value : '').toLowerCase().trim(),
+        vendeur: (selectVendeur ? selectVendeur.value : 'all').toLowerCase().trim()
+    };
+}
+
+function filterHistoriqueRows(rows, filters, extraFields = []) {
+    if (!rows || !Array.isArray(rows)) return [];
+    let result = rows;
+    
+    if (filters.vendeur && filters.vendeur !== 'all') {
+        result = result.filter(r => isSameHistVendor(r.vendeur, filters.vendeur));
+    }
+    
+    if (filters.query) {
+        const q = filters.query;
+        result = result.filter(r => {
+            if (r.vendeur && r.vendeur.toLowerCase().includes(q)) return true;
+            if (r.date && r.date.toLowerCase().includes(q)) return true;
+            if (r.date_visite && r.date_visite.toLowerCase().includes(q)) return true;
+            for (const f of extraFields) {
+                if (r[f] && String(r[f]).toLowerCase().includes(q)) return true;
+            }
+            return false;
+        });
+    }
+    
+    return result;
+}
+
+function renderActiveHistoriqueSubTab() {
+    if (!currentHistSnapshotData) return;
+
+    const filters = getHistoriqueFilters();
+    const isVendorSelected = filters.vendeur && filters.vendeur !== 'all';
+    const vendorBtn = document.getElementById('hist-subtab-vendor-btn');
+
+    if (isVendorSelected) {
+        if (vendorBtn) vendorBtn.style.display = 'inline-flex';
+    } else {
+        if (vendorBtn) vendorBtn.style.display = 'none';
+        if (currentHistSubTab === 'vendor') {
+            currentHistSubTab = 'quanti';
+        }
+    }
+
+    // Update active class on subtab buttons
+    document.querySelectorAll('.hist-subtab-btn').forEach(btn => {
+        if (btn.getAttribute('data-hist-tab') === currentHistSubTab) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    // Toggle views visibility
+    document.querySelectorAll('.hist-subview').forEach(view => {
+        view.style.display = 'none';
+    });
+    const activeView = document.getElementById(`hist-view-${currentHistSubTab}`);
+    if (activeView) {
+        activeView.style.display = (currentHistSubTab === 'vendor') ? 'flex' : 'block';
+    }
+
+    if (currentHistSubTab === 'vendor') {
+        renderHistoriqueVendorView(filters);
+    } else if (currentHistSubTab === 'quanti') {
+        renderHistoriqueQuanti(filters);
+    } else if (currentHistSubTab === 'quali') {
+        renderHistoriqueQuali(filters);
+    } else if (currentHistSubTab === 'focus-vmm') {
+        renderHistoriqueFocusVmm(filters);
+    } else if (currentHistSubTab === 'focus-som') {
+        renderHistoriqueFocusSom(filters);
+    } else if (currentHistSubTab === 'anomalies') {
+        renderHistoriqueAnomalies(filters);
+    } else if (currentHistSubTab === 'visites') {
+        renderHistoriqueVisites(filters);
+    } else if (currentHistSubTab === 'rapport') {
+        renderHistoriqueRapport();
+    }
+}
+
+// =========================================================================
+// HISTORIQUE VENDOR CONSOLIDATED VIEW (QUALI, QUANTI, FOCUS, TOURNÉES)
+// =========================================================================
+function getHistVendorLatestDate(vendeurLower) {
+    if (!currentHistSnapshotData) return '';
+    let maxDate = '';
+
+    const checkList = (list) => {
+        if (!Array.isArray(list)) return;
+        list.forEach(r => {
+            if (r && r.date && isSameHistVendor(r.vendeur, vendeurLower)) {
+                const d = String(r.date).trim();
+                if (!maxDate || d > maxDate) {
+                    maxDate = d;
+                }
+            }
+        });
+    };
+
+    checkList(currentHistSnapshotData.quantitative);
+    checkList(currentHistSnapshotData.qualitative);
+    checkList(currentHistSnapshotData.focus_som);
+    checkList(currentHistSnapshotData.focus_vmm);
+
+    // Fallback if not found on rows
+    if (!maxDate) {
+        if (currentHistSnapshotData.source_date) {
+            maxDate = currentHistSnapshotData.source_date;
+        } else {
+            const allLists = [
+                currentHistSnapshotData.quantitative || [],
+                currentHistSnapshotData.qualitative || []
+            ];
+            allLists.forEach(list => {
+                list.forEach(r => {
+                    if (r && r.date) {
+                        const d = String(r.date).trim();
+                        if (!maxDate || d > maxDate) maxDate = d;
+                    }
+                });
+            });
+        }
+    }
+
+    return maxDate;
+}
+
+function renderHistoriqueVendorView(filters) {
+    if (!currentHistSnapshotData) return;
+    const vendeurLower = (filters.vendeur || '').toLowerCase().trim();
+    if (!vendeurLower || vendeurLower === 'all') return;
+
+    const selectEl = document.getElementById('hist-vendeur-select');
+    const selectedVendorName = selectEl && selectEl.selectedIndex >= 0 ? selectEl.options[selectEl.selectedIndex].text : vendeurLower.toUpperCase();
+
+    // Determine the latest / closing day of the month for this vendor (e.g. 2026-08-31)
+    const lastDayDate = getHistVendorLatestDate(vendeurLower);
+
+    // Set Header
+    const titleEl = document.getElementById('hist-vendor-title-name');
+    const dateEl = document.getElementById('hist-vendor-snapshot-date');
+    if (titleEl) titleEl.textContent = selectedVendorName;
+    if (dateEl) {
+        dateEl.innerHTML = `<strong style="color: var(--neon-green); font-size: 0.85rem;">${lastDayDate || '--'}</strong> <span class="badge badge-green" style="margin-left: 6px; font-size: 0.65rem; font-weight: 800;"><i class="fa-solid fa-flag-checkered"></i> DERNIER JOUR (CLÔTURE FIN DE MOIS)</span>`;
+    }
+
+    // 1. QUALI (Dernier jour uniquement)
+    renderHistVendorQuali(vendeurLower, filters.query, lastDayDate);
+
+    // 2. QUANTI (Dernier jour uniquement)
+    renderHistVendorQuanti(vendeurLower, filters.query, lastDayDate);
+
+    // 3. FOCUS (Dernier jour uniquement)
+    renderHistVendorFocus(vendeurLower, filters.query, lastDayDate);
+
+    // 4. TOURNÉE DÉTAILS
+    renderHistVendorTournees(vendeurLower, filters.query);
+}
+
+function renderHistVendorQuali(vendeurLower, query, targetDate) {
+    const tbody = document.getElementById('hist-vendor-tbody-quali');
+    const badge = document.getElementById('hist-vendor-badge-quali');
+    if (!tbody) return;
+
+    const allQuali = currentHistSnapshotData.qualitative || [];
+    let rows = allQuali.filter(r => isSameHistVendor(r.vendeur, vendeurLower));
+
+    // Restrict strictly to the last day of the month
+    if (targetDate) {
+        const lastDayRows = rows.filter(r => r.date === targetDate);
+        if (lastDayRows.length > 0) rows = lastDayRows;
+    }
+
+    if (query) {
+        rows = rows.filter(r => JSON.stringify(r).toLowerCase().includes(query));
+    }
+
+    if (badge) badge.textContent = `${rows.length} Ligne (Clôture : ${targetDate || 'Dernier jour'})`;
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée qualitative pour ce vendeur au dernier jour (${targetDate || 'N/A'}).</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => `
+        <tr>
+            <td style="font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${r.date || targetDate || ''}</td>
+            <td style="font-weight: 700; color: var(--text-main);">${r.vendeur || ''}</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${r.clt_programme || 0}</td>
+            <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-green);">${r.clt_facture || 0}</td>
+            <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${(parseFloat(r.acm) || 0).toFixed(1)}%</td>
+            <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-green);">${(parseFloat(r.tsm) || 0).toFixed(1)}%</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${(parseFloat(r.line) || 0).toFixed(1)}</td>
+            <td style="text-align: right; font-family: var(--font-mono); color: var(--neon-amber);">${r.raf_tsm || 0}</td>
+            <td style="text-align: right; font-family: var(--font-mono); color: var(--neon-pink);">${r.raf_acm || 0}</td>
+        </tr>
+    `).join('');
+}
+
+function renderHistVendorQuanti(vendeurLower, query, targetDate) {
+    const tbody = document.getElementById('hist-vendor-tbody-quanti');
+    const badge = document.getElementById('hist-vendor-badge-quanti');
+    if (!tbody) return;
+
+    const allQuanti = currentHistSnapshotData.quantitative || [];
+    let rows = allQuanti.filter(r => isSameHistVendor(r.vendeur, vendeurLower));
+
+    // Restrict strictly to the last day of the month
+    if (targetDate) {
+        const lastDayRows = rows.filter(r => r.date === targetDate);
+        if (lastDayRows.length > 0) rows = lastDayRows;
+    }
+
+    if (query) {
+        rows = rows.filter(r => (r.famille && r.famille.toLowerCase().includes(query)) || JSON.stringify(r).toLowerCase().includes(query));
+    }
+
+    if (badge) badge.textContent = `${rows.length} Famille(s) (Clôture : ${targetDate || 'Dernier jour'})`;
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune donnée quantitative pour ce vendeur au dernier jour (${targetDate || 'N/A'}).</td></tr>`;
+        return;
+    }
+
+    let totJ1 = 0, totReal = 0, totObj = 0, totReal25 = 0, totH24 = 0, totEnc = 0, totObjMois = 0, totRaf = 0;
+
+    const rowsHtml = rows.map(r => {
+        const j1 = Number(r.j1) || 0;
+        const real = Number(r.real) || 0;
+        const obj = Number(r.obj) || 0;
+        const pct = parseFloat(r.percent) || (obj > 0 ? (real / obj) * 100 : 0);
+        const real25 = Number(r.real_2025) || 0;
+        const h24 = Number(r.h_2024) || 0;
+        const hPct = parseFloat(r.h_pct) || 0;
+        const enc = Number(r.encours) || 0;
+        const objMois = Number(r.obj_mois) || 0;
+        const raf = Number(r.raf) || (obj - real);
+
+        totJ1 += j1;
+        totReal += real;
+        totObj += obj;
+        totReal25 += real25;
+        totH24 += h24;
+        totEnc += enc;
+        totObjMois += objMois;
+        totRaf += raf;
+
+        const pctColor = pct >= 100 ? 'var(--neon-green)' : (pct >= 80 ? 'var(--neon-amber)' : 'var(--neon-pink)');
+
+        return `
+            <tr>
+                <td style="font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${r.date || targetDate || ''}</td>
+                <td><span class="badge badge-blue" style="font-size: 0.72rem;">${r.famille || ''}</span></td>
+                <td style="text-align: right; font-family: var(--font-mono);">${j1.toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${real.toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${obj.toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: ${pctColor};">${pct.toFixed(1)}%</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: var(--text-muted);">${real25.toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: var(--text-muted);">${h24.toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${hPct.toFixed(1)}%</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${enc.toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${objMois.toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: ${raf <= 0 ? 'var(--neon-green)' : 'var(--neon-pink)'}; font-weight: bold;">${raf.toLocaleString()}</td>
+            </tr>
+        `;
+    }).join('');
+
+    const totPct = totObj > 0 ? (totReal / totObj) * 100 : 0;
+    const totPctColor = totPct >= 100 ? 'var(--neon-green)' : (totPct >= 80 ? 'var(--neon-amber)' : 'var(--neon-pink)');
+
+    const footerHtml = `
+        <tr style="background: rgba(0, 212, 255, 0.08); font-weight: bold; border-top: 2px solid var(--neon-blue);">
+            <td colspan="2" style="font-weight: 800; color: var(--text-main);"><i class="fa-solid fa-calculator neon-text-blue" style="margin-right: 4px;"></i> TOTAL</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${totJ1.toLocaleString()}</td>
+            <td style="text-align: right; font-family: var(--font-mono); font-weight: 800; color: var(--neon-blue);">${totReal.toLocaleString()}</td>
+            <td style="text-align: right; font-family: var(--font-mono); font-weight: 800;">${totObj.toLocaleString()}</td>
+            <td style="text-align: right; font-family: var(--font-mono); font-weight: 800; color: ${totPctColor};">${totPct.toFixed(1)}%</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${totReal25.toLocaleString()}</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${totH24.toLocaleString()}</td>
+            <td style="text-align: right; font-family: var(--font-mono);">-</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${totEnc.toLocaleString()}</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${totObjMois.toLocaleString()}</td>
+            <td style="text-align: right; font-family: var(--font-mono); color: ${totRaf <= 0 ? 'var(--neon-green)' : 'var(--neon-pink)'}; font-weight: 800;">${totRaf.toLocaleString()}</td>
+        </tr>
+    `;
+
+    tbody.innerHTML = rowsHtml + footerHtml;
+}
+
+function renderHistVendorFocus(vendeurLower, query, targetDate) {
+    const container = document.getElementById('hist-vendor-focus-container');
+    const badge = document.getElementById('hist-vendor-badge-focus');
+    if (!container) return;
+
+    const allSom = currentHistSnapshotData.focus_som || [];
+    const allVmm = currentHistSnapshotData.focus_vmm || [];
+
+    let somRows = allSom.filter(r => isSameHistVendor(r.vendeur, vendeurLower));
+    let vmmRows = allVmm.filter(r => isSameHistVendor(r.vendeur, vendeurLower));
+
+    // Restrict strictly to the last day of the month
+    if (targetDate) {
+        const lastDaySom = somRows.filter(r => r.date === targetDate);
+        if (lastDaySom.length > 0) somRows = lastDaySom;
+
+        const lastDayVmm = vmmRows.filter(r => r.date === targetDate);
+        if (lastDayVmm.length > 0) vmmRows = lastDayVmm;
+    }
+
+    if (query) {
+        somRows = somRows.filter(r => JSON.stringify(r).toLowerCase().includes(query));
+        vmmRows = vmmRows.filter(r => JSON.stringify(r).toLowerCase().includes(query));
+    }
+
+    const totalCount = somRows.length + vmmRows.length;
+    if (badge) badge.textContent = `${totalCount} Focus (Clôture : ${targetDate || 'Dernier jour'})`;
+
+    if (totalCount === 0) {
+        container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-size: 0.8rem;">Aucune donnée Focus (SOM / VMM) pour ce vendeur au dernier jour (${targetDate || 'N/A'}).</div>`;
+        return;
+    }
+
+    let html = '';
+
+    if (somRows.length > 0) {
+        html += `
+            <div style="background: rgba(0,0,0,0.18); padding: 0.75rem; border-radius: 4px; border: 1px solid rgba(234, 179, 8, 0.25);">
+                <div style="font-size: 0.76rem; font-weight: 700; color: var(--neon-amber); margin-bottom: 0.5rem; font-family: var(--font-mono); text-transform: uppercase;">
+                    <i class="fa-solid fa-bullseye"></i> Focus SOM (Glace)
+                </div>
+                <div class="table-container" style="overflow-x: auto;">
+                    <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                        <thead>
+                            <tr>
+                                <th>DATE</th>
+                                <th>SECTEUR</th>
+                                <th style="text-align: right;">GLACE HT</th>
+                                <th style="text-align: right;">TTC</th>
+                                <th style="text-align: right;">%</th>
+                                <th style="text-align: right;">RÉALISÉ</th>
+                                <th style="text-align: right;">RESTE</th>
+                                <th style="text-align: right;">REST/JOUR</th>
+                                <th style="text-align: right;">JOUR REST</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${somRows.map(r => {
+                                const pct = parseFloat(r.percent) || 0;
+                                return `
+                                    <tr>
+                                        <td style="font-family: var(--font-mono);">${r.date || currentHistSnapshotData.source_date || ''}</td>
+                                        <td><span class="badge badge-amber">${r.secteur || ''}</span></td>
+                                        <td style="text-align: right; font-family: var(--font-mono);">${(r.glace_ht || 0).toLocaleString()}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono);">${(r.ttc || 0).toLocaleString()}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: ${pct >= 100 ? 'var(--neon-green)' : 'var(--neon-amber)'};">${pct.toFixed(1)}%</td>
+                                        <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${(r.realise || 0).toLocaleString()}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono);">${(r.rest || 0).toLocaleString()}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono); color: var(--neon-pink);">${(r.rest_jour || 0).toFixed(1)}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono);">${r.jour_rest || 0}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    if (vmmRows.length > 0) {
+        html += `
+            <div style="background: rgba(0,0,0,0.18); padding: 0.75rem; border-radius: 4px; border: 1px solid rgba(0, 212, 255, 0.25);">
+                <div style="font-size: 0.76rem; font-weight: 700; color: var(--neon-blue); margin-bottom: 0.5rem; font-family: var(--font-mono); text-transform: uppercase;">
+                    <i class="fa-solid fa-bullseye"></i> Focus VMM
+                </div>
+                <div class="table-container" style="overflow-x: auto;">
+                    <table class="cyber-table" style="width: 100%; font-size: 0.75rem;">
+                        <thead>
+                            <tr>
+                                <th>DATE</th>
+                                <th>SECTEUR</th>
+                                <th style="text-align: right;">DN MAI</th>
+                                <th style="text-align: right;">OBJ JUIN</th>
+                                <th style="text-align: right;">NB CLT</th>
+                                <th style="text-align: right;">OBJ ACM</th>
+                                <th style="text-align: right;">%</th>
+                                <th style="text-align: right;">RÉALISÉ</th>
+                                <th style="text-align: right;">RESTE</th>
+                                <th style="text-align: right;">JOUR REST</th>
+                                <th style="text-align: right;">REST/JOUR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${vmmRows.map(r => {
+                                const pct = parseFloat(r.percent) || 0;
+                                return `
+                                    <tr>
+                                        <td style="font-family: var(--font-mono);">${r.date || currentHistSnapshotData.source_date || ''}</td>
+                                        <td><span class="badge badge-blue">${r.secteur || ''}</span></td>
+                                        <td style="text-align: right; font-family: var(--font-mono);">${r.dn_fin_mai || 0}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono);">${r.obj_juin || 0}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono);">${r.nb_clients || 0}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono);">${r.obj_acm || 0}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: ${pct >= 100 ? 'var(--neon-green)' : 'var(--neon-amber)'};">${pct.toFixed(1)}%</td>
+                                        <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${(r.realise || 0).toLocaleString()}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono);">${(r.rest || 0).toLocaleString()}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono);">${r.jour_rest || 0}</td>
+                                        <td style="text-align: right; font-family: var(--font-mono); color: var(--neon-pink);">${(r.rest_jour || 0).toFixed(1)}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+function renderHistVendorTournees(vendeurLower, query) {
+    const tbodyTournees = document.getElementById('hist-vendor-tbody-tournees');
+    const badgeTournees = document.getElementById('hist-vendor-badge-tournees');
+    const badgeVisites = document.getElementById('hist-vendor-badge-visites');
+    if (!tbodyTournees) return;
+
+    const allVisites = currentHistSnapshotData.visites || [];
+    let vendorVisites = allVisites.filter(v => isSameHistVendor(v.vendeur, vendeurLower));
+
+    if (badgeVisites) badgeVisites.textContent = `${vendorVisites.length} Visite(s)`;
+
+    if (vendorVisites.length === 0) {
+        tbodyTournees.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune visite archivée pour ce vendeur.</td></tr>`;
+        if (badgeTournees) badgeTournees.textContent = `0 Tournée(s)`;
+        renderHistVendorVisitesJournal([], query);
+        return;
+    }
+
+    // Group visits by Tournée
+    const tourneeMap = {};
+    vendorVisites.forEach(v => {
+        const tn = (v.tournee || 'Tournée non spécifiée').trim();
+        if (!tourneeMap[tn]) {
+            tourneeMap[tn] = {
+                tournee: tn,
+                totalVisites: 0,
+                ok: 0,
+                ferme: 0,
+                absent: 0,
+                stock: 0,
+                autres: 0
+            };
+        }
+        const tObj = tourneeMap[tn];
+        tObj.totalVisites++;
+
+        const m = (v.motif || '').toUpperCase();
+        if (m.includes('OK') || m.includes('VENTE')) {
+            tObj.ok++;
+        } else if (m.includes('FERM')) {
+            tObj.ferme++;
+        } else if (m.includes('ABSENT')) {
+            tObj.absent++;
+        } else if (m.includes('STOCK') || m.includes('SUFF')) {
+            tObj.stock++;
+        } else {
+            tObj.autres++;
+        }
+    });
+
+    let tourneeList = Object.values(tourneeMap).sort((a, b) => b.totalVisites - a.totalVisites);
+    if (query) {
+        tourneeList = tourneeList.filter(t => t.tournee.toLowerCase().includes(query));
+    }
+
+    if (badgeTournees) badgeTournees.textContent = `${tourneeList.length} Tournée(s)`;
+
+    let totalVisitesAll = 0, totalOkAll = 0, totalFermeAll = 0, totalAbsentAll = 0, totalStockAll = 0, totalAutresAll = 0;
+
+    const rowsHtml = tourneeList.map(t => {
+        totalVisitesAll += t.totalVisites;
+        totalOkAll += t.ok;
+        totalFermeAll += t.ferme;
+        totalAbsentAll += t.absent;
+        totalStockAll += t.stock;
+        totalAutresAll += t.autres;
+
+        const pctOk = t.totalVisites > 0 ? ((t.ok / t.totalVisites) * 100).toFixed(1) : '0.0';
+        const isSelected = histCurrentTourneeFilter && histCurrentTourneeFilter.toLowerCase() === t.tournee.toLowerCase();
+        const rowBg = isSelected ? 'background: rgba(0, 212, 255, 0.15); border-left: 4px solid var(--neon-blue);' : '';
+
+        return `
+            <tr class="hist-vendor-tournee-row" data-tournee="${escapeAttr(t.tournee)}" style="cursor: pointer; ${rowBg}" title="Cliquer pour afficher les visites de cette tournée">
+                <td style="font-weight: 700; color: var(--neon-blue);">
+                    <i class="fa-solid fa-route" style="color: var(--neon-pink); margin-right: 0.35rem;"></i>
+                    <span style="border-bottom: 1px dashed rgba(0, 212, 255, 0.4);">${escapeHtml(t.tournee)}</span>
+                    ${isSelected ? '<span class="badge badge-blue" style="margin-left: 6px; font-size: 0.65rem;">SÉLECTIONNÉE</span>' : ''}
+                </td>
+                <td style="text-align: center; font-family: var(--font-mono); font-weight: bold;">${t.totalVisites}</td>
+                <td style="text-align: center; font-family: var(--font-mono); font-weight: bold; color: var(--neon-green);">${t.ok}</td>
+                <td style="text-align: center; font-family: var(--font-mono); color: var(--neon-amber);">${t.ferme}</td>
+                <td style="text-align: center; font-family: var(--font-mono); color: #ff9966;">${t.absent}</td>
+                <td style="text-align: center; font-family: var(--font-mono); color: var(--neon-blue);">${t.stock}</td>
+                <td style="text-align: center; font-family: var(--font-mono); color: var(--text-muted);">${t.autres}</td>
+                <td style="text-align: center;">
+                    <span class="badge ${parseFloat(pctOk) >= 70 ? 'badge-green' : (parseFloat(pctOk) >= 40 ? 'badge-amber' : 'badge-pink')}" style="font-size: 0.72rem; font-weight: bold;">
+                        ${pctOk}%
+                    </span>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    const totalPctOk = totalVisitesAll > 0 ? ((totalOkAll / totalVisitesAll) * 100).toFixed(1) : '0.0';
+    const totalRowHtml = `
+        <tr style="background: rgba(0, 212, 255, 0.08); font-weight: 800; border-top: 2px solid var(--neon-blue);">
+            <td style="font-weight: 800; color: var(--text-main); font-size: 0.82rem;">
+                <i class="fa-solid fa-calculator neon-text-blue" style="margin-right: 0.35rem;"></i>TOTAL (${tourneeList.length} tournées)
+            </td>
+            <td style="text-align: center; font-family: var(--font-mono); font-weight: 800; color: var(--text-main); font-size: 0.85rem;">${totalVisitesAll}</td>
+            <td style="text-align: center; font-family: var(--font-mono); font-weight: 800; color: var(--neon-green); font-size: 0.85rem;">${totalOkAll}</td>
+            <td style="text-align: center; font-family: var(--font-mono); font-weight: 800; color: var(--neon-amber); font-size: 0.85rem;">${totalFermeAll}</td>
+            <td style="text-align: center; font-family: var(--font-mono); font-weight: 800; color: #ff9966; font-size: 0.85rem;">${totalAbsentAll}</td>
+            <td style="text-align: center; font-family: var(--font-mono); font-weight: 800; color: var(--neon-blue); font-size: 0.85rem;">${totalStockAll}</td>
+            <td style="text-align: center; font-family: var(--font-mono); color: var(--text-muted); font-size: 0.85rem;">${totalAutresAll}</td>
+            <td style="text-align: center;">
+                <span class="badge ${parseFloat(totalPctOk) >= 70 ? 'badge-green' : (parseFloat(totalPctOk) >= 40 ? 'badge-amber' : 'badge-pink')}" style="font-size: 0.78rem; font-weight: 800;">
+                    ${totalPctOk}%
+                </span>
+            </td>
+        </tr>
+    `;
+
+    tbodyTournees.innerHTML = rowsHtml + totalRowHtml;
+
+    // Attach click handlers to tournée rows
+    tbodyTournees.querySelectorAll('.hist-vendor-tournee-row').forEach(row => {
+        row.addEventListener('click', () => {
+            const tn = row.getAttribute('data-tournee');
+            if (histCurrentTourneeFilter === tn) {
+                histCurrentTourneeFilter = null;
+            } else {
+                histCurrentTourneeFilter = tn;
+            }
+            renderHistVendorTournees(vendeurLower, query);
+        });
+    });
+
+    // Update filter tag
+    const tagEl = document.getElementById('hist-vendor-tournee-filter-tag');
+    const nameEl = document.getElementById('hist-vendor-current-filtered-tournee');
+    if (tagEl && nameEl) {
+        if (histCurrentTourneeFilter) {
+            tagEl.style.display = 'inline-flex';
+            nameEl.textContent = histCurrentTourneeFilter;
+        } else {
+            tagEl.style.display = 'none';
+        }
+    }
+
+    // Render Visites Journal
+    renderHistVendorVisitesJournal(vendorVisites, query);
+}
+
+function renderHistVendorVisitesJournal(visites, query) {
+    const tbody = document.getElementById('hist-vendor-tbody-visites');
+    if (!tbody) return;
+
+    let filtered = visites;
+
+    // Filter by Tournée
+    if (histCurrentTourneeFilter) {
+        filtered = filtered.filter(v => (v.tournee || '').toLowerCase().trim() === histCurrentTourneeFilter.toLowerCase().trim());
+    }
+
+    // Filter by Status Pill
+    if (histCurrentVisiteStatusFilter && histCurrentVisiteStatusFilter !== 'all') {
+        filtered = filtered.filter(v => {
+            const m = (v.motif || '').toUpperCase();
+            if (histCurrentVisiteStatusFilter === 'ok') return m.includes('OK') || m.includes('VENTE');
+            if (histCurrentVisiteStatusFilter === 'ferme') return m.includes('FERM');
+            if (histCurrentVisiteStatusFilter === 'absent') return m.includes('ABSENT');
+            if (histCurrentVisiteStatusFilter === 'stock') return m.includes('STOCK') || m.includes('SUFF');
+            return true;
+        });
+    }
+
+    // Filter by search query
+    if (query) {
+        filtered = filtered.filter(v => 
+            (v.client_code && v.client_code.toLowerCase().includes(query)) ||
+            (v.client_nom && v.client_nom.toLowerCase().includes(query)) ||
+            (v.tournee && v.tournee.toLowerCase().includes(query)) ||
+            (v.motif && v.motif.toLowerCase().includes(query))
+        );
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Aucune visite correspondant aux filtres.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = filtered.slice(0, 500).map(v => {
+        const m = (v.motif || '').toUpperCase();
+        let badgeClass = 'badge-blue';
+        if (m.includes('OK') || m.includes('VENTE')) badgeClass = 'badge-green';
+        else if (m.includes('FERM') || m.includes('ABSENT')) badgeClass = 'badge-amber';
+        else if (m.includes('STOCK') || m.includes('SUFF')) badgeClass = 'badge-blue';
+        else badgeClass = 'badge-pink';
+
+        return `
+            <tr>
+                <td style="font-family: var(--font-mono);">${v.date_visite || ''}</td>
+                <td style="font-family: var(--font-mono);">${v.heure || '--:--'}</td>
+                <td style="font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${v.client_code || ''}</td>
+                <td style="font-weight: 600;">${v.client_nom || 'N/A'}</td>
+                <td><span class="badge badge-blue">${v.tournee || 'N/A'}</span></td>
+                <td style="text-align: right; font-family: var(--font-mono);">${v.distance ? v.distance + ' m' : '--'}</td>
+                <td><span class="badge ${badgeClass}">${v.motif || 'N/A'}</span></td>
+                <td style="font-size: 0.72rem; color: var(--text-muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${v.note || '--'}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function renderHistoriqueQuanti(filters) {
+    const tbody = document.getElementById('hist-tbody-quanti');
+    if (!tbody) return;
+
+    const rows = filterHistoriqueRows(currentHistSnapshotData.quantitative || [], filters, ['famille', 'real', 'obj']);
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="13" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucune donnée quantitative correspondant aux filtres</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+        const pct = parseFloat(r.percent) || 0;
+        const pctColor = pct >= 100 ? 'var(--neon-green)' : (pct >= 80 ? 'var(--neon-amber)' : 'var(--neon-pink)');
+        return `
+            <tr>
+                <td style="font-family: var(--font-mono);">${r.date || ''}</td>
+                <td style="font-weight: 600;">${r.vendeur || ''}</td>
+                <td><span class="badge badge-blue">${r.famille || ''}</span></td>
+                <td style="text-align: right; font-family: var(--font-mono);">${(r.j1 || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${(r.real || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${(r.obj || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: ${pctColor};">${pct.toFixed(1)}%</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: var(--text-muted);">${(r.real_2025 || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: var(--text-muted);">${(r.h_2024 || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${(parseFloat(r.h_pct) || 0).toFixed(1)}%</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${(r.encours || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${(r.obj_mois || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: ${r.raf < 0 ? 'var(--neon-green)' : 'var(--neon-pink)'}; font-weight: bold;">${(r.raf || 0).toLocaleString()}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function renderHistoriqueQuali(filters) {
+    const tbody = document.getElementById('hist-tbody-quali');
+    if (!tbody) return;
+
+    const rows = filterHistoriqueRows(currentHistSnapshotData.qualitative || [], filters, ['clt_programme', 'clt_facture', 'acm', 'tsm']);
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucune donnée qualitative correspondant aux filtres</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => `
+        <tr>
+            <td style="font-family: var(--font-mono);">${r.date || ''}</td>
+            <td style="font-weight: 600;">${r.vendeur || ''}</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${r.clt_programme || 0}</td>
+            <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-green);">${r.clt_facture || 0}</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${(parseFloat(r.acm) || 0).toFixed(1)}</td>
+            <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${(parseFloat(r.tsm) || 0).toFixed(1)}%</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${(parseFloat(r.line) || 0).toFixed(1)}</td>
+            <td style="text-align: right; font-family: var(--font-mono); color: var(--neon-amber);">${r.raf_tsm || 0}</td>
+            <td style="text-align: right; font-family: var(--font-mono); color: var(--neon-pink);">${r.raf_acm || 0}</td>
+        </tr>
+    `).join('');
+}
+
+function renderHistoriqueFocusVmm(filters) {
+    const tbody = document.getElementById('hist-tbody-focus-vmm');
+    if (!tbody) return;
+
+    const rows = filterHistoriqueRows(currentHistSnapshotData.focus_vmm || [], filters, ['secteur', 'dn_fin_mai', 'obj_juin', 'realise']);
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucune donnée Focus VMM correspondant aux filtres</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+        const pct = parseFloat(r.percent) || 0;
+        return `
+            <tr>
+                <td style="font-family: var(--font-mono);">${r.date || ''}</td>
+                <td style="font-weight: 600;">${r.vendeur || ''}</td>
+                <td><span class="badge badge-amber">${r.secteur || ''}</span></td>
+                <td style="text-align: right; font-family: var(--font-mono);">${r.dn_fin_mai || 0}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${r.obj_juin || 0}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${r.nb_clients || 0}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${r.obj_acm || 0}</td>
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: ${pct >= 100 ? 'var(--neon-green)' : 'var(--neon-amber)'};">${pct.toFixed(1)}%</td>
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${(r.realise || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${(r.rest || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${r.jour_rest || 0}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: var(--neon-pink);">${(r.rest_jour || 0).toFixed(1)}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function renderHistoriqueFocusSom(filters) {
+    const tbody = document.getElementById('hist-tbody-focus-som');
+    if (!tbody) return;
+
+    const rows = filterHistoriqueRows(currentHistSnapshotData.focus_som || [], filters, ['secteur', 'glace_ht', 'ttc', 'realise']);
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucune donnée Focus SOM correspondant aux filtres</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+        const pct = parseFloat(r.percent) || 0;
+        return `
+            <tr>
+                <td style="font-family: var(--font-mono);">${r.date || ''}</td>
+                <td style="font-weight: 600;">${r.vendeur || ''}</td>
+                <td><span class="badge badge-amber">${r.secteur || ''}</span></td>
+                <td style="text-align: right; font-family: var(--font-mono);">${(r.glace_ht || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${(r.ttc || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: ${pct >= 100 ? 'var(--neon-green)' : 'var(--neon-amber)'};">${pct.toFixed(1)}%</td>
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: bold; color: var(--neon-blue);">${(r.realise || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${(r.rest || 0).toLocaleString()}</td>
+                <td style="text-align: right; font-family: var(--font-mono); color: var(--neon-pink);">${(r.rest_jour || 0).toFixed(1)}</td>
+                <td style="text-align: right; font-family: var(--font-mono);">${r.jour_rest || 0}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function renderHistoriqueAnomalies(filters) {
+    const tbody = document.getElementById('hist-tbody-anomalies');
+    if (!tbody) return;
+
+    const rows = filterHistoriqueRows(currentHistSnapshotData.anomalies || [], filters, ['type_anomali', 'commentaire', 'tag']);
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucune anomalie archivée correspondant aux filtres</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => `
+        <tr>
+            <td style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted);">#${r.id}</td>
+            <td style="font-family: var(--font-mono);">${r.date || ''}</td>
+            <td style="font-weight: 600;">${r.vendeur || ''}</td>
+            <td><span class="badge badge-pink">${r.type_anomali || 'Anomalie'}</span></td>
+            <td style="font-size: 0.75rem;">${r.commentaire || '--'}</td>
+            <td>${r.tag ? `<span class="badge badge-blue">${r.tag}</span>` : '--'}</td>
+        </tr>
+    `).join('');
+}
+
+function renderHistoriqueVisites(filters) {
+    const tbody = document.getElementById('hist-tbody-visites');
+    if (!tbody) return;
+
+    const rows = filterHistoriqueRows(currentHistSnapshotData.visites || [], filters, ['client_nom', 'client_code', 'tournee', 'motif', 'note']);
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Aucune visite archivée correspondant aux filtres</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = rows.slice(0, 500).map(r => `
+        <tr>
+            <td style="font-family: var(--font-mono);">${r.date_visite || ''}</td>
+            <td style="font-family: var(--font-mono);">${r.heure || '--:--'}</td>
+            <td style="font-weight: 600;">${r.vendeur || ''}</td>
+            <td>
+                <div style="font-weight: bold; color: var(--neon-blue); font-family: var(--font-mono); font-size: 0.72rem;">${r.client_code || ''}</div>
+                <div>${r.client_nom || 'N/A'}</div>
+            </td>
+            <td><span class="badge badge-blue">${r.tournee || 'N/A'}</span></td>
+            <td style="text-align: right; font-family: var(--font-mono);">${r.distance ? r.distance + ' m' : '--'}</td>
+            <td><span class="badge ${(r.motif && (r.motif.includes('OK') || r.motif.includes('VENTE'))) ? 'badge-green' : 'badge-amber'}">${r.motif || 'N/A'}</span></td>
+            <td style="font-size: 0.72rem; color: var(--text-muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${r.note || '--'}</td>
+        </tr>
+    `).join('');
+}
+
+function renderHistoriqueRapport() {
+    const emptyEl = document.getElementById('hist-rapport-empty');
+    const bodyEl = document.getElementById('hist-rapport-body');
+    const titleEl = document.getElementById('hist-rapport-title');
+    const textEl = document.getElementById('hist-rapport-text');
+    const dateBadge = document.getElementById('hist-rapport-date-badge');
+
+    const rap = currentHistSnapshotData ? currentHistSnapshotData.rapport : null;
+    if (!rap || !rap.report_text) {
+        if (emptyEl) emptyEl.style.display = 'block';
+        if (bodyEl) bodyEl.style.display = 'none';
+        return;
+    }
+
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (bodyEl) bodyEl.style.display = 'block';
+
+    if (titleEl) {
+        titleEl.innerHTML = `<i class="fa-solid fa-brain neon-text-blue"></i> ${rap.title || 'RAPPORT IA ARCHIVÉ'} ${rap.vendeur ? `— <span class="neon-text-green">${rap.vendeur}</span>` : ''}`;
+    }
+
+    if (dateBadge) {
+        dateBadge.textContent = rap.report_date || (currentHistSnapshotData ? currentHistSnapshotData.source_date : '--');
+    }
+
+    if (textEl) {
+        if (typeof parseMarkdown === 'function') {
+            textEl.innerHTML = parseMarkdown(rap.report_text);
+        } else {
+            textEl.innerText = rap.report_text;
+        }
+    }
+}
+
+async function handleGenerateHistoriqueReport() {
+    if (!currentHistSnapshotId && !currentHistSnapshotData) {
+        showToast("Veuillez d'abord sélectionner un instantané dans la liste.", "warning");
+        return;
+    }
+
+    const scopeSelect = document.getElementById('hist-report-scope-select');
+    const scopeVal = scopeSelect ? scopeSelect.value : 'all';
+    const taxSelect = document.getElementById('hist-report-tax-select');
+    const taxMode = taxSelect ? taxSelect.value : 'TTC';
+    const langSelect = document.getElementById('hist-report-lang-select');
+    const language = langSelect ? langSelect.value : 'fr';
+
+    let targetVendeur = null;
+    let targetCdz = null;
+    let targetCategory = null;
+
+    if (scopeVal === 'cdz_chakib') {
+        targetCdz = 'CHAKIB ELFIL';
+        targetCategory = 'Chakib Equipe';
+    } else if (scopeVal === 'cdz_boutmezguine') {
+        targetCdz = 'BOUTMEZGUINE EL MOSTAFA';
+        targetCategory = 'Boutmezguine Equipe';
+    } else if (scopeVal === 'vendeur_selected') {
+        const vendSelect = document.getElementById('hist-vendeur-select');
+        if (vendSelect && vendSelect.value && vendSelect.value !== 'all') {
+            targetVendeur = vendSelect.options[vendSelect.selectedIndex].text;
+        }
+    }
+
+    const snapId = currentHistSnapshotId || (currentHistSnapshotData ? currentHistSnapshotData.id : null);
+    const monthStr = currentHistSnapshotData ? (currentHistSnapshotData.source_date || '').substring(0, 7) : null;
+
+    const loadingEl = document.getElementById('hist-rapport-loading');
+    const emptyEl = document.getElementById('hist-rapport-empty');
+    const bodyEl = document.getElementById('hist-rapport-body');
+    const genBtn = document.getElementById('btn-generate-hist-report');
+
+    if (loadingEl) loadingEl.style.display = 'flex';
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (bodyEl) bodyEl.style.display = 'none';
+    if (genBtn) {
+        genBtn.disabled = true;
+        genBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> GÉNÉRATION EN COURS...';
+    }
+
+    try {
+        const activeModel = localStorage.getItem('openrouter_model') || 
+                            document.getElementById('openrouter-model-select')?.value || 
+                            'anthropic/claude-3.5-sonnet';
+
+        const res = await fetch('/api/historique/generate_report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                snapshot_id: snapId,
+                month: monthStr,
+                vendeur: targetVendeur,
+                category: targetCategory,
+                cdz: targetCdz,
+                tax_mode: taxMode,
+                language: language,
+                report_type: 'complet',
+                model: activeModel
+            })
+        });
+
+        const data = await res.json();
+        if (data.status === 'success' && data.report) {
+            if (!currentHistSnapshotData.rapport) {
+                currentHistSnapshotData.rapport = {};
+            }
+            currentHistSnapshotData.rapport.report_text = data.report;
+            currentHistSnapshotData.rapport.title = `Rapport IA Archivé (${data.month || monthStr || 'Historique'})`;
+            currentHistSnapshotData.rapport.vendeur = targetVendeur || targetCdz || 'Agence Globale';
+            currentHistSnapshotData.rapport.report_date = data.date || (currentHistSnapshotData.source_date || '');
+
+            renderHistoriqueRapport();
+            showToast("✅ Rapport IA Historique généré et sauvegardé avec succès dans historique.db !", "success");
+        } else {
+            showToast("Erreur lors de la génération du rapport : " + (data.message || "Erreur serveur"), "error");
+            if (emptyEl) emptyEl.style.display = 'block';
+        }
+    } catch (err) {
+        console.error("Error generating historique report:", err);
+        showToast("Erreur de communication avec le serveur.", "error");
+        if (emptyEl) emptyEl.style.display = 'block';
+    } finally {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (genBtn) {
+            genBtn.disabled = false;
+            genBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles neon-text-blue"></i> GÉNÉRER RAPPORT IA HISTORIQUE';
+        }
+    }
+}
+
+function handlePrintHistoriqueReport() {
+    if (!currentHistSnapshotData || !currentHistSnapshotData.rapport || !currentHistSnapshotData.rapport.report_text) {
+        showToast("Aucun rapport à imprimer.", "warning");
+        return;
+    }
+    const reportText = currentHistSnapshotData.rapport.report_text;
+    const title = currentHistSnapshotData.rapport.title || "Rapport IA Historique";
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) {
+        showToast("Veuillez autoriser les fenêtres pop-up pour imprimer.", "warning");
+        return;
+    }
+    const htmlContent = (typeof parseMarkdown === 'function') ? parseMarkdown(reportText) : reportText;
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>${title}</title>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 2rem; color: #111; line-height: 1.6; }
+                h1, h2, h3, h4 { color: #0f172a; margin-top: 1.5rem; }
+                table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
+                th, td { border: 1px solid #cbd5e1; padding: 6px 10px; text-align: left; }
+                th { background-color: #f1f5f9; font-weight: bold; }
+                tr:nth-child(even) { background-color: #f8fafc; }
+                @media print { body { padding: 0; } }
+            </style>
+        </head>
+        <body>
+            <h1>${title}</h1>
+            <div>${htmlContent}</div>
+            <script>
+                window.onload = function() { window.print(); };
+            <\/script>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+}
+
+function initReportSourceSelector() {
+    const btnActive = document.getElementById('btn-source-active');
+    const btnHist = document.getElementById('btn-source-historique');
+    const monthPicker = document.getElementById('rp-historique-month-picker');
+    const monthSelect = document.getElementById('rp-historique-month-select');
+
+    window.currentReportSource = 'active';
+
+    if (btnActive && btnHist) {
+        btnActive.addEventListener('click', () => {
+            btnActive.classList.add('active');
+            btnHist.classList.remove('active');
+            window.currentReportSource = 'active';
+            if (monthPicker) monthPicker.style.display = 'none';
+        });
+
+        btnHist.addEventListener('click', async () => {
+            btnHist.classList.add('active');
+            btnActive.classList.remove('active');
+            window.currentReportSource = 'historique';
+            if (monthPicker) monthPicker.style.display = 'flex';
+
+            // Load available historical months
+            try {
+                const res = await fetch('/api/historique/months?_=' + Date.now());
+                const data = await res.json();
+                if (data.status === 'success' && Array.isArray(data.months) && data.months.length > 0) {
+                    if (monthSelect) {
+                        monthSelect.innerHTML = data.months.map(m => 
+                            `<option value="${m.month}">${m.label || m.month}</option>`
+                        ).join('');
+                    }
+                }
+            } catch (e) {
+                console.error("Error loading historical months:", e);
+            }
+        });
+    }
+}
+
+async function handleCreateManualSnapshot() {
+    const btn = document.getElementById('btn-create-snapshot-manual');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> CRÉATION EN COURS...';
+    }
+
+    // Include cached report from localStorage if present
+    let reportPayload = {};
+    try {
+        const raw = localStorage.getItem('cached_kpi_report');
+        if (raw) {
+            const cached = JSON.parse(raw);
+            if (cached && cached.report) {
+                reportPayload = {
+                    report_text: cached.report || '',
+                    title: cached.title || '',
+                    vendeur: cached.vendeur || '',
+                    format: cached.format || '',
+                    lang: cached.lang || '',
+                    report_date: cached.date || ''
+                };
+            }
+        }
+    } catch (e) {}
+
+    try {
+        const res = await fetch('/api/historique/backup_now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                note: "Sauvegarde manuelle créée depuis l'onglet Historique",
+                ...reportPayload
+            })
+        });
+        const data = await res.json();
+
+        if (data.status === 'success') {
+            showToast(`✅ Instantané #${data.snapshot_id} créé et archivé avec succès !`, "success");
+            await loadHistoriqueSnapshots();
+            if (data.snapshot_id) {
+                selectHistoriqueSnapshot(data.snapshot_id);
+            }
+        } else {
+            showToast("Erreur lors de la création de l'instantané : " + data.message, "error");
+        }
+    } catch (err) {
+        console.error("Error creating manual snapshot:", err);
+        showToast("Erreur de communication lors de la sauvegarde.", "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-camera"></i> CRÉER UN INSTANTANÉ MAINTENANT';
+        }
+    }
+}
+
+async function handleDeleteHistoriqueSnapshot(snapshotId) {
+    if (!confirm(`Voulez-vous vraiment supprimer définitivement l'instantané #${snapshotId} de l'historique ?\nCette action est irréversible.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/historique/snapshot/${snapshotId}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+
+        if (data.status === 'success') {
+            showToast(`✅ Instantané #${snapshotId} supprimé de l'historique !`, "success");
+            loadHistoriqueSnapshots(true);
+        } else {
+            showToast("Erreur lors de la suppression : " + data.message, "error");
+        }
+    } catch (err) {
+        console.error("Error deleting snapshot:", err);
+        showToast("Erreur de communication avec le serveur.", "error");
+    }
+}
+
 
